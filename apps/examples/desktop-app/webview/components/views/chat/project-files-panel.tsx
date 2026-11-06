@@ -6,9 +6,12 @@ import {
 	ChevronRight,
 	Copy,
 	ExternalLink,
+	FolderPlus,
 	Loader2,
 	Minus,
+	Pencil,
 	Plus,
+	Trash2,
 	Undo2,
 	X,
 } from "lucide-react";
@@ -25,6 +28,30 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
 	type CommitFile,
 	type SourceControlAction,
 	type SourceControlCommit,
@@ -34,6 +61,7 @@ import {
 } from "@/hooks/use-source-control";
 import { toast } from "@/hooks/use-toast";
 import { desktopClient } from "@/lib/desktop-client";
+import { readProjectFolders, writeProjectFolders } from "@/lib/project-folders";
 import type { SessionFileDiff } from "@/lib/session-diff";
 import { cn } from "@/lib/utils";
 import {
@@ -118,9 +146,19 @@ type ProjectFilesPanelProps = {
 	cwd: string;
 	fileDiffs: SessionFileDiff[];
 	onClose: () => void;
+	/** Picks a folder to add to the tree's folder list; null when cancelled. */
+	onPickFolder?: () => Promise<string | null>;
+};
+
+type NameDialog = {
+	mode: "new-folder" | "rename";
+	/** The folder to create in, or the entry to rename. */
+	path: string;
+	value: string;
 };
 
 const COLUMN_WIDTH = 280;
+const TREE_DRAG_TYPE = "application/x-cline-project-path";
 const LOCAL_DIRECTORY_POLL_MS = 5_000;
 const REMOTE_DIRECTORY_POLL_MS = 15_000;
 const VIEWS: Array<{ id: PanelView; label: string }> = [
@@ -144,14 +182,62 @@ function joinPath(root: string, relative: string): string {
 	return `${root.replace(/[\\/]+$/, "")}${separator}${relative.replace(/^[\\/]/, "")}`;
 }
 
+function parentPath(path: string): string {
+	return path.slice(0, Math.max(0, path.search(/[\\/][^\\/]*$/)));
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+	const dataUrl = await new Promise<string>((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result ?? ""));
+		reader.onerror = () =>
+			reject(reader.error ?? new Error(`Could not read ${file.name}`));
+		reader.readAsDataURL(file);
+	});
+	return dataUrl.slice(dataUrl.indexOf(",") + 1);
+}
+
+/** The folder a drop or context-menu action targets: a folder row, a file's folder, or the root. */
+function targetFolder(target: EventTarget, root: string): string {
+	const row =
+		target instanceof Element
+			? target.closest<HTMLElement>("[data-entry-path]")
+			: null;
+	const path = row?.dataset.entryPath;
+	if (!path) return root;
+	return row.dataset.entryKind === "directory" ? path : parentPath(path);
+}
+
 export function ProjectFilesPanel({
 	environmentId,
 	workspaceRoot,
 	cwd,
 	fileDiffs,
 	onClose,
+	onPickFolder,
 }: ProjectFilesPanelProps) {
 	const [view, setView] = useState<PanelView>("source-control");
+	// The sidecar changes files only on this machine; SSH trees stay read-only.
+	const canEdit = environmentId === LOCAL_WORKSPACE_ENVIRONMENT_ID;
+	const [folders, setFolders] = useState(() =>
+		readProjectFolders(environmentId, workspaceRoot),
+	);
+	const [folderMenuOpen, setFolderMenuOpen] = useState(false);
+	const [pendingRemoveFolder, setPendingRemoveFolder] = useState<string | null>(
+		null,
+	);
+	/** The folder the Files tree lists: the workspace or one of `folders`. */
+	const [treeRoot, setTreeRoot] = useState(workspaceRoot);
+	const [menuFolder, setMenuFolder] = useState(workspaceRoot);
+	const [menuEntry, setMenuEntry] = useState<string | null>(null);
+	const [nameDialog, setNameDialog] = useState<NameDialog | null>(null);
+	const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+	const [pendingUpload, setPendingUpload] = useState<{
+		folder: string;
+		files: File[];
+		conflicts: string[];
+	} | null>(null);
+	const [dropFolder, setDropFolder] = useState<string | null>(null);
 	const [directories, setDirectories] = useState<Map<string, DirectoryState>>(
 		() => new Map(),
 	);
@@ -242,14 +328,17 @@ export function ProjectFilesPanel({
 		setGitDiffs(markStale);
 		setFiles(markStale);
 	}, [sourceControl.state]);
-	// Files outside the browsable workspace (a repository above it) are read
-	// against the repository root instead.
+	// Files in another of the tree's folders are read against that folder, and
+	// files outside the browsable workspace (a repository above it) against
+	// the repository root.
 	const rootFor = useCallback(
 		(path: string) =>
-			path.startsWith(workspaceRoot.replace(/[\\/]+$/, "")) || !repoRoot
-				? workspaceRoot
-				: repoRoot,
-		[repoRoot, workspaceRoot],
+			[treeRoot, workspaceRoot].find((root) =>
+				path.startsWith(root.replace(/[\\/]+$/, "")),
+			) ??
+			repoRoot ??
+			workspaceRoot,
+		[repoRoot, treeRoot, workspaceRoot],
 	);
 
 	// Listings carry a per-path generation so a slow response (SSH) cannot
@@ -277,7 +366,11 @@ export function ProjectFilesPanel({
 				const result = await desktopClient.invoke<{
 					entries: ProjectEntry[];
 					truncated: boolean;
-				}>("list_project_entries", { environmentId, workspaceRoot, path });
+				}>("list_project_entries", {
+					environmentId,
+					workspaceRoot: rootFor(path),
+					path,
+				});
 				if (!isCurrent()) return;
 				setDirectories((current) => {
 					const next = new Map(current);
@@ -303,7 +396,7 @@ export function ProjectFilesPanel({
 				if (isCurrent()) loadingDirectoriesRef.current.delete(path);
 			}
 		},
-		[environmentId, workspaceRoot],
+		[environmentId, rootFor],
 	);
 
 	// Reloads what is open and forgets the rest, so a folder expanded later
@@ -359,8 +452,8 @@ export function ProjectFilesPanel({
 	}, [view]);
 
 	useEffect(() => {
-		void loadDirectory(workspaceRoot);
-	}, [loadDirectory, workspaceRoot]);
+		void loadDirectory(treeRoot);
+	}, [loadDirectory, treeRoot]);
 
 	// Agent edits may create files in open folders and change open contents.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: diffSignature is the trigger
@@ -396,6 +489,210 @@ export function ProjectFilesPanel({
 		},
 		[directories, expanded, loadDirectory],
 	);
+
+	const selectFolder = useCallback((folder: string) => {
+		setTreeRoot(folder);
+		setExpanded((current) => new Set(current).add(folder));
+	}, []);
+	const saveFolders = useCallback(
+		(next: string[]) => {
+			setFolders(next);
+			writeProjectFolders(environmentId, workspaceRoot, next);
+		},
+		[environmentId, workspaceRoot],
+	);
+	const addFolder = useCallback(async () => {
+		try {
+			const picked = await onPickFolder?.();
+			if (!picked) return;
+			if (picked !== workspaceRoot && !folders.includes(picked)) {
+				saveFolders([...folders, picked]);
+			}
+			selectFolder(picked);
+		} catch (error) {
+			toast({
+				variant: "destructive",
+				title: "Could not add folder",
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [folders, onPickFolder, saveFolders, selectFolder, workspaceRoot]);
+	const confirmRemoveFolder = useCallback(() => {
+		const folder = pendingRemoveFolder;
+		setPendingRemoveFolder(null);
+		if (!folder) return;
+		saveFolders(folders.filter((item) => item !== folder));
+		if (treeRoot === folder) selectFolder(workspaceRoot);
+	}, [
+		folders,
+		pendingRemoveFolder,
+		saveFolders,
+		selectFolder,
+		treeRoot,
+		workspaceRoot,
+	]);
+
+	// Runs one sidecar file change, then re-lists the folders it touched.
+	const changeFiles = useCallback(
+		async (
+			command: string,
+			args: Record<string, unknown>,
+			touched: string[],
+		): Promise<boolean> => {
+			try {
+				await desktopClient.invoke(command, {
+					environmentId,
+					workspaceRoot: treeRoot,
+					...args,
+				});
+				return true;
+			} catch (error) {
+				toast({
+					variant: "destructive",
+					title: "File change failed",
+					description: error instanceof Error ? error.message : String(error),
+				});
+				return false;
+			} finally {
+				for (const folder of new Set(touched)) void loadDirectory(folder);
+			}
+		},
+		[environmentId, loadDirectory, treeRoot],
+	);
+	const showFolder = useCallback((folder: string) => {
+		setExpanded((current) => new Set(current).add(folder));
+	}, []);
+	const submitNameDialog = useCallback(async () => {
+		const dialog = nameDialog;
+		setNameDialog(null);
+		const name = dialog?.value.trim();
+		if (!dialog || !name) return;
+		if (dialog.mode === "new-folder") {
+			showFolder(dialog.path);
+			await changeFiles(
+				"create_project_directory",
+				{ path: joinPath(dialog.path, name) },
+				[dialog.path],
+			);
+			return;
+		}
+		if (name === baseName(dialog.path)) return;
+		const parent = parentPath(dialog.path);
+		await changeFiles(
+			"move_project_entry",
+			{ path: dialog.path, to: joinPath(parent, name) },
+			[parent],
+		);
+	}, [changeFiles, nameDialog, showFolder]);
+	const confirmDelete = useCallback(async () => {
+		const path = pendingDelete;
+		setPendingDelete(null);
+		if (path)
+			await changeFiles("delete_project_entry", { path }, [parentPath(path)]);
+	}, [changeFiles, pendingDelete]);
+	const moveInto = useCallback(
+		async (from: string, folder: string) => {
+			// Dropping on its own folder, itself or a folder inside it is a no-op.
+			if (
+				parentPath(from) === folder ||
+				folder === from ||
+				folder.startsWith(`${from}/`) ||
+				folder.startsWith(`${from}\\`)
+			) {
+				return;
+			}
+			showFolder(folder);
+			await changeFiles(
+				"move_project_entry",
+				{ path: from, to: joinPath(folder, baseName(from)) },
+				[parentPath(from), folder],
+			);
+		},
+		[changeFiles, showFolder],
+	);
+	const writeFiles = useCallback(
+		async (folder: string, files: File[], overwrite: boolean) => {
+			showFolder(folder);
+			for (const file of files) {
+				await changeFiles(
+					"write_project_file",
+					{
+						path: joinPath(folder, file.name),
+						contentBase64: await readFileAsBase64(file),
+						overwrite,
+					},
+					[folder],
+				);
+			}
+		},
+		[changeFiles, showFolder],
+	);
+	// Writing replaces a file silently, so names the folder already lists
+	// ask first.
+	const uploadFiles = useCallback(
+		async (folder: string, files: File[]) => {
+			const listing = await desktopClient
+				.invoke<{ entries: ProjectEntry[] }>("list_project_entries", {
+					environmentId,
+					workspaceRoot: treeRoot,
+					path: folder,
+				})
+				.catch(() => ({ entries: [] as ProjectEntry[] }));
+			const names = new Set(listing.entries.map((entry) => entry.name));
+			const conflicts = files
+				.map((file) => file.name)
+				.filter((name) => names.has(name));
+			if (conflicts.length > 0) {
+				setPendingUpload({ folder, files, conflicts });
+				return;
+			}
+			await writeFiles(folder, files, false);
+		},
+		[environmentId, treeRoot, writeFiles],
+	);
+	const dropIntoTree = useCallback(
+		(event: React.DragEvent<HTMLElement>) => {
+			const folder = targetFolder(event.target, treeRoot);
+			const from = event.dataTransfer.getData(TREE_DRAG_TYPE);
+			if (from) {
+				void moveInto(from, folder);
+				return;
+			}
+			// The items are readable only while the drop event runs.
+			const dropped = Array.from(event.dataTransfer.items ?? [])
+				.filter((item) => item.kind === "file")
+				.map((item) => ({
+					file: item.getAsFile(),
+					directory: item.webkitGetAsEntry?.()?.isDirectory ?? false,
+				}));
+			if (dropped.some((item) => item.directory)) {
+				toast({
+					title: "Folders were skipped",
+					description: "Only files can be dropped into the file tree.",
+				});
+			}
+			const files = dropped.flatMap((item) =>
+				item.file && !item.directory ? [item.file] : [],
+			);
+			if (files.length > 0) void uploadFiles(folder, files);
+		},
+		[moveInto, treeRoot, uploadFiles],
+	);
+	// Tree moves and OS file drops are claimed here so the chat's attachment
+	// drop zone around the panel does not also take them.
+	const isTreeDrag = (event: React.DragEvent) =>
+		canEdit &&
+		(event.dataTransfer.types.includes(TREE_DRAG_TYPE) ||
+			event.dataTransfer.types.includes("Files"));
+	const handleTreeDragOver = (event: React.DragEvent<HTMLElement>) => {
+		if (!isTreeDrag(event)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		event.dataTransfer.dropEffect = event.dataTransfer.types.includes("Files")
+			? "copy"
+			: "move";
+		setDropFolder(targetFolder(event.target, treeRoot));
+	};
 
 	const openTab = useCallback((tab: Tab) => {
 		setTabs((current) => {
@@ -758,12 +1055,21 @@ export function ProjectFilesPanel({
 								className={cn(
 									"group flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs text-foreground/90 hover:bg-surface-hover",
 									entry.path === activePath && "bg-primary/15 text-foreground",
+									entry.path === dropFolder &&
+										"bg-primary/10 ring-1 ring-primary/40 ring-inset",
 								)}
+								data-entry-kind={entry.kind}
+								data-entry-path={entry.path}
+								draggable={canEdit}
 								onClick={() =>
 									isDirectory
 										? toggleDirectory(entry.path)
 										: openFile(entry.path)
 								}
+								onDragStart={(event) => {
+									event.dataTransfer.setData(TREE_DRAG_TYPE, entry.path);
+									event.dataTransfer.effectAllowed = "move";
+								}}
 								style={{ paddingLeft: 8 + depth * 12 }}
 								title={entry.path}
 								type="button"
@@ -897,15 +1203,150 @@ export function ProjectFilesPanel({
 						state={sourceControl.state}
 					/>
 				) : (
-					<div className="min-h-0 flex-1 overflow-auto px-1 py-1">
-						<div
-							className="truncate px-2 pb-1 pt-0.5 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground"
-							title={workspaceRoot}
-						>
-							{baseName(workspaceRoot)}
-						</div>
-						{renderEntries(workspaceRoot, 0)}
-					</div>
+					<ContextMenu>
+						<ContextMenuTrigger asChild disabled={!canEdit}>
+							{/* biome-ignore lint/a11y/noStaticElementInteractions: drops and the context menu augment the tree rows' own buttons. */}
+							<div
+								className={cn(
+									"min-h-0 flex-1 overflow-auto px-1 py-1",
+									dropFolder === treeRoot && "bg-primary/5",
+								)}
+								onContextMenu={(event) => {
+									const row =
+										event.target instanceof Element
+											? event.target.closest<HTMLElement>("[data-entry-path]")
+											: null;
+									setMenuEntry(row?.dataset.entryPath ?? null);
+									setMenuFolder(targetFolder(event.target, treeRoot));
+								}}
+								onDragEnter={handleTreeDragOver}
+								onDragLeave={(event) => {
+									if (!isTreeDrag(event)) return;
+									event.stopPropagation();
+									if (
+										!(event.relatedTarget instanceof Node) ||
+										!event.currentTarget.contains(event.relatedTarget)
+									) {
+										setDropFolder(null);
+									}
+								}}
+								onDragOver={handleTreeDragOver}
+								onDrop={(event) => {
+									if (!isTreeDrag(event)) return;
+									event.preventDefault();
+									event.stopPropagation();
+									setDropFolder(null);
+									dropIntoTree(event);
+								}}
+							>
+								<DropdownMenu
+									onOpenChange={setFolderMenuOpen}
+									open={folderMenuOpen}
+								>
+									<DropdownMenuTrigger asChild>
+										<button
+											aria-label="Project folder"
+											className="flex h-6 max-w-full items-center gap-1 rounded-md px-2 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+											title={treeRoot}
+											type="button"
+										>
+											<span className="truncate">{baseName(treeRoot)}</span>
+											<ChevronDown className="size-3 shrink-0" />
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="start" className="w-64">
+										<DropdownMenuRadioGroup
+											onValueChange={selectFolder}
+											value={treeRoot}
+										>
+											{[workspaceRoot, ...folders].map((folder) => (
+												<DropdownMenuRadioItem
+													className="text-xs"
+													key={folder}
+													title={folder}
+													value={folder}
+												>
+													<span className="min-w-0 flex-1 truncate">
+														{baseName(folder)}
+													</span>
+													{folder !== workspaceRoot ? (
+														<button
+															aria-label={`Remove ${baseName(folder)}`}
+															className="rounded p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+															onClick={(event) => {
+																event.stopPropagation();
+																setFolderMenuOpen(false);
+																setPendingRemoveFolder(folder);
+															}}
+															onPointerDown={(event) => event.stopPropagation()}
+															onPointerUp={(event) => event.stopPropagation()}
+															type="button"
+														>
+															<X className="size-3" />
+														</button>
+													) : null}
+												</DropdownMenuRadioItem>
+											))}
+										</DropdownMenuRadioGroup>
+										{onPickFolder ? (
+											<>
+												<DropdownMenuSeparator />
+												<DropdownMenuItem
+													className="text-xs"
+													onSelect={() => void addFolder()}
+												>
+													<Plus className="size-3.5" />
+													Add folder…
+												</DropdownMenuItem>
+											</>
+										) : null}
+									</DropdownMenuContent>
+								</DropdownMenu>
+								{renderEntries(treeRoot, 0)}
+							</div>
+						</ContextMenuTrigger>
+						<ContextMenuContent className="w-44">
+							<ContextMenuItem
+								className="text-xs"
+								onSelect={() =>
+									setNameDialog({
+										mode: "new-folder",
+										path: menuFolder,
+										value: "",
+									})
+								}
+							>
+								<FolderPlus className="size-3.5" />
+								New folder
+							</ContextMenuItem>
+							{menuEntry ? (
+								<>
+									<ContextMenuSeparator />
+									<ContextMenuItem
+										className="text-xs"
+										onSelect={() =>
+											setNameDialog({
+												mode: "rename",
+												path: menuEntry,
+												value: baseName(menuEntry),
+											})
+										}
+									>
+										<Pencil className="size-3.5" />
+										Rename
+									</ContextMenuItem>
+									<ContextMenuItem
+										className="text-xs"
+										onSelect={() => setPendingDelete(menuEntry)}
+										variant="destructive"
+									>
+										<Trash2 className="size-3.5" />
+										Delete
+									</ContextMenuItem>
+								</>
+							) : null}
+						</ContextMenuContent>
+					</ContextMenu>
 				)}
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
@@ -1203,6 +1644,138 @@ export function ProjectFilesPanel({
 							onClick={() => void confirmDiscard()}
 						>
 							Discard
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<Dialog
+				onOpenChange={(open) => {
+					if (!open) setNameDialog(null);
+				}}
+				open={nameDialog !== null}
+			>
+				<DialogContent aria-describedby={undefined} className="sm:max-w-sm">
+					<form
+						className="grid gap-4"
+						onSubmit={(event) => {
+							event.preventDefault();
+							void submitNameDialog();
+						}}
+					>
+						<DialogHeader>
+							<DialogTitle>
+								{nameDialog?.mode === "rename" ? "Rename" : "New folder"}
+							</DialogTitle>
+						</DialogHeader>
+						<Input
+							aria-label="Name"
+							autoFocus
+							onChange={(event) => {
+								const value = event.target.value;
+								setNameDialog((current) =>
+									current ? { ...current, value } : current,
+								);
+							}}
+							value={nameDialog?.value ?? ""}
+						/>
+						<DialogFooter>
+							<Button
+								onClick={() => setNameDialog(null)}
+								type="button"
+								variant="outline"
+							>
+								Cancel
+							</Button>
+							<Button disabled={!nameDialog?.value.trim()} type="submit">
+								{nameDialog?.mode === "rename" ? "Rename" : "Create"}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
+			<AlertDialog
+				onOpenChange={(open) => {
+					if (!open) setPendingDelete(null);
+				}}
+				open={pendingDelete !== null}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Delete {baseName(pendingDelete ?? "")}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes it from disk, with everything inside it. This cannot
+							be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+							onClick={() => void confirmDelete()}
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog
+				onOpenChange={(open) => {
+					if (!open) setPendingUpload(null);
+				}}
+				open={pendingUpload !== null}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{pendingUpload?.conflicts.length === 1
+								? `Replace ${pendingUpload.conflicts[0]}?`
+								: `Replace ${pendingUpload?.conflicts.length ?? 0} files?`}
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{baseName(pendingUpload?.folder ?? "")} already has{" "}
+							{pendingUpload?.conflicts.length === 1
+								? "a file with this name"
+								: `files named ${pendingUpload?.conflicts.join(", ")}`}
+							. Replacing overwrites the contents.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+							onClick={() => {
+								const upload = pendingUpload;
+								setPendingUpload(null);
+								if (upload) void writeFiles(upload.folder, upload.files, true);
+							}}
+						>
+							Replace
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog
+				onOpenChange={(open) => {
+					if (!open) setPendingRemoveFolder(null);
+				}}
+				open={pendingRemoveFolder !== null}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Remove {baseName(pendingRemoveFolder ?? "")} from the file tree?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{pendingRemoveFolder} will no longer be listed here. Files on disk
+							are not deleted.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={confirmRemoveFolder}>
+							Remove
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

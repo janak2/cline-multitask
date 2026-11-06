@@ -176,9 +176,13 @@ import {
 } from "./paths";
 import { listPluginCommands } from "./plugin-commands";
 import {
+	createLocalProjectDirectory,
+	deleteLocalProjectEntry,
 	listProjectEntries,
+	moveLocalProjectEntry,
 	readLocalProjectFile,
 	readProjectFile,
+	writeLocalProjectFile,
 } from "./project-files";
 import { getPullRequestStatus } from "./pull-request";
 import { capturePullRequestEvent } from "./pull-request-telemetry";
@@ -2210,6 +2214,37 @@ export async function handleCommand(
 		return command === "list_project_entries"
 			? await listProjectEntries(ctx, binding, root, path)
 			: await readProjectFile(ctx, binding, root, path);
+	}
+	if (
+		command === "create_project_directory" ||
+		command === "move_project_entry" ||
+		command === "delete_project_entry" ||
+		command === "write_project_file"
+	) {
+		if (!options?.connection?.data?.canApproveTools) {
+			throw new Error("project files require a trusted desktop connection");
+		}
+		if (getCommandRuntimeBinding(ctx, args).kind !== "local") {
+			throw new Error("File changes are only available in local workspaces");
+		}
+		const root = String(args?.workspaceRoot ?? "").trim();
+		const path = String(args?.path ?? "");
+		if (!root || !path) throw new Error("workspaceRoot and path are required");
+		if (command === "create_project_directory") {
+			createLocalProjectDirectory(root, path);
+		} else if (command === "move_project_entry") {
+			moveLocalProjectEntry(root, path, String(args?.to ?? ""));
+		} else if (command === "delete_project_entry") {
+			deleteLocalProjectEntry(root, path);
+		} else {
+			writeLocalProjectFile(
+				root,
+				path,
+				String(args?.contentBase64 ?? ""),
+				args?.overwrite === true,
+			);
+		}
+		return { ok: true };
 	}
 
 	// ── Chat session commands ──────────────────────────────────────────

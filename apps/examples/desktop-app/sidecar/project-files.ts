@@ -1,5 +1,16 @@
-import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
-import { isAbsolute, join, posix, relative } from "node:path";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { basename, isAbsolute, join, posix, relative } from "node:path";
 import type { RemoteEnvironmentService } from "@cline/core";
 import type { SessionRuntimeBinding, SidecarContext } from "./types";
 
@@ -121,6 +132,54 @@ export function readLocalProjectFile(
 		content: buffer.toString("utf8"),
 		truncated: stat.size > PROJECT_FILE_READ_LIMIT_BYTES,
 	};
+}
+
+// Changes from the explorer's context menu and drops. They act on the entry
+// itself, so a symlink is renamed or removed rather than followed, and never
+// on the root the tree was opened with.
+function assertChangeableEntry(root: string, path: string): void {
+	if (!isAbsolute(path)) throw new Error(`Not an absolute path: ${path}`);
+	assertInsideRoot(root, path, false);
+	if (relative(root, path) === "") {
+		throw new Error("The workspace folder itself cannot be changed");
+	}
+}
+
+/** Creates one folder; its parent must exist and the path must be free. */
+export function createLocalProjectDirectory(root: string, path: string): void {
+	assertChangeableEntry(root, path);
+	mkdirSync(path);
+}
+
+/** Renames or moves an entry, refusing to replace one already at `to`. */
+export function moveLocalProjectEntry(
+	root: string,
+	from: string,
+	to: string,
+): void {
+	assertChangeableEntry(root, from);
+	assertChangeableEntry(root, to);
+	if (existsSync(to)) throw new Error(`${basename(to)} already exists`);
+	renameSync(from, to);
+}
+
+/** Deletes a file, or a folder with everything inside it. */
+export function deleteLocalProjectEntry(root: string, path: string): void {
+	assertChangeableEntry(root, path);
+	rmSync(path, { recursive: true });
+}
+
+/** Writes a dropped file; an existing file is replaced only when asked. */
+export function writeLocalProjectFile(
+	root: string,
+	path: string,
+	contentBase64: string,
+	overwrite: boolean,
+): void {
+	assertChangeableEntry(root, path);
+	writeFileSync(path, Buffer.from(contentBase64, "base64"), {
+		flag: overwrite ? "w" : "wx",
+	});
 }
 
 // Prints one entry per line with a trailing slash on directories, the same
