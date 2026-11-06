@@ -2446,6 +2446,21 @@ export async function handleCommand(
 		await restartHub(ctx, await ensureSharedHubClient(ctx));
 		return await getHubStatus(ctx, await ensureSharedHubClient(ctx));
 	}
+	if (
+		command === "get_phone_access" ||
+		command === "set_phone_access_enabled"
+	) {
+		if (!options?.connection?.data?.canApproveTools) {
+			throw new Error("phone access requires a trusted desktop connection");
+		}
+		if (!ctx.phoneAccess) throw new Error("Phone access is not available.");
+		if (command === "set_phone_access_enabled") {
+			return await ctx.phoneAccess.setEnabled(args?.enabled === true);
+		}
+		return args?.refresh === true
+			? await ctx.phoneAccess.refresh()
+			: ctx.phoneAccess.status;
+	}
 
 	// ── Managed hub upgrade ───────────────────────────────────────────
 	if (command === "hub_upgrade") {

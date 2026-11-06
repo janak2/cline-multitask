@@ -693,6 +693,8 @@ export async function disposeSidecarContext(
 ): Promise<void> {
 	const cleanup: Array<Promise<unknown>> = [];
 	const approvalCleanup: Array<Promise<unknown>> = [];
+	// First, so Tailscale Serve is off before the shutdown timeout can hit.
+	if (ctx.phoneAccess) cleanup.push(ctx.phoneAccess.dispose());
 
 	for (const scoped of getEnvironmentContexts(ctx)) {
 		for (const pending of scoped.pendingApprovals.values()) {

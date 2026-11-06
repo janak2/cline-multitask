@@ -28,6 +28,7 @@ import {
 import { HubStartup } from "./hub-startup";
 import { createDesktopObservability } from "./observability";
 import { resolveWorkspaceRoot } from "./paths";
+import { createPhoneAccess } from "./phone-access";
 import { startServer } from "./server";
 import { BunRuntime, SIDECAR_HOST, SIDECAR_MODE, SIDECAR_PORT } from "./types";
 
@@ -222,6 +223,16 @@ async function main(desktopCliPath?: string) {
 	// The webview is reachable now, so it can show Hub startup progress and
 	// failures instead of commands timing out against an unpublished backend.
 	ctx.hubStartup.start();
+	// The dashboard joins the shared Hub, so start it once Hub startup settles.
+	const phoneAccess = createPhoneAccess({
+		cliPath: desktopCliPath,
+		workspaceRoot,
+		logger: observability.logger,
+	});
+	ctx.phoneAccess = phoneAccess;
+	void ctx.hubStartup.waitUntilSettled().then(() => {
+		if (!shuttingDown) phoneAccess.start();
+	});
 
 	// The watcher's first check only runs after its interval, but a mismatch
 	// that already exists at startup - an older Hub this app attached to

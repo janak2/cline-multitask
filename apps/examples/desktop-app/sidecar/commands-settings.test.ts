@@ -87,6 +87,22 @@ describe("desktop settings commands", () => {
 			"trusted desktop connection",
 		);
 	});
+
+	it("rejects phone access commands from untrusted connections", async () => {
+		const { ctx } = createContext();
+		for (const command of ["get_phone_access", "set_phone_access_enabled"]) {
+			await expect(
+				handleCommand(
+					ctx,
+					command,
+					{ enabled: false },
+					{
+						connection: { send: vi.fn(), data: { canApproveTools: false } },
+					},
+				),
+			).rejects.toThrow("phone access requires a trusted desktop connection");
+		}
+	});
 	it("lists only current gateway transcription models for voice input", async () => {
 		const { ctx } = createContext();
 		vi.stubGlobal(
