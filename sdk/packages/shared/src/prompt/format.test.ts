@@ -3,6 +3,7 @@ import {
 	createModeSwitchNoticeTracker,
 	formatDisplayUserInput,
 	formatModeSwitchNotice,
+	formatMultitaskNotice,
 	formatSessionSearchPreview,
 	formatSessionSearchTitle,
 	formatUserCommandBlock,
@@ -90,6 +91,22 @@ describe("prompt format helpers", () => {
 		// signal before the model ever sees it.
 		const prompt = `${formatModeSwitchNotice("plan", "act")}\ndo it`;
 		expect(normalizeUserInput(prompt)).toBe(prompt);
+	});
+
+	it("keeps the multitask notice when normalizing outbound prompts", () => {
+		const prompt = `${formatMultitaskNotice()}\nadd dark mode`;
+		expect(normalizeUserInput(prompt)).toBe(prompt);
+	});
+
+	it("hides the multitask notice from displayed user input", () => {
+		const wrapped = formatUserInputBlock(
+			`${formatMultitaskNotice()}\n${formatModeSwitchNotice("act", "plan")}\nadd dark mode`,
+			"plan",
+		);
+		expect(stripModeNotices(`${formatMultitaskNotice()}\nadd dark mode`)).toBe(
+			"add dark mode",
+		);
+		expect(formatDisplayUserInput(wrapped)).toBe("add dark mode");
 	});
 
 	it("removes every mode notice and leaves unclosed ones intact", () => {
