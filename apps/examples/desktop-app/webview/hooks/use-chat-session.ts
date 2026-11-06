@@ -633,6 +633,12 @@ export function useChatSession(environmentId: string) {
 	const [promptsInQueue, setPromptsInQueueState] = useState<PromptInQueue[]>(
 		[],
 	);
+	const [multitaskBySession, setMultitaskBySession] = useState<
+		Record<string, boolean>
+	>({});
+	const [teammateRunsBySession, setTeammateRunsBySession] = useState<
+		Record<string, number>
+	>({});
 	const queueRevisionRef = useRef(0);
 	const setPromptsInQueue = useCallback(
 		(value: React.SetStateAction<PromptInQueue[]>) => {
@@ -1674,6 +1680,28 @@ export function useChatSession(environmentId: string) {
 		});
 	}, [setPromptsInQueue, subscribeToEnvironment]);
 
+	useEffect(() => {
+		return subscribeToEnvironment("multitask_state", (payload) => {
+			const record = payload as { sessionId?: string; enabled?: boolean };
+			if (!record?.sessionId) return;
+			const id = record.sessionId;
+			setMultitaskBySession((prev) => ({ ...prev, [id]: !!record.enabled }));
+		});
+	}, [subscribeToEnvironment]);
+
+	useEffect(() => {
+		return subscribeToEnvironment("team_progress", (payload) => {
+			const record = payload as {
+				sessionId?: string;
+				summary?: { runs?: { activeRunIds?: string[] } };
+			};
+			if (!record?.sessionId) return;
+			const id = record.sessionId;
+			const count = record.summary?.runs?.activeRunIds?.length ?? 0;
+			setTeammateRunsBySession((prev) => ({ ...prev, [id]: count }));
+		});
+	}, [subscribeToEnvironment]);
+
 	// Replies from plugin slash commands run by the sidecar. They are not part
 	// of the persisted transcript, so surface them as a toast rather than a
 	// message that canonical rehydration would drop.
@@ -2689,6 +2717,10 @@ export function useChatSession(environmentId: string) {
 			}
 			setSessionId(id);
 			setIsCloudSessionExpired(false);
+			setMultitaskBySession((prev) => ({
+				...prev,
+				[id]: payload.multitask === true,
+			}));
 			for (const warning of payload.pluginWarnings ?? []) {
 				addMessage(makePluginIssueMessage(id, warning));
 			}
@@ -4057,6 +4089,7 @@ export function useChatSession(environmentId: string) {
 						branch?: string;
 						prompt?: string;
 						environmentId?: string;
+						multitask?: boolean;
 					}>("chat_session_command", {
 						request: {
 							action: "attach",
@@ -4088,6 +4121,12 @@ export function useChatSession(environmentId: string) {
 					throw new Error(
 						`Session ${session.sessionId} attached to environment ${attached.environmentId}, not ${environmentId}.`,
 					);
+				}
+				if (attached) {
+					setMultitaskBySession((prev) => ({
+						...prev,
+						[session.sessionId]: attached.multitask === true,
+					}));
 				}
 				setConfig((prev) => ({
 					...prev,
@@ -4361,6 +4400,10 @@ export function useChatSession(environmentId: string) {
 		summary,
 		fileDiffs,
 		promptsInQueue: isCloudSessionExpired ? [] : promptsInQueue,
+		multitaskEnabled: sessionId
+			? multitaskBySession[sessionId] === true
+			: false,
+		activeTeammateRuns: sessionId ? (teammateRunsBySession[sessionId] ?? 0) : 0,
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,

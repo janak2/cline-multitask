@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionNotFoundError } from "@cline/core";
+import { SessionNotFoundError, writeGlobalSettings } from "@cline/core";
 import { resolveClineDir, setClineDir } from "@cline/shared/storage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { materializeUserFiles } from "./attachments";
@@ -3284,5 +3284,140 @@ describe("queue steering routing", () => {
 			});
 			expect(steerFirst).not.toHaveBeenCalled();
 		}
+	});
+});
+
+describe("/multitask", () => {
+	function createMultitaskContext(
+		options: { metadata?: Record<string, unknown> } = {},
+	) {
+		const sessionId = "multitask-session";
+		const wsSend = vi.fn();
+		const send = vi.fn(async () => ({
+			text: "done",
+			finishReason: "completed",
+			messages: [],
+		}));
+		const abort = vi.fn(async () => undefined);
+		const ctx = {
+			liveSessions: new Map([
+				[
+					sessionId,
+					{
+						config: { provider: "cline", model: "test-model" },
+						messages: [],
+						promptsInQueue: [],
+						busy: true,
+						startedAt: Date.now(),
+						status: "running",
+					},
+				],
+			]),
+			restoringWorkspacePaths: new Set(),
+			streamIndices: new Map(),
+			wsClients: new Set([{ send: wsSend }]),
+			...localRuntimeContext(
+				{
+					send,
+					abort,
+					get: vi.fn(async () => ({
+						sessionId,
+						status: "idle",
+						metadata: options.metadata,
+					})),
+					pendingPrompts: { list: vi.fn(async () => []) },
+				},
+				{ sessionIds: [sessionId] },
+			),
+		} as unknown as SidecarContext;
+		const events = (name: string) =>
+			wsSend.mock.calls
+				.map(
+					([encoded]) =>
+						JSON.parse(String(encoded)) as {
+							event: { name: string; payload: Record<string, unknown> };
+						},
+				)
+				.filter((message) => message.event.name === name)
+				.map((message) => message.event.payload);
+		const sendPrompt = (prompt: string) =>
+			handleChatSessionCommand(ctx, { action: "send", sessionId, prompt });
+		return { ctx, send, abort, sessionId, events, sendPrompt };
+	}
+
+	it("turns the mode on without a model call and sends it with later turns", async () => {
+		const { ctx, send, sessionId, events, sendPrompt } =
+			createMultitaskContext();
+
+		await expect(sendPrompt("/multitask")).resolves.toMatchObject({
+			ok: true,
+			commandHandled: true,
+			multitask: true,
+		});
+		expect(send).not.toHaveBeenCalled();
+		expect(events("multitask_state")).toEqual([
+			expect.objectContaining({ sessionId, enabled: true }),
+		]);
+		expect(events("chat_command_output")).toEqual([
+			expect.objectContaining({ text: "Multitask mode is on." }),
+		]);
+
+		const session = ctx.liveSessions.get(sessionId);
+		if (session) session.busy = false;
+		await sendPrompt("add dark mode");
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "add dark mode", multitask: true }),
+		);
+	});
+
+	it("is refused when the Teams tool is disabled", async () => {
+		const previousDataDir = process.env.CLINE_DATA_DIR;
+		const dataDir = mkdtempSync(join(tmpdir(), "cline-multitask-settings-"));
+		process.env.CLINE_DATA_DIR = dataDir;
+		try {
+			writeGlobalSettings({ disabledTools: ["teams"] });
+			const { ctx, sessionId, sendPrompt } = createMultitaskContext();
+
+			await expect(sendPrompt("/multitask on")).rejects.toThrow(
+				"Agent teams are disabled",
+			);
+			expect(ctx.liveSessions.get(sessionId)?.multitask).toBeUndefined();
+		} finally {
+			if (previousDataDir === undefined) {
+				delete process.env.CLINE_DATA_DIR;
+			} else {
+				process.env.CLINE_DATA_DIR = previousDataDir;
+			}
+			rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
+	it("stops teammates without touching the session's turn state", async () => {
+		const { ctx, abort, sessionId, events, sendPrompt } =
+			createMultitaskContext();
+
+		await sendPrompt("/multitask stop");
+
+		expect(abort).toHaveBeenCalledWith(sessionId, "stopped_by_user", {
+			scope: "teammates",
+		});
+		expect(ctx.liveSessions.get(sessionId)).toMatchObject({
+			busy: true,
+			status: "running",
+		});
+		expect(events("chat_command_output")).toEqual([
+			expect.objectContaining({ text: "Stopped all background teammates." }),
+		]);
+	});
+
+	it("restores the mode from metadata on attach", async () => {
+		const { ctx, sessionId } = createMultitaskContext({
+			metadata: { multitask: true },
+		});
+
+		await expect(
+			handleChatSessionCommand(ctx, { action: "attach", sessionId }),
+		).resolves.toMatchObject({ multitask: true });
+		expect(ctx.liveSessions.get(sessionId)?.multitask).toBe(true);
 	});
 });

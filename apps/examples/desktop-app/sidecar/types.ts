@@ -76,6 +76,8 @@ export type LiveSession = {
 	transitioningProvider?: boolean;
 	prompt?: string;
 	title?: string;
+	/** Multitask mode; sent with every turn and stored in session metadata. */
+	multitask?: boolean;
 	attachedViaHub?: boolean;
 	/** Last Hub lifecycle sequence applied to this session. */
 	lastHubStatusSequence?: number;

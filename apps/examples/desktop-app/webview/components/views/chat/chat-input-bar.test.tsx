@@ -212,6 +212,8 @@ async function renderVoiceComposer({
 	sessionId,
 	strictMode = false,
 	cloudHandoffAvailable = false,
+	multitaskEnabled,
+	activeTeammateRuns,
 }: {
 	attachments?: Parameters<typeof ChatInputBar>[0]["attachments"];
 	model?: string;
@@ -229,6 +231,8 @@ async function renderVoiceComposer({
 	sessionId?: string;
 	strictMode?: boolean;
 	cloudHandoffAvailable?: boolean;
+	multitaskEnabled?: boolean;
+	activeTeammateRuns?: number;
 } = {}) {
 	const Wrapper = strictMode ? StrictMode : Fragment;
 	await act(async () => {
@@ -247,6 +251,8 @@ async function renderVoiceComposer({
 						gitBranch="main"
 						hasRunningAgents={hasRunningAgents}
 						mode="act"
+						multitaskEnabled={multitaskEnabled}
+						activeTeammateRuns={activeTeammateRuns}
 						model={model}
 						onAbort={onAbort}
 						onAttachFiles={onAttachFiles}
@@ -962,6 +968,41 @@ describe("ChatInputBar", () => {
 		await renderVoiceComposer({ prompt: "/comp", executionTarget: "local" });
 		const suggestions = container.querySelector("#slash-command-suggestions");
 		expect(suggestions?.textContent).toContain("/compact");
+	});
+
+	it("suggests the built-in /multitask command", async () => {
+		await renderVoiceComposer({ prompt: "/multi", executionTarget: "local" });
+		const suggestions = container.querySelector("#slash-command-suggestions");
+		expect(suggestions?.textContent).toContain("/multitask");
+	});
+
+	it("shows the Multitask badge only while the mode is on", async () => {
+		await renderVoiceComposer();
+		expect(container.textContent).not.toContain("Multitask");
+
+		await renderVoiceComposer({ multitaskEnabled: true });
+		expect(container.textContent).toContain("Multitask");
+	});
+
+	it("offers Stop teammates only while teammate runs are active", async () => {
+		const onSend = vi.fn();
+		const stopButton = () =>
+			Array.from(container.querySelectorAll("button")).find((button) =>
+				button.textContent?.startsWith("Stop teammates"),
+			);
+		await renderVoiceComposer({ multitaskEnabled: true, onSend });
+		expect(stopButton()).toBeUndefined();
+
+		await renderVoiceComposer({
+			multitaskEnabled: true,
+			activeTeammateRuns: 2,
+			onSend,
+		});
+		expect(stopButton()?.textContent).toBe("Stop teammates (2)");
+		await act(async () => {
+			stopButton()?.click();
+		});
+		expect(onSend).toHaveBeenCalledWith("/multitask stop");
 	});
 
 	it("opens the slash menu after leading whitespace", async () => {
