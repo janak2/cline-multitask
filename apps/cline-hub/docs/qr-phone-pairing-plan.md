@@ -10,7 +10,7 @@ There is no command to run. The phone needs only its normal browser and the Tail
 
 Tailscale is a private network app. It links a user's own devices with encrypted connections wherever they are, so the phone keeps working on mobile data or another Wi-Fi. The set of devices signed in to one Tailscale account is called a "tailnet". Each device gets a name such as `my-laptop.example-tailnet.ts.net` (Tailscale calls this MagicDNS).
 
-Tailscale Serve is a Tailscale feature that accepts HTTPS connections from devices in the tailnet and forwards them to a port on the computer. It uses a real certificate for the device name. The phone therefore opens `https://my-laptop.example-tailnet.ts.net` with a padlock, while the dashboard itself keeps listening only on `127.0.0.1`.
+Tailscale Serve is a Tailscale feature that accepts connections from devices in the tailnet on a port of the device name and forwards them to a port on the computer. The app uses plain HTTP on port 80, so the phone opens `http://my-laptop.example-tailnet.ts.net`, while the dashboard itself keeps listening only on `127.0.0.1`. The page has no padlock and the browser may call it "Not secure", but the connection is still encrypted, because Tailscale encrypts all traffic between devices. Plain HTTP avoids the extra setup step of turning on HTTPS certificates, which would also publish the machine name in public certificate logs.
 
 ## 2. Non-goals
 
@@ -18,7 +18,7 @@ Tailscale Serve is a Tailscale feature that accepts HTTPS connections from devic
 - No public internet access. No Cloudflare Tunnel, ngrok or Tailscale Funnel (Funnel is Tailscale's public sharing feature).
 - No access over the local Wi-Fi without Tailscale.
 - No bundled Tailscale. The user installs it and does the one-time setup.
-- No change to the dashboard server, its options or the `cline hub dashboard` command (section 4).
+- No change to the dashboard server, its options or the `cline hub dashboard` command (section 4). The dashboard page only gets a small fallback for two browser features that are hidden on `http` pages (section 4.4).
 - No change to how the desktop sidecar checks who may talk to it.
 
 ## 3. How it works for the user
@@ -26,7 +26,7 @@ Tailscale Serve is a Tailscale feature that accepts HTTPS connections from devic
 ### 3.1 One-time setup
 
 1. Install Tailscale on the computer and the phone, and sign in to the same account on both. On Linux, run `sudo tailscale up`.
-2. In the Tailscale admin console, turn on HTTPS certificates. See [Enabling HTTPS](https://tailscale.com/kb/1153/enabling-https). MagicDNS must be on too; it is on by default for new tailnets.
+2. Keep MagicDNS on in the Tailscale admin console. It is on by default for new tailnets.
 3. On Linux only, run `sudo tailscale set --operator=$USER` once. This lets the app change Serve settings without `sudo`. On macOS and Windows the Tailscale app already allows it.
 
 The settings panel checks each step and says which one is missing (section 5.7).
@@ -34,7 +34,7 @@ The settings panel checks each step and says which one is missing (section 5.7).
 ### 3.2 Every day
 
 1. Open the Cline desktop app. If the setup is complete, phone access starts on its own.
-2. Open **Settings → General**. The **Cline Hub** section has a **Phone access** block with a QR code for `https://<machine>.<tailnet>.ts.net`.
+2. Open **Settings → General**. The **Cline Hub** section has a **Phone access** block with a QR code for `http://<machine>.<tailnet>.ts.net`.
 3. Scan it with the phone camera and tap the link. The dashboard opens.
 4. Bookmark it or add it to the home screen. The address never changes.
 5. Phone access works while the desktop app is running and Tailscale is connected on both devices. Quitting the app stops it.
@@ -57,7 +57,7 @@ The compiled CLI binary embeds the dashboard web page (`apps/cli/script/compile-
 
 - `HOST` defaults to `127.0.0.1`. That is a local bind, which needs no `ROOM_SECRET`.
 - The port accepts 1 to 65535 (not 0).
-- `PUBLIC_URL` must be `http:` or `https:`. A port is added only when the host is an IP address or `localhost`, so `https://my-laptop.example-tailnet.ts.net` stays as written.
+- `PUBLIC_URL` must be `http:` or `https:`. A port is added only when the host is an IP address or `localhost`, so `http://my-laptop.example-tailnet.ts.net` stays as written.
 
 ### 4.3 Request checks
 
@@ -72,19 +72,19 @@ The compiled CLI binary embeds the dashboard web page (`apps/cli/script/compile-
 
 Tailscale Serve forwards each request with Go's standard reverse proxy ([Serve docs](https://tailscale.com/kb/1312/serve)):
 
-- `Host` stays the name the phone used: `my-laptop.example-tailnet.ts.net`, with no port, because 443 is the default HTTPS port.
-- The browser's `Origin` passes through unchanged: `https://my-laptop.example-tailnet.ts.net`.
-- Serve adds `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto: https`, and `Tailscale-User-*` identity headers for signed-in users. The dashboard ignores all of these.
-- WebSocket upgrades are proxied. The dashboard web page builds a `wss:` address when the page is HTTPS (`apps/cline-hub/src/webview/src/vscode.ts`), so `/browser` works through Serve with no change.
+- `Host` stays the name the phone used: `my-laptop.example-tailnet.ts.net`, with no port, because 80 is the default HTTP port.
+- The browser's `Origin` passes through unchanged: `http://my-laptop.example-tailnet.ts.net`.
+- Serve adds `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto: http`, and `Tailscale-User-*` identity headers for signed-in users. The dashboard ignores all of these.
+- WebSocket upgrades are proxied. The dashboard web page builds a `ws:` address when the page is `http:` (`apps/cline-hub/src/webview/src/vscode.ts`), so `/browser` works through Serve with no change.
 
-With `HOST=127.0.0.1` and `PUBLIC_URL=https://my-laptop.example-tailnet.ts.net`, the allowlists become:
+With `HOST=127.0.0.1` and `PUBLIC_URL=http://my-laptop.example-tailnet.ts.net`, the allowlists become:
 
 - hosts: `my-laptop.example-tailnet.ts.net`, `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`
-- origins: `https://my-laptop.example-tailnet.ts.net`, `https://127.0.0.1:<port>`, `https://localhost:<port>`, `https://[::1]:<port>`
+- origins: `http://my-laptop.example-tailnet.ts.net`, `http://127.0.0.1:<port>`, `http://localhost:<port>`, `http://[::1]:<port>`
 
-A request shaped like a Serve-forwarded WebSocket upgrade was checked against the current `isAuthorizedBrowserRequest`. It passes with the ts.net `Host` and `Origin`, and fails with a foreign `Origin`.
+A Serve-forwarded WebSocket upgrade passes `isAuthorizedBrowserRequest` with the ts.net `Host` and `http` `Origin`. It fails with a foreign `Origin`, and with an `https` `Origin` for the same name.
 
-One side effect: the loopback origins take the public URL's scheme (`https:`). A browser on the computer that opens `http://127.0.0.1:<port>` directly is refused. The computer's own browser should use the ts.net address too. Nothing in the desktop app opens the local address.
+Browsers hide some features on `http` pages that are not on the computer itself ("secure context" features). The dashboard page uses two of them: `navigator.clipboard.writeText` for its copy buttons and `crypto.randomUUID` in the MCP settings view. `apps/cline-hub/src/webview/src/lib/insecure-context.ts`, loaded first by `main.tsx`, fills in both only when the browser hides them: copying through a hidden text box, and IDs from `crypto.getRandomValues`, which works on `http` pages. Nothing else in the page needs a secure context.
 
 ### 4.5 The desktop app
 
@@ -107,17 +107,17 @@ The sidecar owns phone access. When the setup is complete, it does three things:
 
    ```shell
    cline-cli hub dashboard --no-open --port <free port> \
-     --public-url https://<machine>.<tailnet>.ts.net --cwd <workspace root>
+     --public-url http://<machine>.<tailnet>.ts.net --cwd <workspace root>
    ```
 
    `--host` is left at its default, `127.0.0.1`. The child gets the same environment as `hub ensure`: `CLINE_NO_AUTO_UPDATE=1` and the desktop launcher identity from `withHubLauncherIdentity`.
 3. Once the dashboard answers `GET /` on the local port, points Serve at it:
 
    ```shell
-   tailscale serve --bg --https=443 http://127.0.0.1:<free port>
+   tailscale serve --bg --http=80 http://127.0.0.1:<free port>
    ```
 
-The QR code holds `https://<machine>.<tailnet>.ts.net`. The local port never appears in it, so the port can change on every start.
+The QR code holds `http://<machine>.<tailnet>.ts.net`. The local port never appears in it, so the port can change on every start.
 
 `--bg` saves the setting in Tailscale itself, so it survives the command exiting and even a reboot. That is why the sidecar must remove it on quit and must recognise a leftover one after a crash (section 5.5). The commands follow the syntax from Tailscale 1.52 onward ([`tailscale serve` reference](https://tailscale.com/kb/1242/tailscale-serve)).
 
@@ -134,11 +134,10 @@ From `tailscale status --json`:
 | `BackendState` | Must be `Running`. `Stopped` means turned off; any other state, such as `NeedsLogin`, means not signed in. If the command fails (the Tailscale service is not running), Tailscale counts as turned off. |
 | `Self.DNSName` | The machine name, for example `my-laptop.example-tailnet.ts.net.`. The trailing dot is removed. Empty means MagicDNS is off. |
 | `CurrentTailnet.MagicDNSEnabled` | `false` also means MagicDNS is off. |
-| `CertDomains` | Names Tailscale can issue certificates for. Empty means HTTPS certificates are off in the admin console. |
 
 On Linux, `tailscale debug prefs` gives `OperatorUser`. If it is not the current user (and the app is not running as root), the operator step is missing. As a fallback, a `tailscale serve` failure whose output says access was denied is reported the same way.
 
-From `tailscale serve status --json`, the sidecar reads what port 443 on this machine forwards to: the `Web` entry whose key ends in `:443`, its `Handlers["/"].Proxy`, plus any `AllowFunnel` entry for port 443. Port 443 counts as free only when there is no such `Web` entry and no `TCP["443"]`. A handler on any other path, or a raw TCP forward, counts as someone else's setting.
+From `tailscale serve status --json`, the sidecar reads what port 80 on this machine forwards to: the `Web` entry whose key ends in `:80` and its `Handlers["/"].Proxy`. Port 80 counts as free only when there is no such `Web` entry and no `TCP["80"]`. A handler on any other path, or a raw TCP forward, counts as someone else's setting. Settings on other ports, such as 443, are ignored and never changed. Funnel cannot use port 80, so there is no Funnel check.
 
 Readiness is checked at sidecar startup and then every 30 seconds. This picks up a user who finishes the setup after opening the app, and stops phone access when Tailscale is turned off.
 
@@ -159,16 +158,16 @@ File: `<Cline data dir>/hub/phone-access.json`, created with directory mode `070
 
 **Start** when `enabled` is true, every setup step passes and the bundled CLI path is known:
 
-1. Check port 443 in the Serve status (section 5.5). Stop here if it belongs to someone else.
+1. Check port 80 in the Serve status (section 5.5). Stop here if it belongs to someone else.
 2. Pick a free port and spawn the dashboard. Wait up to 15 seconds for `GET /` on `127.0.0.1:<port>` to answer.
-3. Run `tailscale serve --bg --https=443 http://127.0.0.1:<port>`, then save `serveTarget`, `ownerPid` and `dashboardPid`.
+3. Run `tailscale serve --bg --http=80 http://127.0.0.1:<port>`, then save `serveTarget`, `ownerPid` and `dashboardPid`.
 4. The status becomes `running`.
 
 **Stop** when the user turns it off, when Tailscale stops being ready, and in `disposeSidecarContext` when the app quits:
 
-1. If port 443 still forwards to our `serveTarget`, run `tailscale serve --https=443 off`. This removes only the port 443 setting. The sidecar never runs `tailscale serve reset`, which would clear every Serve setting on the machine.
+1. If port 80 still forwards to our `serveTarget`, run `tailscale serve --http=80 off`. This removes only the port 80 setting. The sidecar never runs `tailscale serve reset`, which would clear every Serve setting on the machine.
 2. Send `SIGTERM` to the dashboard, and `SIGKILL` after 3 seconds.
-3. Clear `serveTarget` and the PIDs. If `tailscale serve --https=443 off` fails (for example, Tailscale's service is not running), keep them, so the next start recognises the leftover as ours and replaces it.
+3. Clear `serveTarget` and the PIDs. If `tailscale serve --http=80 off` fails (for example, Tailscale's service is not running), keep them, so the next start recognises the leftover as ours and replaces it.
 
 If the dashboard exits on its own, the sidecar turns Serve off as above, records the last output lines as the error, and tries again on the next 30-second check.
 
@@ -176,14 +175,14 @@ Without `CLINE_DESKTOP_CLI_PATH` (some development setups), the status is `unava
 
 **Why it stops when the app quits.** The dashboard is a separate process from the Hub daemon. Keeping it alive after the app quits would need a second supervisor to restart it, update it and clean up Serve. Tying it to the app gives one simple rule: "phone access works while Cline is open". The Hub daemon keeps its own lifetime.
 
-### 5.5 Port 443 that is already set, crashes and more than one app
+### 5.5 Port 80 that is already set, crashes and more than one app
 
-Port 443 in Serve is shared by the whole machine. Before starting, the sidecar compares what 443 forwards to with the state file:
+Port 80 in Serve is shared by the whole machine. Before starting, the sidecar compares what 80 forwards to with the state file:
 
-1. **Nothing on 443.** Start normally.
-2. **Our leftover from a crash.** 443 forwards to the saved `serveTarget`, and the saved `ownerPid` is no longer running, or the saved target no longer answers `GET /`. Stop the saved `dashboardPid` only if it is still running and the saved target still answers, so a process that reused the ID after a reboot is never signalled. Then start normally. Step 3 of the start overwrites the old target.
-3. **Another Cline app is running it.** This happens when the stable and Beta apps run side by side; they share the data directory. 443 forwards to the saved `serveTarget`, the saved `ownerPid` is alive and is not this sidecar, and the saved target answers `GET /`. Do not start. The status is `running` with the note "Running from another Cline app", and the same QR code is shown, since the address is the same. When that app quits, it turns Serve off, and the next 30-second check here starts a new one.
-4. **Someone else's setting.** 443 forwards anywhere else, or Funnel is on for 443. Change nothing. The status is `blocked` with "Tailscale Serve on port 443 is already used for something else. Remove it with `tailscale serve --https=443 off` if you no longer need it."
+1. **Nothing on 80.** Start normally.
+2. **Our leftover from a crash.** 80 forwards to the saved `serveTarget`, and the saved `ownerPid` is no longer running, or the saved target no longer answers `GET /`. Stop the saved `dashboardPid` only if it is still running and the saved target still answers, so a process that reused the ID after a reboot is never signalled. Then start normally. Step 3 of the start overwrites the old target.
+3. **Another Cline app is running it.** This happens when the stable and Beta apps run side by side; they share the data directory. 80 forwards to the saved `serveTarget`, the saved `ownerPid` is alive and is not this sidecar, and the saved target answers `GET /`. Do not start. The status is `running` with the note "Running from another Cline app", and the same QR code is shown, since the address is the same. When that app quits, it turns Serve off, and the next 30-second check here starts a new one.
+4. **Someone else's setting.** 80 forwards anywhere else. Change nothing. The status is `blocked` with "Tailscale Serve on port 80 is already used for something else. Remove it with "tailscale serve --http=80 off" if you no longer need it."
 
 A crash followed by a reboot leaves our Serve setting in place, pointing at a closed port. The phone gets an error page until the app opens again and case 2 replaces it.
 
@@ -203,7 +202,7 @@ type PhoneAccessStatus =
 	| { state: "off" }
 	| {
 			state: "setup-needed"
-			missing: "install" | "sign-in" | "turned-off" | "magicdns" | "https-certificates" | "operator"
+			missing: "install" | "sign-in" | "turned-off" | "magicdns" | "operator"
 	  }
 	| { state: "starting" }
 	| { state: "running"; url: string; elsewhere: boolean }
@@ -230,7 +229,6 @@ A new `phone-access-panel.tsx`, rendered inside `HubPanel` under the existing Hu
 | `sign-in` | "Sign in to Tailscale. On Linux, run `sudo tailscale up`." |
 | `turned-off` | "Tailscale is turned off. Turn it on to use Cline from your phone." |
 | `magicdns` | "Turn on MagicDNS in the Tailscale admin console." Link to the DNS page. |
-| `https-certificates` | "Turn on HTTPS certificates in the Tailscale admin console." Link to the DNS page. |
 | `operator` | "Allow Cline to set up Tailscale Serve: run `sudo tailscale set --operator=$USER` once." |
 
 - `blocked`, `unavailable` and `error` show their message in the destructive text style.
@@ -243,7 +241,7 @@ Neither the desktop app nor the hub has a QR library. The plan adds [`uqr`](http
 
 ### 5.9 What this replaces
 
-Earlier versions of this plan used one-time pairing codes and per-device cookies, or a room secret in the link with the dashboard bound to the Tailscale IP. This version drops both. Tailscale decides who can reach the computer, Serve provides HTTPS, and the dashboard keeps its default local bind. The cost is that every device in the tailnet can use the dashboard (section 6).
+Earlier versions of this plan used one-time pairing codes and per-device cookies, or a room secret in the link with the dashboard bound to the Tailscale IP. This version drops both. Tailscale decides who can reach the computer and encrypts the traffic, Serve forwards plain HTTP on port 80, and the dashboard keeps its default local bind. The cost is that every device in the tailnet can use the dashboard (section 6).
 
 ## 6. Security, in plain words
 
@@ -258,17 +256,17 @@ If anyone other than you can reach this computer through Tailscale, limit it wit
 
 **Nobody outside your tailnet can reach it.** The dashboard listens only on `127.0.0.1`. Serve accepts only tailnet devices. People on the same café Wi-Fi, or on the internet, cannot connect.
 
-**Never public.** The app never turns on Funnel, and it refuses to start if Funnel is on for port 443.
+**Never public.** The app never turns on Funnel. Funnel cannot use port 80 in any case.
 
-**Traffic is encrypted.** The phone talks HTTPS to Serve with a real certificate, and Tailscale encrypts the traffic between devices as well.
+**Traffic is encrypted.** The address is plain `http`, so the phone browser may label the page "Not secure". The traffic is still encrypted, because Tailscale encrypts everything between the phone and the computer.
 
-**The machine name becomes public.** Turning on HTTPS certificates puts the machine's ts.net name in public certificate logs, as Tailscale's [HTTPS documentation](https://tailscale.com/kb/1153/enabling-https) explains. The name gives no access, but rename the machine first if the name itself is private.
+**The machine name stays private.** Plain HTTP needs no certificate, so the machine's ts.net name is not published in public certificate logs.
 
 **Other websites cannot use it.** The existing `Host` and `Origin` checks reject requests that start on other websites, even from the phone's own browser.
 
 **Other users of this computer.** The dashboard listens on `127.0.0.1` without a secret, as `cline hub dashboard` does by default today. On a shared computer, another local account could reach it.
 
-**Serve settings are left as found.** The app changes only port 443, only when it is free or already ours, and removes its setting on quit.
+**Serve settings are left as found.** The app changes only port 80, only when it is free or already ours, and removes its setting on quit. Any setting on port 443 or another port is never touched.
 
 ## 7. Files to add and change
 
@@ -278,7 +276,7 @@ All paths under `apps/examples/desktop-app/` unless they start with `apps/cline-
 
 | File | What it holds |
 | --- | --- |
-| `sidecar/phone-access.ts` | Tailscale lookup; parsing of `status`, `serve status` and `debug prefs` output (pure functions that take the JSON); the state file; free-port pick; the CLI and Serve arguments; the four port-443 cases; the 30-second check loop; start and stop. The Tailscale runner, the dashboard spawner and the timeouts are passed in, so tests need no real Tailscale; they run small real HTTP servers as dashboards. |
+| `sidecar/phone-access.ts` | Tailscale lookup; parsing of `status`, `serve status` and `debug prefs` output (pure functions that take the JSON); the state file; free-port pick; the CLI and Serve arguments; the four port-80 cases; the 30-second check loop; start and stop. The Tailscale runner, the dashboard spawner and the timeouts are passed in, so tests need no real Tailscale; they run small real HTTP servers as dashboards. |
 | `sidecar/phone-access.test.ts` | Tests in section 8.1. |
 | `webview/lib/phone-access.ts` | `PhoneAccessStatus` type, shared by sidecar and webview (like `webview/lib/hub-status.ts`). |
 | `webview/components/views/settings/phone-access-panel.tsx` | The block in section 5.7. |
@@ -298,6 +296,7 @@ All paths under `apps/examples/desktop-app/` unless they start with `apps/cline-
 | `package.json` | Add `uqr`. |
 | `README.md` | A short "Use Cline from your phone" section: the one-time setup in section 3.1, scanning the QR code, and the security points from section 6. |
 | `apps/cline-hub/src/server/browser-auth.test.ts` | Pin the Serve contract this design relies on (section 8.3). Test only; no server change. |
+| `apps/cline-hub/src/webview/src/lib/insecure-context.ts` and `main.tsx` | Fall back for `navigator.clipboard.writeText` and `crypto.randomUUID` on `http` pages (section 4.4). Loaded first by `main.tsx`. |
 
 ## 8. Tests
 
@@ -305,26 +304,27 @@ All paths under `apps/examples/desktop-app/` unless they start with `apps/cline-
 
 Setup checks, from recorded JSON:
 
-- `Running`, a `DNSName`, non-empty `CertDomains` and a matching `OperatorUser` give "ready" and the URL `https://my-laptop.example-tailnet.ts.net` (trailing dot removed).
-- A missing binary, `NeedsLogin`, `Stopped`, an empty `DNSName`, empty `CertDomains` and a different `OperatorUser` each give the matching `missing` value.
+- `Running`, a `DNSName` and a matching `OperatorUser` give "ready" and the URL `http://my-laptop.example-tailnet.ts.net` (trailing dot removed).
+- A missing binary, `NeedsLogin`, `Stopped`, an empty `DNSName` and a different `OperatorUser` each give the matching `missing` value.
 - A `tailscale serve` failure that says access was denied gives `operator`.
 
 Commands:
 
-- The dashboard arguments are `hub dashboard --no-open --port <port> --public-url https://<name> --cwd <root>`, with no `--host` and no `--room-secret`.
-- The Serve command is `tailscale serve --bg --https=443 http://127.0.0.1:<port>`; the stop command is `tailscale serve --https=443 off`; `reset` is never used.
+- The dashboard arguments are `hub dashboard --no-open --port <port> --public-url http://<name> --cwd <root>`, with no `--host` and no `--room-secret`.
+- The Serve command is `tailscale serve --bg --http=80 http://127.0.0.1:<port>`; the stop command is `tailscale serve --http=80 off`; `reset` is never used.
 
-Port 443 cases, from recorded `serve status` JSON plus the state file:
+Port 80 cases, from recorded `serve status` JSON plus the state file:
 
 - Empty: start.
 - Our `serveTarget` with a dead `ownerPid`: stop the old `dashboardPid`, start, and overwrite the target.
 - Our `serveTarget` with a live `ownerPid` from another process: no start, `running` with `elsewhere: true`.
-- A different target, or Funnel on: `blocked`, and no Serve command runs.
+- A different target: `blocked`, and no Serve command runs.
+- A setting on port 443 only: start normally, and the 443 setting is unchanged after shutdown.
 
 Lifecycle, with a fake process runner:
 
 - Ready and enabled: picks a port, spawns once, runs Serve only after `GET /` answers, saves the state, and reports `running`.
-- Turning it off, Tailscale going to `Stopped`, and shutdown each run `serve --https=443 off` and then stop the dashboard. If 443 no longer points at our target, `off` is not run.
+- Turning it off, Tailscale going to `Stopped`, and shutdown each run `serve --http=80 off` and then stop the dashboard. If 80 no longer points at our target, `off` is not run.
 - A dashboard that exits on its own turns Serve off and reports `error`.
 - Shutdown sends `SIGKILL` if the dashboard ignores `SIGTERM`.
 - No CLI path gives `unavailable`.
@@ -339,10 +339,10 @@ Lifecycle, with a fake process runner:
 
 ### 8.3 `browser-auth.test.ts`
 
-With `bindHost: "127.0.0.1"`, a local port and `publicUrl: "https://my-laptop.example-tailnet.ts.net"`, and no room secret:
+With `bindHost: "127.0.0.1"`, a local port and `publicUrl: "http://my-laptop.example-tailnet.ts.net"`, and no room secret:
 
-- A WebSocket upgrade with `Host: my-laptop.example-tailnet.ts.net`, `Origin: https://my-laptop.example-tailnet.ts.net` and Serve's `X-Forwarded-*` headers passes.
-- The same with `Origin: https://evil.example` fails.
+- A WebSocket upgrade with `Host: my-laptop.example-tailnet.ts.net`, `Origin: http://my-laptop.example-tailnet.ts.net` and Serve's `X-Forwarded-*` headers passes.
+- The same with `Origin: http://evil.example`, or with `Origin: https://my-laptop.example-tailnet.ts.net`, fails.
 
 ## 9. How to verify
 
@@ -350,13 +350,13 @@ Automated, from `apps/examples/desktop-app`: `bun run typecheck`, `bun run test:
 
 By hand, on a Linux computer with Tailscale and a phone signed in to the same account:
 
-1. Start with HTTPS certificates off and no operator set. Open the app. The panel asks for HTTPS certificates. Turn them on, press **Check again**; it asks for the operator step. Run `sudo tailscale set --operator=$USER`, press **Check again**; the QR code appears.
-2. `tailscale serve status` shows port 443 forwarding to `127.0.0.1:<port>`. `ss -ltn` shows that port bound only on `127.0.0.1`.
-3. Scan the QR code. The page loads over HTTPS with a padlock. Open a session, send a message and approve a tool call.
+1. Start with no operator set. Open the app. The panel asks for the operator step. Run `sudo tailscale set --operator=$USER`, press **Check again**; the QR code appears.
+2. `tailscale serve status` shows port 80 forwarding to `127.0.0.1:<port>`. `ss -ltn` shows that port bound only on `127.0.0.1`.
+3. Scan the QR code. The page loads over `http`; the browser may call it "Not secure". Open a session, send a message and approve a tool call.
 4. Turn off Wi-Fi on the phone and repeat over mobile data.
-5. Quit the app. `tailscale serve status` no longer lists port 443, and the dashboard process is gone. Reopen the app; the bookmarked address works again, on a different local port.
+5. Quit the app. `tailscale serve status` no longer lists port 80, and the dashboard process is gone. Reopen the app; the bookmarked address works again, on a different local port.
 6. Kill the sidecar with `kill -9`. `tailscale serve status` still shows the old mapping. Reopen the app; it replaces the mapping and stops the old dashboard.
-7. Quit the app, then run `tailscale serve --bg --https=443 http://127.0.0.1:9999`. Open the app; the panel shows the "already used for something else" message and the mapping is unchanged. Remove it with `tailscale serve --https=443 off`.
+7. Quit the app, then run `tailscale serve --bg --http=80 http://127.0.0.1:9999`. Open the app; the panel shows the "already used for something else" message and the mapping is unchanged. Remove it with `tailscale serve --http=80 off`.
 8. Run `sudo tailscale down`. Within 30 seconds the panel shows "Tailscale is turned off", Serve is off and the dashboard stopped. `sudo tailscale up` brings it back.
 9. Turn the switch off, restart the app, and confirm it stays off.
 10. Run the Beta app next to the stable app. The second one shows "Running from another Cline app" with the same QR code. Quit the first; within 30 seconds the second takes over.

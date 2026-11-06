@@ -3,7 +3,6 @@ export type PhoneAccessSetupStep =
 	| "sign-in"
 	| "turned-off"
 	| "magicdns"
-	| "https-certificates"
 	| "operator";
 
 export type PhoneAccessStatus =

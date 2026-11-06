@@ -21,9 +21,9 @@ import { DESKTOP_CLIENT_CONTEXT } from "./client-context";
 const CHECK_INTERVAL_MS = 30_000;
 const TAILSCALE_TIMEOUT_MS = 5_000;
 const BLOCKED_MESSAGE =
-	'Tailscale Serve on port 443 is already used for something else. Remove it with "tailscale serve --https=443 off" if you no longer need it.';
+	'Tailscale Serve on port 80 is already used for something else. Remove it with "tailscale serve --http=80 off" if you no longer need it.';
 
-export const SERVE_OFF_ARGS = ["serve", "--https=443", "off"];
+export const SERVE_OFF_ARGS = ["serve", "--http=80", "off"];
 
 type PhoneAccessState = {
 	version: 1;
@@ -36,14 +36,12 @@ type PhoneAccessState = {
 export type TailscaleStatusJson = {
 	BackendState?: string;
 	Self?: { DNSName?: string };
-	CertDomains?: string[] | null;
 	CurrentTailnet?: { MagicDNSEnabled?: boolean } | null;
 };
 
 export type ServeStatusJson = {
 	TCP?: Record<string, unknown>;
 	Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }>;
-	AllowFunnel?: Record<string, boolean>;
 };
 
 export type RunTailscale = (args: string[]) => Promise<string>;
@@ -72,7 +70,7 @@ type Dashboard = {
 /**
  * Serves the Cline Hub dashboard to the user's own devices through Tailscale
  * Serve while the desktop app runs. The dashboard keeps its local bind; Serve
- * forwards https://<machine>.ts.net to it.
+ * forwards http://<machine>.ts.net to it. Tailscale encrypts the traffic.
  */
 export class PhoneAccess {
 	status: PhoneAccessStatus = { state: "starting" };
@@ -155,10 +153,9 @@ export class PhoneAccess {
 			this.options.operatorUser,
 		);
 		if ("missing" in setup) return this.setupNeeded(setup.missing);
-		const url = `https://${setup.name}`;
-		const port443 = await readServePort443(tailscale);
-		const ours =
-			port443.kind === "proxy" && port443.target === state.serveTarget;
+		const url = `http://${setup.name}`;
+		const port80 = await readServePort80(tailscale);
+		const ours = port80.kind === "proxy" && port80.target === state.serveTarget;
 		if (ours && this.dashboard && state.ownerPid === process.pid) {
 			this.status = { state: "running", url, elsewhere: false };
 			return;
@@ -182,7 +179,7 @@ export class PhoneAccess {
 		) {
 			process.kill(state.dashboardPid, "SIGTERM");
 		}
-		if (!ours && port443.kind !== "free") {
+		if (!ours && port80.kind !== "free") {
 			await this.stop();
 			this.status = { state: "blocked", message: BLOCKED_MESSAGE };
 			return;
@@ -195,7 +192,7 @@ export class PhoneAccess {
 		if (!dashboard) return;
 		const target = `http://127.0.0.1:${dashboard.port}`;
 		try {
-			await tailscale(["serve", "--bg", "--https=443", target]);
+			await tailscale(["serve", "--bg", "--http=80", target]);
 		} catch (error) {
 			await this.stop();
 			if (/access denied/i.test(errorMessage(error)))
@@ -278,13 +275,11 @@ export class PhoneAccess {
 		if (state.ownerPid === process.pid && state.serveTarget) {
 			const tailscale = this.findTailscale();
 			try {
-				const port443 = tailscale
-					? await readServePort443(tailscale)
-					: undefined;
+				const port80 = tailscale ? await readServePort80(tailscale) : undefined;
 				if (
 					tailscale &&
-					port443?.kind === "proxy" &&
-					port443.target === state.serveTarget
+					port80?.kind === "proxy" &&
+					port80.target === state.serveTarget
 				)
 					await tailscale(SERVE_OFF_ARGS);
 				writeState(this.statePath, { version: 1, enabled: state.enabled });
@@ -350,26 +345,17 @@ export function readTailscaleSetup(
 	const name = status.Self?.DNSName?.replace(/\.$/, "") ?? "";
 	if (!name || status.CurrentTailnet?.MagicDNSEnabled === false)
 		return { missing: "magicdns" };
-	if (!status.CertDomains?.length) return { missing: "https-certificates" };
 	if (prefs && operatorUser && prefs.OperatorUser !== operatorUser)
 		return { missing: "operator" };
 	return { name };
 }
 
-/** What this machine's Serve port 443 forwards to. */
-export function readPort443(
+/** What this machine's Serve port 80 forwards to. */
+export function readPort80(
 	serve: ServeStatusJson,
 ): { kind: "free" } | { kind: "proxy"; target: string } | { kind: "other" } {
-	const key = Object.keys(serve.Web ?? {}).find((name) =>
-		name.endsWith(":443"),
-	);
-	if (
-		Object.entries(serve.AllowFunnel ?? {}).some(
-			([name, on]) => on && name.endsWith(":443"),
-		)
-	)
-		return { kind: "other" };
-	if (!key && !serve.TCP?.["443"]) return { kind: "free" };
+	const key = Object.keys(serve.Web ?? {}).find((name) => name.endsWith(":80"));
+	if (!key && !serve.TCP?.["80"]) return { kind: "free" };
 	const handlers = (key && serve.Web?.[key]?.Handlers) || {};
 	const target = handlers["/"]?.Proxy;
 	return Object.keys(handlers).length === 1 && target
@@ -448,9 +434,9 @@ function readJson<T>(
 	);
 }
 
-async function readServePort443(tailscale: RunTailscale) {
+async function readServePort80(tailscale: RunTailscale) {
 	const stdout = await tailscale(["serve", "status", "--json"]);
-	return readPort443(JSON.parse(stdout.trim() || "{}"));
+	return readPort80(JSON.parse(stdout.trim() || "{}"));
 }
 
 function readState(path: string): PhoneAccessState {

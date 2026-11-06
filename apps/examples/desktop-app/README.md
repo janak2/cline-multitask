@@ -136,15 +136,14 @@ One-time setup:
 
 1. Install Tailscale on this computer and on your phone, and sign in to the
    same account on both. On Linux, run `sudo tailscale up`.
-2. In the Tailscale admin console, turn on HTTPS certificates
-   ([Enabling HTTPS](https://tailscale.com/kb/1153/enabling-https)). MagicDNS
-   must be on too; it is on by default.
+2. Keep MagicDNS on in the Tailscale admin console. It gives the computer a
+   name such as `my-laptop.example-tailnet.ts.net` and is on by default.
 3. On Linux only, run `sudo tailscale set --operator=$USER` once, so the app can
    set up Tailscale Serve without `sudo`.
 
 Then open **Settings → General → Cline Hub**. The **Phone access** block says
 which step is missing, or shows a QR code for
-`https://<machine>.<tailnet>.ts.net`. Scan it with the phone camera and
+`http://<machine>.<tailnet>.ts.net`. Scan it with the phone camera and
 bookmark the page. Phone access stops when the app quits. The switch turns it
 off for good.
 
@@ -156,10 +155,12 @@ Security, in plain words:
   with Tailscale access rules or turn phone access off.
 - Nobody outside your tailnet can reach it. The dashboard listens only on
   `127.0.0.1`, and the app never turns on Tailscale Funnel (public sharing).
-- Turning on HTTPS certificates puts the machine's ts.net name in public
-  certificate logs. The name gives no access.
-- The app only uses Tailscale Serve on port 443 when it is free or already
-  the app's own, and removes its setting on quit.
+- The address starts with `http`, so the phone browser may label the page
+  "Not secure". The connection is still encrypted: Tailscale encrypts all
+  traffic between your devices.
+- The app only uses Tailscale Serve on port 80 when it is free or already
+  the app's own, and removes its setting on quit. Other Serve settings, such
+  as one on port 443, are left alone.
 
 ## SSH Remote Environments
 
