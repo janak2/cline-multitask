@@ -5350,6 +5350,71 @@ describe("LocalRuntimeHost", () => {
 		});
 	});
 
+	it("records the current process on a session resumed from another process", async () => {
+		const sessionId = "sess-resume-new-process";
+		const sessionsDir = join(isolatedHomeDir, "sessions");
+		const manifest = {
+			...createManifest(sessionId),
+			pid: process.pid + 100_000,
+			status: "idle" as const,
+			interactive: true,
+		};
+		const updateSessionPid = vi.fn().mockResolvedValue({ updated: true });
+		const writeSessionManifest = vi.fn();
+		const sessionService = {
+			ensureSessionsDir: vi.fn().mockReturnValue(sessionsDir),
+			readSessionManifest: vi.fn().mockReturnValue(manifest),
+			createRootSessionWithArtifacts: vi.fn(),
+			persistSessionMessages: vi.fn(),
+			updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
+			updateSession: vi.fn().mockResolvedValue({ updated: true }),
+			updateSessionPid,
+			writeSessionManifest,
+			listSessions: vi.fn().mockResolvedValue([]),
+			deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+		};
+		const initialMessages: MessageWithMetadata[] = [
+			{ role: "user", content: "first prompt" },
+			{ role: "assistant", content: "first answer" },
+		];
+		const manager = new RuntimeHostUnderTest({
+			distinctId,
+			sessionService: sessionService as never,
+			runtimeBuilder: {
+				build: vi.fn().mockReturnValue({
+					tools: [],
+					registerLeadAgent: vi.fn(),
+					shutdown: vi.fn(),
+				}),
+			},
+			createAgent: () =>
+				({
+					run: vi.fn(),
+					continue: vi.fn(),
+					abort: vi.fn(),
+					subscribeEvents: vi.fn().mockReturnValue(() => {}),
+					canStartRun: vi.fn().mockReturnValue(true),
+					getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+					getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+					shutdown: vi.fn().mockResolvedValue(undefined),
+					getMessages: vi.fn().mockReturnValue(initialMessages),
+					messages: initialMessages,
+				}) as never,
+		});
+
+		await manager.startSession({
+			config: { ...createConfig({ sessionId }), cwd: undefined },
+			interactive: true,
+			initialMessages,
+		});
+
+		expect(updateSessionPid).toHaveBeenCalledWith(sessionId, process.pid);
+		expect(writeSessionManifest).toHaveBeenCalledWith(
+			join(sessionsDir, sessionId, `${sessionId}.json`),
+			expect.objectContaining({ pid: process.pid }),
+		);
+	});
+
 	it("restores full persisted aggregate usage when child message artifacts are missing", async () => {
 		const sessionId = "sess-resume-aggregate-metadata";
 		const sessionsDir = join(isolatedHomeDir, "sessions");

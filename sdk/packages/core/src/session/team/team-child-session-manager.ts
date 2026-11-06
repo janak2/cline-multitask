@@ -11,7 +11,10 @@ import type {
 } from "../../extensions/tools/team";
 import type { HookEventPayload } from "../../hooks";
 import { nowIso } from "../../services/session-artifacts";
-import { resolveMetadataWithTitle } from "../../services/session-data";
+import {
+	buildManifestFromRow,
+	resolveMetadataWithTitle,
+} from "../../services/session-data";
 import {
 	isNonTerminalSessionStatus,
 	type SessionStatus,
@@ -89,7 +92,9 @@ export class TeamChildSessionManager {
 		return {
 			sessionId: opts.sessionId,
 			source: root.source,
-			pid: root.pid,
+			// The child runs in this process; the root row may still carry the
+			// pid of an earlier process that has since exited.
+			pid: process.pid,
 			startedAt: opts.startedAt,
 			endedAt: null,
 			exitCode: null,
@@ -249,13 +254,24 @@ export class TeamChildSessionManager {
 			: status === "failed"
 				? 1
 				: 0;
-		await this.adapter.updateSession({
+		const result = await this.adapter.updateSession({
 			sessionId: subSessionId,
 			status,
 			endedAt,
 			exitCode,
 			expectedStatusLock: row.statusLock,
 		});
+		if (!result.updated) return;
+		// A status file may already exist (the stale-session check writes one);
+		// keep it in step with the row so it does not report an outdated status.
+		const { path, manifest } =
+			this.manifestStore.readManifestFile(subSessionId);
+		if (manifest) {
+			this.manifestStore.writeSessionManifest(
+				path,
+				buildManifestFromRow({ ...row, status, endedAt, exitCode }),
+			);
+		}
 	}
 
 	async applyStatusToRunningChildSessions(

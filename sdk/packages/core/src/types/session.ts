@@ -109,6 +109,7 @@ export type PreparedTurnInput = {
 export interface PersistedSessionUpdateInput {
 	sessionId: string;
 	expectedStatusLock?: number;
+	pid?: number;
 	status?: SessionStatus;
 	endedAt?: string | null;
 	exitCode?: number | null;

@@ -1164,6 +1164,14 @@ export class LocalRuntimeHost implements RuntimeHost {
 			this.deliverMultitaskTeamRunUpdates(sessionId);
 		}
 		if (resumedArtifacts) {
+			// The stale-session check treats a dead recorded pid as a crashed run,
+			// so a session resumed by a new process must record that process.
+			if (resumedArtifacts.manifest.pid !== process.pid) {
+				await this.invokeOptional("updateSessionPid", sessionId, process.pid);
+				await this.mutateSessionManifest(active, (manifest) => {
+					manifest.pid = process.pid;
+				});
+			}
 			await this.refreshActiveSessionGitMetadata(active, bootstrap.gitState);
 		}
 		// Sessions seeded with history (mode-switch restarts, forks, missing-
