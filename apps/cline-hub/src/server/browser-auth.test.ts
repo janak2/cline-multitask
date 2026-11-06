@@ -192,13 +192,14 @@ describe("requiresBrowserRequestAuth", () => {
 
 describe("isAuthorizedBrowserRequest", () => {
 	it.each([
-		["https://my-laptop.example-tailnet.ts.net", true],
-		["https://evil.example", false],
+		["http://my-laptop.example-tailnet.ts.net", true],
+		["https://my-laptop.example-tailnet.ts.net", false],
+		["http://evil.example", false],
 	])("checks Tailscale Serve upgrades from %s", (origin, allowed) => {
 		const options = {
 			bindHost: "127.0.0.1",
 			port: 43117,
-			publicUrl: "https://my-laptop.example-tailnet.ts.net",
+			publicUrl: "http://my-laptop.example-tailnet.ts.net",
 		};
 		const request = new Request("http://127.0.0.1:43117/browser", {
 			headers: {
@@ -207,7 +208,7 @@ describe("isAuthorizedBrowserRequest", () => {
 				upgrade: "websocket",
 				"x-forwarded-for": "100.64.0.2",
 				"x-forwarded-host": "my-laptop.example-tailnet.ts.net",
-				"x-forwarded-proto": "https",
+				"x-forwarded-proto": "http",
 			},
 		});
 		const url = new URL(request.url);

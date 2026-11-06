@@ -14,7 +14,7 @@ vi.mock("@/lib/desktop-client", () => ({
 	openExternalUrl,
 }));
 
-const URL = "https://my-laptop.example-tailnet.ts.net";
+const URL = "http://my-laptop.example-tailnet.ts.net";
 let root: Root;
 let container: HTMLDivElement;
 
@@ -76,10 +76,6 @@ it("names the missing setup step and checks again", async () => {
 		],
 		[{ state: "setup-needed", missing: "magicdns" }, "Turn on MagicDNS"],
 		[
-			{ state: "setup-needed", missing: "https-certificates" },
-			"Turn on HTTPS certificates",
-		],
-		[
 			{ state: "setup-needed", missing: "operator" },
 			"sudo tailscale set --operator=$USER",
 		],
@@ -94,7 +90,7 @@ it("names the missing setup step and checks again", async () => {
 });
 
 it("opens the admin console link", async () => {
-	await render({ state: "setup-needed", missing: "https-certificates" });
+	await render({ state: "setup-needed", missing: "magicdns" });
 	await click("Open DNS settings");
 	expect(openExternalUrl).toHaveBeenCalledWith(
 		"https://login.tailscale.com/admin/dns",

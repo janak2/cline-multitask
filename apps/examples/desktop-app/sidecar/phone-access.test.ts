@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	dashboardArgs,
 	PhoneAccess,
-	readPort443,
+	readPort80,
 	readTailscaleSetup,
 	SERVE_OFF_ARGS,
 	type ServeStatusJson,
@@ -22,11 +22,10 @@ import {
 } from "./phone-access";
 
 const NAME = "my-laptop.example-tailnet.ts.net";
-const URL = `https://${NAME}`;
+const URL = `http://${NAME}`;
 const READY: TailscaleStatusJson = {
 	BackendState: "Running",
 	Self: { DNSName: `${NAME}.` },
-	CertDomains: [NAME],
 	CurrentTailnet: { MagicDNSEnabled: true },
 };
 const SERVER_SCRIPT =
@@ -34,12 +33,17 @@ const SERVER_SCRIPT =
 const STUBBORN_SCRIPT = `process.on('SIGTERM',()=>{});${SERVER_SCRIPT}`;
 const DEAD_PID = 4_194_999;
 
-function serveConfig(target: string, funnel = false): ServeStatusJson {
+function serveConfig(target: string, port = 80): ServeStatusJson {
 	return {
-		TCP: { "443": { HTTPS: true } },
-		Web: { [`${NAME}:443`]: { Handlers: { "/": { Proxy: target } } } },
-		...(funnel ? { AllowFunnel: { [`${NAME}:443`]: true } } : {}),
+		TCP: { [port]: port === 80 ? { HTTP: true } : { HTTPS: true } },
+		Web: { [`${NAME}:${port}`]: { Handlers: { "/": { Proxy: target } } } },
 	};
+}
+
+function withoutPort80(config: ServeStatusJson): ServeStatusJson {
+	const { "80": _tcp, ...tcp } = config.TCP ?? {};
+	const { [`${NAME}:80`]: _web, ...web } = config.Web ?? {};
+	return { TCP: tcp, Web: web };
 }
 
 function startServer(port: number, script = SERVER_SCRIPT): ChildProcess {
@@ -79,12 +83,16 @@ function create(
 				return JSON.stringify({ OperatorUser: "me" });
 			if (command === "serve status --json") return JSON.stringify(serve);
 			if (command === SERVE_OFF_ARGS.join(" ")) {
-				serve = {};
+				serve = withoutPort80(serve);
 				return "";
 			}
 			if (args[1] === "--bg") {
 				if (serveError) throw new Error(serveError);
-				serve = serveConfig(args[3] ?? "");
+				const added = serveConfig(args[3] ?? "");
+				serve = {
+					TCP: { ...serve.TCP, ...added.TCP },
+					Web: { ...serve.Web, ...added.Web },
+				};
 				return "";
 			}
 			throw new Error(`unexpected tailscale ${command}`);
@@ -125,7 +133,7 @@ afterEach(async () => {
 });
 
 describe("readTailscaleSetup", () => {
-	it("is ready with a name, certificates and a matching operator", () => {
+	it("is ready with a name and a matching operator", () => {
 		expect(readTailscaleSetup(READY, { OperatorUser: "me" }, "me")).toEqual({
 			name: NAME,
 		});
@@ -138,7 +146,6 @@ describe("readTailscaleSetup", () => {
 			[{ ...READY, BackendState: "NeedsLogin" }, "sign-in"],
 			[{ ...READY, Self: { DNSName: "" } }, "magicdns"],
 			[{ ...READY, CurrentTailnet: { MagicDNSEnabled: false } }, "magicdns"],
-			[{ ...READY, CertDomains: null }, "https-certificates"],
 		];
 		for (const [input, missing] of cases) {
 			expect(readTailscaleSetup(input, undefined, undefined)).toEqual({
@@ -169,16 +176,16 @@ describe("commands", () => {
 		]);
 	});
 
-	it("reads what Serve port 443 forwards to", () => {
-		expect(readPort443({})).toEqual({ kind: "free" });
-		expect(readPort443(serveConfig("http://127.0.0.1:1"))).toEqual({
+	it("reads what Serve port 80 forwards to", () => {
+		expect(readPort80({})).toEqual({ kind: "free" });
+		expect(readPort80(serveConfig("http://127.0.0.1:1", 443))).toEqual({
+			kind: "free",
+		});
+		expect(readPort80(serveConfig("http://127.0.0.1:1"))).toEqual({
 			kind: "proxy",
 			target: "http://127.0.0.1:1",
 		});
-		expect(readPort443(serveConfig("http://127.0.0.1:1", true))).toEqual({
-			kind: "other",
-		});
-		expect(readPort443({ TCP: { "443": { TCPForward: "x:1" } } })).toEqual({
+		expect(readPort80({ TCP: { "80": { TCPForward: "x:1" } } })).toEqual({
 			kind: "other",
 		});
 	});
@@ -190,7 +197,7 @@ describe("PhoneAccess", () => {
 		expect(result).toEqual({ state: "running", url: URL, elsewhere: false });
 		expect(children).toHaveLength(1);
 		const target = serveCalls()[0]?.[3] ?? "";
-		expect(serveCalls()).toEqual([["serve", "--bg", "--https=443", target]]);
+		expect(serveCalls()).toEqual([["serve", "--bg", "--http=80", target]]);
 		expect(await fetch(`${target}/`).then((r) => r.text())).toBe("ok");
 		expect(readState()).toEqual({
 			version: 1,
@@ -227,7 +234,7 @@ describe("PhoneAccess", () => {
 		await waitForExit(children[0] as ChildProcess);
 	});
 
-	it("turns Serve off on shutdown, but only if 443 is still ours", async () => {
+	it("turns Serve off on shutdown, but only if port 80 is still ours", async () => {
 		await create().refresh();
 		await controller?.dispose();
 		expect(serveCalls().at(-1)).toEqual(SERVE_OFF_ARGS);
@@ -268,18 +275,19 @@ describe("PhoneAccess", () => {
 		expect(serveCalls().at(-1)).toEqual(SERVE_OFF_ARGS);
 	});
 
-	it("leaves an unrelated Serve setting or Funnel alone", async () => {
-		for (const config of [
-			serveConfig("http://127.0.0.1:9999"),
-			serveConfig("http://127.0.0.1:9999", true),
-		]) {
-			serve = config;
-			calls = [];
-			expect(await create().refresh()).toMatchObject({ state: "blocked" });
-			expect(serveCalls()).toEqual([]);
-			expect(children).toHaveLength(0);
-			await controller?.dispose();
-		}
+	it("leaves an unrelated port 80 setting alone", async () => {
+		serve = serveConfig("http://127.0.0.1:9999");
+		expect(await create().refresh()).toMatchObject({ state: "blocked" });
+		expect(serveCalls()).toEqual([]);
+		expect(children).toHaveLength(0);
+	});
+
+	it("leaves a port 443 setting alone", async () => {
+		const https = serveConfig("http://127.0.0.1:9999", 443);
+		serve = https;
+		expect(await create().refresh()).toMatchObject({ state: "running" });
+		await controller?.dispose();
+		expect(serve).toEqual(https);
 	});
 
 	it("replaces a leftover from a crashed app", async () => {

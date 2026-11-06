@@ -40,10 +40,6 @@ const SETUP_STEPS: Record<
 		message: "Turn on MagicDNS in the Tailscale admin console.",
 		link: { label: "Open DNS settings", url: TAILSCALE_DNS_PAGE },
 	},
-	"https-certificates": {
-		message: "Turn on HTTPS certificates in the Tailscale admin console.",
-		link: { label: "Open DNS settings", url: TAILSCALE_DNS_PAGE },
-	},
 	operator: {
 		message: (
 			<>
@@ -154,6 +150,10 @@ export function PhoneAccessPanel() {
 						<p className="text-muted-foreground">
 							Any device in your Tailscale network can open this and control
 							Cline on this computer.
+						</p>
+						<p className="text-muted-foreground">
+							The phone browser may call the page "Not secure" because it uses
+							http. Tailscale still encrypts the connection.
 						</p>
 					</div>
 				</div>
