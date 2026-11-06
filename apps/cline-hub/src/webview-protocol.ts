@@ -118,6 +118,7 @@ export type WebviewSessionSummary = {
 	workspaceRoot?: string;
 	createdAt?: number;
 	updatedAt?: number;
+	parentSessionId?: string;
 	inputTokens?: number;
 	outputTokens?: number;
 	totalCost?: number;

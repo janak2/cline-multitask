@@ -469,6 +469,8 @@ export function trackSession(record: unknown): TrackedSession | undefined {
 			asTimestamp(metadata.updatedAt) ??
 			createdAt,
 		createdByClientId: asString(raw.createdByClientId),
+		parentSessionId:
+			asString(raw.parentSessionId) ?? asString(metadata.parentSessionId),
 		prompt: asString(raw.prompt) ?? asString(metadata.prompt),
 		inputTokens:
 			asNumber(usage.inputTokens) ??
@@ -562,6 +564,7 @@ export function toWebviewSessionSummary(
 		workspaceRoot: session.workspaceRoot,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
+		parentSessionId: session.parentSessionId,
 		inputTokens: session.inputTokens,
 		outputTokens: session.outputTokens,
 		totalCost: session.totalCost,

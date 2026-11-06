@@ -37,6 +37,7 @@ export type TrackedSession = {
 	createdAt: number;
 	updatedAt: number;
 	createdByClientId?: string;
+	parentSessionId?: string;
 	prompt?: string;
 	inputTokens?: number;
 	outputTokens?: number;
