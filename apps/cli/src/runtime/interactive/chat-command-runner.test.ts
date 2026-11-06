@@ -273,6 +273,28 @@ describe("runInteractiveChatCommand", () => {
 		expect(runtime.restartEmpty).not.toHaveBeenCalled();
 	});
 
+	it("turns multitask on and sends a task in one go", async () => {
+		const config = makeConfig();
+		const runtime = makeRuntime();
+		const setMultitask = vi.fn();
+
+		const result = await runMultitaskCommand(
+			"/multitask add dark mode",
+			config,
+			runtime,
+			{ setMultitask },
+		);
+
+		expect(result).toEqual({
+			handled: false,
+			input: "add dark mode",
+			commandOutput: "Multitask mode is on.",
+		});
+		expect(setMultitask.mock.calls).toEqual([[true]]);
+		expect(config.enableAgentTeams).toBe(true);
+		expect(runtime.restartWithCurrentMessages).toHaveBeenCalledOnce();
+	});
+
 	it("stops teammates without changing the mode", async () => {
 		const config = makeConfig();
 		const runtime = makeRuntime();

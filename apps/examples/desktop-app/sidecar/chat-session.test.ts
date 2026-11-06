@@ -3370,18 +3370,40 @@ describe("/multitask", () => {
 		);
 	});
 
+	it("turns the mode on and sends a task in one go", async () => {
+		const { ctx, send, sessionId, events, sendPrompt } =
+			createMultitaskContext();
+		const session = ctx.liveSessions.get(sessionId);
+		if (session) session.busy = false;
+
+		const result = await sendPrompt("/multitask Add dark mode");
+
+		expect(result).not.toMatchObject({ commandHandled: true });
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "Add dark mode", multitask: true }),
+		);
+		expect(events("multitask_state")).toEqual([
+			expect.objectContaining({ sessionId, enabled: true }),
+		]);
+		expect(session?.prompt).toBe("/multitask Add dark mode");
+	});
+
 	it("is refused when the Teams tool is disabled", async () => {
 		const previousDataDir = process.env.CLINE_DATA_DIR;
 		const dataDir = mkdtempSync(join(tmpdir(), "cline-multitask-settings-"));
 		process.env.CLINE_DATA_DIR = dataDir;
 		try {
 			writeGlobalSettings({ disabledTools: ["teams"] });
-			const { ctx, sessionId, sendPrompt } = createMultitaskContext();
+			const { ctx, send, sessionId, sendPrompt } = createMultitaskContext();
 
 			await expect(sendPrompt("/multitask on")).rejects.toThrow(
 				"Agent teams are disabled",
 			);
+			await expect(sendPrompt("/multitask add dark mode")).rejects.toThrow(
+				"Agent teams are disabled",
+			);
 			expect(ctx.liveSessions.get(sessionId)?.multitask).toBeUndefined();
+			expect(send).not.toHaveBeenCalled();
 		} finally {
 			if (previousDataDir === undefined) {
 				delete process.env.CLINE_DATA_DIR;

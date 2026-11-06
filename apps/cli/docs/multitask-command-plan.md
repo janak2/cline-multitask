@@ -27,7 +27,7 @@ This mirrors Cursor's Multitask Mode. It works in both Cline Desktop (`apps/exam
 6. To stop every background teammate at once, the user types `/multitask stop`. In Desktop, a **Stop teammates** button next to the badge does the same; it shows while teammate runs are active, with their count. The lead's own turn is not stopped, and the teammates stay on the team, so a later follow-up can reuse them.
 7. `/multitask off` removes the badge. From the next message on, the lead behaves as it does today.
 
-`/multitask` with no argument and `/multitask on` both turn the mode on. `/multitask stop` stops teammates. Any other argument prints a usage line.
+`/multitask` with no argument and `/multitask on` both turn the mode on. `/multitask stop` stops teammates. Any other argument is a task: `/multitask add dark mode` turns the mode on, with the same checks as `on`, and sends "add dark mode" as the first multitask message, in one go.
 
 ## 4. How it works
 
@@ -360,23 +360,21 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 - New `src/utils/multitask-command.ts`, next to `team-command.ts`:
 
   ```ts
-  export const MULTITASK_COMMAND_USAGE =
-  	"Usage: /multitask [on|off|stop]\nRuns big tasks on background teammates so you can keep chatting. /multitask stop stops all teammates.";
-
   export function parseMultitaskCommand(
   	input: string,
   ):
   	| { kind: "none" }
-  	| { kind: "usage" }
   	| { kind: "stop" }
-  	| { kind: "set"; enabled: boolean } {
+  	| { kind: "set"; enabled: boolean }
+  	| { kind: "task"; task: string } {
   	const match = /^\/multitask\b([\s\S]*)$/i.exec(input.trim());
   	if (!match) return { kind: "none" };
-  	const arg = match[1].trim().toLowerCase();
+  	const task = match[1].trim();
+  	const arg = task.toLowerCase();
   	if (arg === "" || arg === "on") return { kind: "set", enabled: true };
   	if (arg === "off") return { kind: "set", enabled: false };
   	if (arg === "stop") return { kind: "stop" };
-  	return { kind: "usage" };
+  	return { kind: "task", task };
   }
   ```
 
@@ -385,6 +383,7 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   - Turning on with teams disabled (for example under `--yolo`) sets `config.enableAgentTeams = true` and a team name, like `/team`, but calls `restartWithCurrentMessages()` instead of `restartEmpty()`, so the conversation is kept. Add `restartWithCurrentMessages` to `InteractiveChatCommandRuntime`; the session runtime already returns it.
   - The reply is "Multitask mode is on." or "Multitask mode is off." With runs still active, the off reply adds "N teammate run(s) are still going; your next message waits for them."
   - `stop` calls a new `sessionRuntime.stopTeammates()` and replies "Stopped all background teammates." It works whether the mode is on or off, and does not change it.
+  - A task turns the mode on as above, shows "Multitask mode is on.", and returns the task text as the model input, so it is sent with `multitask: true` like any message in the mode.
 - `src/runtime/interactive/session-runtime.ts`: add `stopTeammates`, which calls `manager.abort(activeSessionId, "stopped_by_user", { scope: "teammates" })`, and add it to `InteractiveChatCommandRuntime`.
 - `src/runtime/run-interactive.ts`:
   - own `multitaskRef` and a set of active run IDs, kept with `trackActiveTeamRuns` in the existing `onTeamEvent` callback;
@@ -400,8 +399,8 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   `${count} teammate run(s) are active. Switching restarts the session; they will be interrupted and resumed where possible.`
   ```
 - `src/tui/commands/slash-command-registry.ts`: add `"multitask"` to `SYSTEM_COMMAND_ORDER` after `"team"`.
-- `src/tui/interactive-welcome.ts`: add `{ name: "multitask", instructions: "/multitask [on|off|stop]", description: "Run big tasks on background teammates" }`.
-- `src/tui/components/dialogs/help-dialog.tsx`: add a `/multitask` entry after `/team`.
+- `src/tui/interactive-welcome.ts`: add `{ name: "multitask", instructions: "/multitask [on|off|stop|<task>]", description: "Run big tasks on background teammates" }`.
+- `src/tui/components/dialogs/help-dialog.tsx`: add a `/multitask` entry after `/team`, noting that a task can be added.
 - `src/utils/chat-commands.ts`: register `/multitask` like `/team`, with a reply that it must be entered directly in the interactive chat.
 - `src/main.ts`: in single-prompt mode, reject `/multitask` with "/multitask is only available in interactive mode."
 
@@ -413,6 +412,7 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   - pull the availability checks out of `rewriteDesktopTeamPrompt` into `assertDesktopTeamsAvailable(availability)`, so `/team` and `/multitask` share them;
   - in `handleSendOnce`, next to the `/compact` branch, handle `/multitask`: refuse non-local bindings (SSH environments) with "/multitask is only available in local sessions.", check availability when turning on, set `session.multitask`, emit `chat_command_output` and a new `multitask_state` event `{ sessionId, enabled }`, then return `{ sessionId, ok: true, commandHandled: true, multitask }`;
   - in the same branch, handle `/multitask stop`: call `manager.abort(sessionId, "stopped_by_user", { scope: "teammates" })`, emit `chat_command_output` with "Stopped all background teammates.", and leave `session.busy` and `session.status` alone, unlike `handleAbort`;
+  - in the same branch, handle `/multitask <task>`: turn the mode on as for `on`, then fall through to the normal send with the task text as the runtime prompt. The raw `/multitask <task>` stays the display prompt, as it does for plugin commands that submit a prompt;
   - pass `multitask: session?.multitask` to both `manager.send` calls (the queued one, lines 1790–1796, and the direct one, lines 1849–1855). A session the user never switched sends nothing, which keeps the core's value;
   - in `handleAttach` and the resume branch of session start, set `multitask` from `metadata.multitask` and include it in the response (start includes it only when it is on);
   - in the cloud session router's `send` case, refuse `/multitask` with the same message, since cloud sessions never reach `handleSendOnce`.
@@ -474,9 +474,10 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   - `run.start` forwards `multitask`;
   - `run.abort` forwards `scope`, and with `"teammates"` does not reject pending approvals.
 - `sdk/packages/core/src/hub/runtime-host/hub-runtime-host.test.ts`: `runTurn` sends `multitask`, and `abort` sends `scope`.
-- `apps/cli/src/utils/multitask-command.test.ts` (new): no argument, `on`, `off`, `stop`, a bad argument, and a non-matching prompt.
+- `apps/cli/src/utils/multitask-command.test.ts` (new): no argument, `on`, `off`, `stop`, a task, and a non-matching prompt.
 - `apps/cli/src/runtime/interactive/chat-command-runner.test.ts`:
   - on and off replies;
+  - a task turns the mode on and comes back as the model input;
   - with teams disabled, turning on calls `restartWithCurrentMessages` and not `restartEmpty`;
   - `stop` calls `stopTeammates` and leaves the mode unchanged.
 - `apps/cli/src/tui/hooks/use-agent-events.test.ts` (new): the active-run count follows queued, started and terminal run events.
@@ -486,7 +487,8 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 - `apps/examples/desktop-app/sidecar/chat-session.test.ts`:
   - `/multitask` is handled without calling `manager.send`;
   - later sends pass `multitask: true`;
-  - it is refused when the Teams tool is disabled;
+  - `/multitask <task>` turns the mode on and sends the task with `multitask: true`;
+  - it is refused when the Teams tool is disabled, with or without a task;
   - attach restores it from metadata;
   - `/multitask stop` calls `manager.abort` with `scope: "teammates"` and leaves `busy` and `status` unchanged.
 - `apps/examples/desktop-app/webview/components/views/chat/chat-input-bar.test.tsx`:

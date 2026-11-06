@@ -123,8 +123,6 @@ const BUILTIN_SLASH_COMMAND_NAMES = new Set([
 	"team",
 	"multitask",
 ]);
-const MULTITASK_USAGE =
-	"Usage: /multitask [on|off|stop]. Runs big tasks on background teammates so you can keep chatting.";
 
 const FALLBACK_MANUAL_COMPACTION_MAX_INPUT_TOKENS = 64_000;
 const COMPACT_WHILE_RUNNING_MESSAGE =
@@ -310,9 +308,10 @@ function assertDesktopTeamsAvailable(availability: TeamPromptAvailability) {
 }
 
 /**
- * `/multitask [on|off|stop]`, handled without a model call. The mode lives
- * on the live session and travels with every later send; stop cancels the
- * session's teammate runs and leaves the lead's turn running.
+ * `/multitask [on|off|stop|<task>]`. The mode lives on the live session and
+ * travels with every later send; stop cancels the session's teammate runs and
+ * leaves the lead's turn running. Any other argument turns the mode on and is
+ * returned as `task` for the caller to send as a normal multitask message.
  */
 async function runMultitaskCommand(
 	ctx: SidecarContext,
@@ -321,27 +320,27 @@ async function runMultitaskCommand(
 	session: LiveSession | undefined,
 	prompt: string,
 	availability: TeamPromptAvailability,
-): Promise<unknown> {
+) {
 	if (!session) throw new Error(`Session ${sessionId} not found`);
-	const arg = prompt.slice("/multitask".length).trim().toLowerCase();
+	const task = prompt.slice("/multitask".length).trim();
+	const arg = task.toLowerCase();
 	let text: string;
 	if (arg === "stop") {
 		await manager.abort(sessionId, "stopped_by_user", { scope: "teammates" });
 		text = "Stopped all background teammates.";
-	} else if (arg === "" || arg === "on" || arg === "off") {
+	} else {
 		const enabled = arg !== "off";
 		if (enabled) assertDesktopTeamsAvailable(availability);
 		session.multitask = enabled;
 		sendEvent(ctx, "multitask_state", { sessionId, enabled });
 		text = enabled ? "Multitask mode is on." : "Multitask mode is off.";
-	} else {
-		throw new Error(MULTITASK_USAGE);
 	}
 	sendEvent(ctx, "chat_command_output", {
 		sessionId,
 		command: "multitask",
 		text,
 	});
+	if (!["", "on", "off", "stop"].includes(arg)) return { task };
 	return {
 		sessionId,
 		ok: true,
@@ -1714,13 +1713,21 @@ async function handleSendOnce(
 		});
 		return { sessionId, ok: true, commandHandled: true };
 	}
+	let multitaskTask: string | undefined;
 	if (commandName === "multitask") {
 		if (binding.kind !== "local") {
 			throw new Error("/multitask is only available in local sessions.");
 		}
-		return await runMultitaskCommand(ctx, manager, sessionId, session, prompt, {
-			mode: request.config?.mode ?? session?.config?.mode,
-		});
+		const multitask = await runMultitaskCommand(
+			ctx,
+			manager,
+			sessionId,
+			session,
+			prompt,
+			{ mode: request.config?.mode ?? session?.config?.mode },
+		);
+		if (!("task" in multitask)) return multitask;
+		multitaskTask = multitask.task;
 	}
 	const pluginCommand =
 		commandName && !BUILTIN_SLASH_COMMAND_NAMES.has(commandName)
@@ -1746,6 +1753,7 @@ async function handleSendOnce(
 	// Dispatch the expanded or rewritten instructions, but keep the raw
 	// `/command` token as the session's display prompt.
 	const runtimePrompt =
+		multitaskTask ??
 		pluginCommand?.submitPrompt ??
 		(binding.kind === "ssh"
 			? prompt

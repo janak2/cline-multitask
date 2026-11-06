@@ -5,10 +5,7 @@ import {
 	type ChatCommandState,
 	maybeHandleChatCommand,
 } from "../../utils/chat-commands";
-import {
-	MULTITASK_COMMAND_USAGE,
-	parseMultitaskCommand,
-} from "../../utils/multitask-command";
+import { parseMultitaskCommand } from "../../utils/multitask-command";
 import {
 	rewriteTeamPrompt,
 	TEAM_COMMAND_USAGE,
@@ -57,12 +54,6 @@ export async function runInteractiveChatCommand(input: {
 	onCommandOutput?: (text: string) => void;
 }): Promise<InteractiveChatCommandResult> {
 	const multitaskCommand = parseMultitaskCommand(input.prompt);
-	if (multitaskCommand.kind === "usage") {
-		return {
-			handled: true,
-			turnResult: commandTurnResult(MULTITASK_COMMAND_USAGE),
-		};
-	}
 	if (multitaskCommand.kind === "stop") {
 		await input.sessionRuntime.stopTeammates();
 		return {
@@ -70,13 +61,23 @@ export async function runInteractiveChatCommand(input: {
 			turnResult: commandTurnResult("Stopped all background teammates."),
 		};
 	}
-	if (multitaskCommand.kind === "set") {
-		if (multitaskCommand.enabled && !input.config.enableAgentTeams) {
+	if (multitaskCommand.kind === "set" || multitaskCommand.kind === "task") {
+		const enabled =
+			multitaskCommand.kind === "task" || multitaskCommand.enabled;
+		if (enabled && !input.config.enableAgentTeams) {
 			input.config.enableAgentTeams = true;
 			input.config.teamName = input.config.teamName?.trim() || createTeamName();
 			await input.sessionRuntime.restartWithCurrentMessages();
 		}
-		input.setMultitask(multitaskCommand.enabled);
+		input.setMultitask(enabled);
+		if (multitaskCommand.kind === "task") {
+			input.onCommandOutput?.("Multitask mode is on.");
+			return {
+				handled: false,
+				input: multitaskCommand.task,
+				commandOutput: "Multitask mode is on.",
+			};
+		}
 		const activeRuns = input.getActiveTeammateRuns();
 		return {
 			handled: true,

@@ -28,21 +28,19 @@ export function formatTeammateRestartWarning(
 		: undefined;
 }
 
-export const MULTITASK_COMMAND_USAGE =
-	"Usage: /multitask [on|off|stop]\nRuns big tasks on background teammates so you can keep chatting. /multitask stop stops all teammates.";
-
 export function parseMultitaskCommand(
 	input: string,
 ):
 	| { kind: "none" }
-	| { kind: "usage" }
 	| { kind: "stop" }
-	| { kind: "set"; enabled: boolean } {
+	| { kind: "set"; enabled: boolean }
+	| { kind: "task"; task: string } {
 	const match = /^\/multitask\b([\s\S]*)$/i.exec(input.trim());
 	if (!match) return { kind: "none" };
-	const arg = match[1].trim().toLowerCase();
+	const task = match[1].trim();
+	const arg = task.toLowerCase();
 	if (arg === "" || arg === "on") return { kind: "set", enabled: true };
 	if (arg === "off") return { kind: "set", enabled: false };
 	if (arg === "stop") return { kind: "stop" };
-	return { kind: "usage" };
+	return { kind: "task", task };
 }

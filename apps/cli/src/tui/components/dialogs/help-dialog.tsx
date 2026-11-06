@@ -173,7 +173,7 @@ const HELP_ROWS: HelpRow[] = [
 		kind: "entry",
 		id: "c-multitask",
 		key: "/multitask",
-		desc: "Run big tasks on background teammates",
+		desc: "Run big tasks on background teammates; add a task to start one",
 	},
 	{
 		kind: "entry",
