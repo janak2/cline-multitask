@@ -1557,6 +1557,53 @@ describe("HubServerTransport boundaries", () => {
 		});
 	});
 
+	it("keeps stored server-owned metadata when a client replaces session metadata", async () => {
+		const updateSession = vi.fn().mockResolvedValue({ updated: true });
+		const transport = createTransport({
+			sessionHost: {
+				updateSession,
+				getSession: vi.fn().mockResolvedValue({
+					sessionId: "session-1",
+					status: "completed",
+					startedAt: new Date(0).toISOString(),
+					updatedAt: new Date(0).toISOString(),
+					workspaceRoot: "/tmp/project",
+					cwd: "/tmp/project",
+					metadata: {
+						hubCapabilityOwnerClientId: "owner-client",
+						autoApproveTools: true,
+						title: "old title",
+					},
+				}),
+			},
+		});
+
+		await transport.handleCommand({
+			version: "v1",
+			requestId: "req-update",
+			command: "session.update",
+			clientId: "attacker-client",
+			sessionId: "session-1",
+			payload: {
+				metadata: {
+					hubCapabilityOwnerClientId: "attacker-client",
+					autoApproveTools: false,
+					title: "old title",
+					multitask: true,
+				},
+			},
+		});
+
+		expect(updateSession).toHaveBeenCalledWith("session-1", {
+			metadata: {
+				hubCapabilityOwnerClientId: "owner-client",
+				autoApproveTools: true,
+				title: "old title",
+				multitask: true,
+			},
+		});
+	});
+
 	it("forwards explicit session title and prompt updates to the session host", async () => {
 		const updateSession = vi.fn().mockResolvedValue({ updated: true });
 		const transport = createTransport({

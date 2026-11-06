@@ -3299,6 +3299,7 @@ describe("/multitask", () => {
 			messages: [],
 		}));
 		const abort = vi.fn(async () => undefined);
+		const update = vi.fn(async () => ({ updated: true }));
 		const ctx = {
 			liveSessions: new Map([
 				[
@@ -3320,6 +3321,7 @@ describe("/multitask", () => {
 				{
 					send,
 					abort,
+					update,
 					get: vi.fn(async () => ({
 						sessionId,
 						status: "idle",
@@ -3342,8 +3344,41 @@ describe("/multitask", () => {
 				.map((message) => message.event.payload);
 		const sendPrompt = (prompt: string) =>
 			handleChatSessionCommand(ctx, { action: "send", sessionId, prompt });
-		return { ctx, send, abort, sessionId, events, sendPrompt };
+		return { ctx, send, abort, update, sessionId, events, sendPrompt };
 	}
+
+	it("saves the mode in session metadata when it is toggled", async () => {
+		const previousDir = process.env.CLINE_SESSION_DATA_DIR;
+		const sessionsDir = mkdtempSync(
+			join(tmpdir(), "cline-multitask-sessions-"),
+		);
+		process.env.CLINE_SESSION_DATA_DIR = sessionsDir;
+		try {
+			const { update, sessionId, sendPrompt } = createMultitaskContext();
+			mkdirSync(join(sessionsDir, sessionId));
+			writeFileSync(
+				join(sessionsDir, sessionId, `${sessionId}.json`),
+				JSON.stringify({ metadata: { title: "Labeler" } }),
+			);
+
+			await sendPrompt("/multitask on");
+			expect(update).toHaveBeenLastCalledWith(sessionId, {
+				metadata: { title: "Labeler", multitask: true },
+			});
+
+			await sendPrompt("/multitask off");
+			expect(update).toHaveBeenLastCalledWith(sessionId, {
+				metadata: { title: "Labeler", multitask: false },
+			});
+		} finally {
+			if (previousDir === undefined) {
+				delete process.env.CLINE_SESSION_DATA_DIR;
+			} else {
+				process.env.CLINE_SESSION_DATA_DIR = previousDir;
+			}
+			rmSync(sessionsDir, { recursive: true, force: true });
+		}
+	});
 
 	it("turns the mode on without a model call and sends it with later turns", async () => {
 		const { ctx, send, sessionId, events, sendPrompt } =

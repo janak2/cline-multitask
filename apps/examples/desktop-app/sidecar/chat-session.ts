@@ -331,6 +331,11 @@ async function runMultitaskCommand(
 	} else {
 		const enabled = arg !== "off";
 		if (enabled) assertDesktopTeamsAvailable(availability);
+		// Core only saves the mode when a turn runs; save it now so a restart
+		// before the next message still restores it on attach.
+		await manager.update(sessionId, {
+			metadata: { ...readSessionMetadata(sessionId), multitask: enabled },
+		});
 		session.multitask = enabled;
 		sendEvent(ctx, "multitask_state", { sessionId, enabled });
 		text = enabled ? "Multitask mode is on." : "Multitask mode is off.";
