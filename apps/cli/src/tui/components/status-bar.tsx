@@ -125,6 +125,12 @@ export function resolveModelMaxInputTokens(config: {
 	return undefined;
 }
 
+export function formatMultitaskStatusText(activeTeammateRuns: number): string {
+	return activeTeammateRuns > 0
+		? `● Multitask · ${activeTeammateRuns} teammate${activeTeammateRuns === 1 ? "" : "s"} running (/multitask stop)`
+		: "● Multitask";
+}
+
 export interface StatusBarCloud {
 	target: "local" | "cloud";
 	repoFullName?: string;
@@ -147,6 +153,8 @@ export interface StatusBarProps {
 	maxInputTokens?: number;
 	uiMode: AgentMode;
 	autoApproveAll: boolean;
+	multitask: boolean;
+	activeTeammateRuns: number;
 	workspaceName: string;
 	gitBranch: string | null;
 	gitDiffStats: {
@@ -167,6 +175,8 @@ export function StatusBar(props: StatusBarProps) {
 		maxInputTokens,
 		uiMode,
 		autoApproveAll,
+		multitask,
+		activeTeammateRuns,
 		workspaceName,
 		gitBranch,
 		gitDiffStats,
@@ -316,6 +326,12 @@ export function StatusBar(props: StatusBarProps) {
 						(Ctrl+O)
 					</text>
 				))}
+
+			{!isCloud && multitask && (
+				<text fg={actAccent}>
+					{formatMultitaskStatusText(activeTeammateRuns)}
+				</text>
+			)}
 
 			{!isCloud &&
 				(autoApproveAll ? (

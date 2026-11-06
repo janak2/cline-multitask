@@ -1576,6 +1576,8 @@ function ChatThreadPane({
 		summary,
 		fileDiffs,
 		promptsInQueue,
+		multitaskEnabled,
+		activeTeammateRuns,
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,
@@ -3093,15 +3095,17 @@ function ChatThreadPane({
 		displayedStatus === "starting" ||
 		displayedStatus === "running" ||
 		displayedStatus === "stopping";
+	// Teammates keep running after the lead goes idle.
+	const agentsActive = isSessionActive || activeTeammateRuns > 0;
 	const derivedAgentActivity = useMemo(
 		() =>
 			buildSessionAgentActivity(
 				showingHistoryPreview ? [] : displayedMessages,
 				{
-					sessionActive: isSessionActive,
+					sessionActive: agentsActive,
 				},
 			),
-		[displayedMessages, isSessionActive, showingHistoryPreview],
+		[displayedMessages, agentsActive, showingHistoryPreview],
 	);
 	// The roster is read for every displayed session, not gated on the tally
 	// above: that tally only sees the newest messages, so gating on it would hide
@@ -3116,14 +3120,14 @@ function ChatThreadPane({
 		environmentId,
 		sessionId: isCloudSession ? null : displayedSessionId,
 		panelOpen: agentPanelOpen,
-		sessionActive: isSessionActive,
+		sessionActive: agentsActive,
 	});
 	const agentActivity = useMemo(
 		() =>
 			mergeAgentActivity(agents, derivedAgentActivity, {
-				sessionActive: isSessionActive,
+				sessionActive: agentsActive,
 			}),
-		[agents, derivedAgentActivity, isSessionActive],
+		[agents, derivedAgentActivity, agentsActive],
 	);
 	// A child agent has its own session row, so opening it goes through the same
 	// path as any other session — it is just never listed in the sidebar.
@@ -3306,6 +3310,8 @@ function ChatThreadPane({
 			model={config.model}
 			modelContextWindow={modelContextWindow}
 			mode={config.mode}
+			multitaskEnabled={multitaskEnabled}
+			activeTeammateRuns={activeTeammateRuns}
 			promptsInQueue={promptsInQueue}
 			promptDraft={promptDraft}
 			provider={config.provider}

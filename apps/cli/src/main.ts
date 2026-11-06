@@ -37,6 +37,7 @@ import {
 	normalizeAutoApproveArgs,
 	resolveWorkspaceRoot,
 } from "./utils/helpers";
+import { parseMultitaskCommand } from "./utils/multitask-command";
 import {
 	c,
 	installStreamErrorGuards,
@@ -1150,6 +1151,11 @@ export async function runCli(): Promise<void> {
 				const prompt = args.prompt
 					? `${args.prompt}\n\n${pipedInput}`
 					: pipedInput;
+				if (parseMultitaskCommand(prompt).kind !== "none") {
+					writeErr("/multitask is only available in interactive mode.");
+					process.exitCode = 1;
+					return;
+				}
 				const rewrittenTeamPrompt = rewriteTeamPrompt(prompt);
 				if (rewrittenTeamPrompt.kind === "usage") {
 					writeln(TEAM_COMMAND_USAGE);
@@ -1219,6 +1225,11 @@ export async function runCli(): Promise<void> {
 		}
 
 		// Single prompt mode
+		if (parseMultitaskCommand(args.prompt).kind !== "none") {
+			writeErr("/multitask is only available in interactive mode.");
+			process.exitCode = 1;
+			return;
+		}
 		const rewrittenTeamPrompt = rewriteTeamPrompt(args.prompt);
 		if (rewrittenTeamPrompt.kind === "usage") {
 			writeln(TEAM_COMMAND_USAGE);

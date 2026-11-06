@@ -139,6 +139,8 @@ export type ChatSessionCommandResponse = {
 	commandHandled?: boolean;
 	/** One line per plugin the started session could not load. */
 	pluginWarnings?: string[];
+	/** Multitask mode of a started or resumed session. */
+	multitask?: boolean;
 	recoveredAfterDisconnect?: boolean;
 	status?: string;
 	promptsInQueue?: PromptInQueue[];

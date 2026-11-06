@@ -171,6 +171,12 @@ const HELP_ROWS: HelpRow[] = [
 	},
 	{
 		kind: "entry",
+		id: "c-multitask",
+		key: "/multitask",
+		desc: "Run big tasks on background teammates; add a task to start one",
+	},
+	{
+		kind: "entry",
 		id: "c-history",
 		key: "/history",
 		desc: "View and resume past sessions",

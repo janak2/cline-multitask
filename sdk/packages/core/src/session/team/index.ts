@@ -1,6 +1,7 @@
 export { TeamChildSessionManager } from "./team-child-session-manager";
 export {
 	buildTeamRunContinuationPrompt,
+	buildTeamRunDeliveryPrompt,
 	dispatchTeamEventToBackend,
 	emitTeamProgress,
 	formatModePrompt,

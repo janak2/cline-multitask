@@ -45,6 +45,25 @@ export function formatModeSwitchNotice(
 	return `<mode_notice>The user switched from ${from} mode to ${to} mode before sending this message.</mode_notice>`;
 }
 
+export const MULTITASK_INSTRUCTIONS = `Multitask mode is on. You coordinate background teammates while the user keeps chatting with you.
+- Hand substantial work (code changes, investigations, anything needing more than a few tool calls) to a teammate. Use one coherent teammate by default: spawn it with team_spawn_teammate if no existing teammate fits, then call team_run_task with runMode "async".
+- Use several teammates only for clearly independent workstreams that will not touch the same files.
+- Do not redo or duplicate delegated work yourself.
+- For a follow-up on work a teammate already did, reuse that teammate: call team_run_task with the same agentId and continueConversation true.
+- Answer quick questions and trivial requests directly, without a teammate.
+- Never wait for teammates. Do not call team_await_runs, do not sleep, and do not poll. After delegating, tell the user in one or two sentences what you handed off and to whom, then end your turn.
+- Teammate results arrive later as system-delivered messages. When one arrives, tell the user the outcome briefly and decide whether follow-up work is needed.
+- The user can stop all teammates at any time. Stopped runs show as cancelled in team_list_runs; do not restart them unless the user asks.`;
+
+/**
+ * Coordinator instructions prepended to every user message sent in multitask
+ * mode. Like <mode_notice>, it reaches the model and is hidden from display
+ * by stripModeNotices.
+ */
+export function formatMultitaskNotice(): string {
+	return `<multitask_mode>${MULTITASK_INSTRUCTIONS}</multitask_mode>`;
+}
+
 export type ModeSwitchNotice = {
 	from: "act" | "plan";
 	to: "act" | "plan";
@@ -146,7 +165,8 @@ export function normalizeUserInput(input?: string): string {
 }
 
 /**
- * Removes runtime-generated <mode_notice> elements (content included): they
+ * Removes runtime-generated <mode_notice> and <multitask_mode> elements
+ * (content included): they
  * are not user-typed text and must not render as such. Deliberately NOT part
  * of normalizeUserInput -- that function also sanitizes outbound prompts
  * before the host wraps them (prepareTurnInput), and stripping there deletes
@@ -154,7 +174,10 @@ export function normalizeUserInput(input?: string): string {
  */
 export function stripModeNotices(input?: string): string {
 	if (!input?.trim()) return "";
-	return removeTagElements(input, "mode_notice").trim();
+	return removeTagElements(
+		removeTagElements(input, "mode_notice"),
+		"multitask_mode",
+	).trim();
 }
 
 // indexOf-based rather than a regex: a lazy dot-all pattern re-scans to the

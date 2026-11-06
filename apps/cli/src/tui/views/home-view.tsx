@@ -146,6 +146,8 @@ export function HomeView(props: {
 								maxInputTokens={maxInputTokens}
 								uiMode={session.uiMode}
 								autoApproveAll={session.autoApproveAll}
+								multitask={session.multitask}
+								activeTeammateRuns={session.activeTeammateRuns}
 								workspaceName={
 									config.workspaceRoot
 										? (config.workspaceRoot.split("/").pop() ?? "")

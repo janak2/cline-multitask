@@ -25,6 +25,10 @@ export type ActiveSession = {
 	agent: SessionRuntime;
 	started: boolean;
 	aborting: boolean;
+	/** Last multitask flag a user turn carried; persisted as metadata.multitask. */
+	multitask?: boolean;
+	/** Set while stop-all cancels teammate runs, so they are not delivered. */
+	stoppingTeammates?: boolean;
 	/** Epoch ms the last turn ended; labels the next input for stall analysis. */
 	lastTurnEndedAt?: number;
 	interactive: boolean;
@@ -76,6 +80,7 @@ export type PendingPrompt = {
 	id: string;
 	prompt: string;
 	mode?: CoreAgentMode;
+	multitask?: boolean;
 	delivery: "queue" | "steer";
 	userImages?: string[];
 	userFiles?: string[];
@@ -88,6 +93,7 @@ export type TeamRunUpdate = {
 	status: "completed" | "failed" | "cancelled" | "interrupted";
 	error?: string;
 	iterations?: number;
+	text?: string;
 };
 
 export type StoredMessageWithMetadata = LlmsProviders.MessageWithMetadata;
@@ -103,6 +109,7 @@ export type PreparedTurnInput = {
 export interface PersistedSessionUpdateInput {
 	sessionId: string;
 	expectedStatusLock?: number;
+	pid?: number;
 	status?: SessionStatus;
 	endedAt?: string | null;
 	exitCode?: number | null;

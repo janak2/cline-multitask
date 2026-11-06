@@ -17,6 +17,7 @@ export interface PendingPromptEntry {
 	id: string;
 	prompt: string;
 	mode?: AgentMode;
+	multitask?: boolean;
 	delivery: PendingPromptDelivery;
 	userImages?: string[];
 	userFiles?: string[];
@@ -33,6 +34,7 @@ export interface PendingPromptsControllerDeps {
 		sessionId: string;
 		prompt: string;
 		mode?: AgentMode;
+		multitask?: boolean;
 		userImages?: string[];
 		userFiles?: string[];
 	}): Promise<unknown>;
@@ -41,6 +43,7 @@ export interface PendingPromptsControllerDeps {
 export interface PendingPromptEnqueueInput {
 	prompt: string;
 	mode?: AgentMode;
+	multitask?: boolean;
 	delivery: PendingPromptDelivery;
 	userImages?: string[];
 	userFiles?: string[];
@@ -138,7 +141,7 @@ export class PendingPromptService {
 		state: PendingPromptQueueState,
 		input: PendingPromptEnqueueInput,
 	): SessionPendingPrompt[] {
-		const { prompt, mode, delivery, userImages, userFiles } = input;
+		const { prompt, mode, multitask, delivery, userImages, userFiles } = input;
 		const existingIndex = state.pendingPrompts.findIndex(
 			(queued) => queued.prompt === prompt,
 		);
@@ -148,6 +151,7 @@ export class PendingPromptService {
 				...existing,
 				prompt,
 				mode: mode ?? existing.mode,
+				multitask: multitask ?? existing.multitask,
 				userImages: userImages ?? existing.userImages,
 				userFiles: userFiles ?? existing.userFiles,
 			};
@@ -161,6 +165,7 @@ export class PendingPromptService {
 				id: `pending_${Date.now()}_${nanoid(5)}`,
 				prompt,
 				mode,
+				multitask,
 				delivery,
 				userImages,
 				userFiles,
@@ -258,6 +263,7 @@ export class PendingPromptsController {
 		entry: {
 			prompt: string;
 			mode?: AgentMode;
+			multitask?: boolean;
 			delivery: "queue" | "steer";
 			userImages?: string[];
 			userFiles?: string[];
@@ -345,6 +351,7 @@ export class PendingPromptsController {
 				sessionId,
 				prompt: next.prompt,
 				...(next.mode ? { mode: next.mode } : {}),
+				...(next.multitask !== undefined ? { multitask: next.multitask } : {}),
 				userImages: next.userImages,
 				userFiles: next.userFiles,
 			});

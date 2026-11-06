@@ -1818,6 +1818,28 @@ describe("HubRuntimeHost", () => {
 		);
 	});
 
+	it("sends the multitask flag with a run and the scope with an abort", async () => {
+		commandMock.mockResolvedValue({ ok: true, payload: {} });
+
+		const { HubRuntimeHost } = await import("./hub-runtime-host");
+		const host = new HubRuntimeHost({ url: "ws://127.0.0.1:25463/hub" });
+
+		await host.runTurn({ sessionId: "sess-1", prompt: "go", multitask: true });
+		await host.abort("sess-1", "stopped_by_user", { scope: "teammates" });
+
+		expect(commandMock).toHaveBeenCalledWith(
+			"run.start",
+			expect.objectContaining({ multitask: true }),
+			"sess-1",
+			{ timeoutMs: null },
+		);
+		expect(commandMock).toHaveBeenCalledWith(
+			"run.abort",
+			{ sessionId: "sess-1", reason: "stopped_by_user", scope: "teammates" },
+			"sess-1",
+		);
+	});
+
 	it("serializes error abort reasons for hub abort commands", async () => {
 		commandMock.mockResolvedValue({ ok: true, payload: { applied: true } });
 

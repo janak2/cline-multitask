@@ -9,6 +9,7 @@ import {
 	type BasicLogger,
 	captureSdkError,
 	createSessionId,
+	formatMultitaskNotice,
 	type ITelemetryService,
 	isLikelyAuthError,
 	normalizeUserInput,
@@ -104,6 +105,7 @@ import { createCoreSessionSnapshot } from "../../session/session-snapshot";
 import { SessionVersioningService } from "../../session/session-versioning-service";
 import {
 	buildTeamRunContinuationPrompt,
+	buildTeamRunDeliveryPrompt,
 	formatModePrompt,
 	hasPendingTeamRunWork,
 	notifyTeamRunWaiters,
@@ -683,6 +685,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// no session and be dropped, so hold them until registration below.
 		let heldSessionEvents: Array<{ name: string; payload?: unknown }> | null =
 			[];
+		// Team persistence recovers runs while the runtime is built, also
+		// before registration; hold those events so run tracking sees them.
+		let heldTeamEvents: TeamEvent[] | null = [];
 		const subAgentDeps = {
 			getSession: (sid: string) => this.sessions.get(sid),
 			subAgentStarts: this.subAgentStarts,
@@ -753,7 +758,12 @@ export class LocalRuntimeHost implements RuntimeHost {
 				});
 			},
 			onTeamEvent: (event: TeamEvent) => {
-				void this.eventBridge.handleTeamEvent(sessionId, event);
+				if (heldTeamEvents) {
+					heldTeamEvents.push(event);
+				} else {
+					void this.eventBridge.handleTeamEvent(sessionId, event);
+					this.deliverMultitaskTeamRunUpdates(sessionId);
+				}
 				bootstrap.config.onTeamEvent?.(event);
 			},
 			createSpawnTool: () =>
@@ -980,12 +990,21 @@ export class LocalRuntimeHost implements RuntimeHost {
 			telemetry: configWithProvider.telemetry,
 			onConsecutiveMistakeLimitReached:
 				configWithProvider.onConsecutiveMistakeLimitReached,
-			completionPolicy: runtime.completionPolicy,
+			// Multitask leads end their turn while teammates run.
+			completionPolicy: runtime.completionPolicy && {
+				...runtime.completionPolicy,
+				completionGuard: () =>
+					activeSessionRef?.multitask
+						? undefined
+						: runtime.completionPolicy?.completionGuard?.(),
+			},
 			consumePendingUserMessage: () => {
 				const entry = this.pendingPromptsController.consumeSteer(sessionId);
 				return entry
 					? formatModePrompt(
-							entry.prompt,
+							entry.multitask
+								? `${formatMultitaskNotice()}\n${entry.prompt}`
+								: entry.prompt,
 							entry.mode ?? configWithProvider.mode,
 						)
 					: undefined;
@@ -1090,6 +1109,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 				resumedArtifacts?.manifest.status ??
 				(startsWithoutTurn ? "idle" : "running"),
 			aborting: false,
+			multitask: initialSessionMetadata?.multitask === true,
 			interactive: input.interactive === true,
 			persistedMessages: initialMessages,
 			compactionState: initialCompactionState,
@@ -1134,7 +1154,24 @@ export class LocalRuntimeHost implements RuntimeHost {
 				pluginEventFallbackTelemetry,
 			);
 		}
+		const heldTeam = heldTeamEvents ?? [];
+		heldTeamEvents = null;
+		for (const event of heldTeam) {
+			void this.eventBridge.handleTeamEvent(sessionId, event);
+		}
+		// With a start prompt, its turn delivers them when it completes.
+		if (!startInput.prompt?.trim()) {
+			this.deliverMultitaskTeamRunUpdates(sessionId);
+		}
 		if (resumedArtifacts) {
+			// The stale-session check treats a dead recorded pid as a crashed run,
+			// so a session resumed by a new process must record that process.
+			if (resumedArtifacts.manifest.pid !== process.pid) {
+				await this.invokeOptional("updateSessionPid", sessionId, process.pid);
+				await this.mutateSessionManifest(active, (manifest) => {
+					manifest.pid = process.pid;
+				});
+			}
 			await this.refreshActiveSessionGitMetadata(active, bootstrap.gitState);
 		}
 		// Sessions seeded with history (mode-switch restarts, forks, missing-
@@ -1300,6 +1337,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 			this.pendingPromptsController.enqueue(input.sessionId, {
 				prompt: input.prompt,
 				mode: input.mode,
+				multitask: input.multitask,
 				delivery,
 				userImages: input.userImages,
 				userFiles: input.userFiles,
@@ -1310,6 +1348,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 			const result = await this.executeTurn(session, {
 				prompt: input.prompt,
 				mode: input.mode,
+				multitask: input.multitask,
 				userImages: input.userImages,
 				userFiles: input.userFiles,
 			});
@@ -1362,9 +1401,17 @@ export class LocalRuntimeHost implements RuntimeHost {
 		return usage || aggregateUsage ? { usage, aggregateUsage } : undefined;
 	}
 
-	async abort(sessionId: string, reason?: unknown): Promise<void> {
+	async abort(
+		sessionId: string,
+		reason?: unknown,
+		options?: { scope?: "turn" | "teammates" },
+	): Promise<void> {
 		const session = this.sessions.get(sessionId);
 		if (!session) return;
+		if (options?.scope === "teammates") {
+			this.cancelTeammateRuns(session, reason ?? "stopped_by_user");
+			return;
+		}
 		session.config.telemetry?.capture({
 			event: "session.aborted",
 			properties: { sessionId },
@@ -1381,17 +1428,46 @@ export class LocalRuntimeHost implements RuntimeHost {
 		if (session.drainingPendingPrompts) {
 			this.pendingPromptsController.discardQueue(session);
 		}
-		const teamRuntime = session.runtime.teamRuntime;
 		try {
-			teamRuntime?.cancelOutstandingWork(reason);
+			// In multitask mode, abort stops only the lead's turn.
+			if (!session.multitask) this.cancelTeammateRuns(session, reason);
 		} finally {
-			if (teamRuntime) {
-				session.activeTeamRunIds.clear();
-				session.pendingTeamRunUpdates.length = 0;
-				notifyTeamRunWaiters(session);
-			}
 			session.agent.abort(reason);
 		}
+	}
+
+	private cancelTeammateRuns(session: ActiveSession, reason?: unknown): void {
+		const teamRuntime = session.runtime.teamRuntime;
+		if (!teamRuntime) return;
+		session.stoppingTeammates = true;
+		try {
+			teamRuntime.cancelOutstandingWork(reason);
+		} finally {
+			session.stoppingTeammates = false;
+			session.activeTeamRunIds.clear();
+			session.pendingTeamRunUpdates.length = 0;
+			notifyTeamRunWaiters(session);
+		}
+	}
+
+	/**
+	 * Queues finished teammate runs as a system-delivered prompt, so the lead
+	 * reports them after any turn already running or queued.
+	 */
+	private deliverMultitaskTeamRunUpdates(sessionId: string): void {
+		const session = this.sessions.get(sessionId);
+		if (
+			!session?.multitask ||
+			session.stoppingTeammates ||
+			session.pendingTeamRunUpdates.length === 0
+		) {
+			return;
+		}
+		const updates = session.pendingTeamRunUpdates.splice(0);
+		this.pendingPromptsController.enqueue(sessionId, {
+			prompt: buildTeamRunDeliveryPrompt(session, updates),
+			delivery: "queue",
+		});
 	}
 
 	async resolveMcpAppTool(
@@ -1990,6 +2066,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 		input: {
 			prompt: string;
 			mode?: SendSessionInput["mode"];
+			multitask?: boolean;
 			userImages?: string[];
 			userFiles?: string[];
 		},
@@ -1997,7 +2074,13 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// An abort that arrived between turns targeted a run that had already
 		// ended; only aborts issued from here on belong to this turn.
 		session.aborting = false;
-		const preparedInput = await this.prepareTurnInput(session, input);
+		if (input.multitask !== undefined) session.multitask = input.multitask;
+		const multitask = session.multitask === true;
+		const preparedInput = await this.prepareTurnInput(
+			session,
+			input,
+			multitask,
+		);
 		const prompt = preparedInput.prompt.trim();
 		const images = preparedInput?.userImages?.length;
 		const files = preparedInput?.userFiles?.length;
@@ -2007,6 +2090,13 @@ export class LocalRuntimeHost implements RuntimeHost {
 			session.pendingPrompt = prompt;
 		}
 		await this.ensureSessionPersisted(session);
+		if ((session.sessionMetadata?.multitask === true) !== multitask) {
+			await this.persistSessionMetadata(session.sessionId, (current) => ({
+				...(current ?? {}),
+				...(session.sessionMetadata ?? {}),
+				multitask,
+			}));
+		}
 		// A seeded session (fork, checkpoint restore, missing-session
 		// recovery) materializes at start, before any prompt exists, so its
 		// row is created promptless. Backfill it with the first user prompt,
@@ -2039,7 +2129,10 @@ export class LocalRuntimeHost implements RuntimeHost {
 				preparedInput.userFiles,
 			);
 
-			while (shouldAutoContinueTeamRuns(session, result.finishReason)) {
+			while (
+				!multitask &&
+				shouldAutoContinueTeamRuns(session, result.finishReason)
+			) {
 				const updates = await waitForTeamRunUpdates(session);
 				if (updates.length === 0) break;
 				const continuationPrompt = buildTeamRunContinuationPrompt(
@@ -2060,10 +2153,12 @@ export class LocalRuntimeHost implements RuntimeHost {
 		session: ActiveSession,
 		finishReason: AgentResult["finishReason"],
 	): Promise<void> {
-		if (hasPendingTeamRunWork(session)) return;
+		if (!session.multitask && hasPendingTeamRunWork(session)) return;
 		session.lastInteractiveTurnFinishReason = finishReason;
 		await this.markTurnIdle(session);
 		session.aborting = false;
+		// Flushes runs that finished while the mode was off.
+		this.deliverMultitaskTeamRunUpdates(session.sessionId);
 	}
 
 	private resolveInteractiveStopStatus(session: ActiveSession): SessionStatus {
@@ -2389,6 +2484,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 			userImages?: string[];
 			userFiles?: string[];
 		},
+		multitask: boolean,
 	): Promise<PreparedTurnInput> {
 		const mentionBaseDir = resolveWorkspacePath(session.config);
 		const normalizedPrompt = normalizeUserInput(input.prompt).trim();
@@ -2410,7 +2506,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 		emitMentionTelemetry(session.config.telemetry, enriched);
 
 		const prompt = formatModePrompt(
-			enriched.prompt,
+			multitask
+				? `${formatMultitaskNotice()}\n${enriched.prompt}`
+				: enriched.prompt,
 			input.mode ?? session.config.mode,
 		);
 		const explicitUserFiles = this.resolveAbsoluteFilePaths(

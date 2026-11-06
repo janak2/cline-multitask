@@ -275,6 +275,10 @@ export async function handleSessionInput(
 					userImages,
 					userFiles,
 					timeoutMs,
+					multitask:
+						typeof payload.multitask === "boolean"
+							? payload.multitask
+							: undefined,
 				},
 				timeoutMs,
 			);
@@ -341,6 +345,14 @@ export async function handleRunAbort(
 	envelope: HubCommandEnvelope,
 ): Promise<HubReplyEnvelope> {
 	const sessionId = extractSessionId(envelope);
+	if (envelope.payload?.scope === "teammates") {
+		// Pending approvals and capability requests belong to the lead's turn,
+		// which keeps running.
+		await ctx.sessionHost.abort(sessionId, envelope.payload.reason, {
+			scope: "teammates",
+		});
+		return okReply(envelope, { applied: true });
+	}
 	const reason =
 		typeof envelope.payload?.reason === "string"
 			? envelope.payload.reason

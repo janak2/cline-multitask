@@ -117,7 +117,12 @@ const WORKSPACE_RESTORE_BUSY_ERROR =
  * token: the slash menu hides same-named user commands, so expansion must
  * not hijack them either.
  */
-const BUILTIN_SLASH_COMMAND_NAMES = new Set(["compact", "fork", "team"]);
+const BUILTIN_SLASH_COMMAND_NAMES = new Set([
+	"compact",
+	"fork",
+	"team",
+	"multitask",
+]);
 
 const FALLBACK_MANUAL_COMPACTION_MAX_INPUT_TOKENS = 64_000;
 const COMPACT_WHILE_RUNNING_MESSAGE =
@@ -271,6 +276,14 @@ export function rewriteDesktopTeamPrompt(
 			"Usage: /team <task description>. Starts a team of agents for the given task.",
 		);
 	}
+	assertDesktopTeamsAvailable(availability);
+	return formatUserCommandBlock(
+		`spawn a team of agents for the following task: ${task}`,
+		"team",
+	);
+}
+
+function assertDesktopTeamsAvailable(availability: TeamPromptAvailability) {
 	const disabledTools =
 		availability.disabledTools ??
 		new Set(readGlobalSettings().disabledTools ?? []);
@@ -292,10 +305,53 @@ export function rewriteDesktopTeamPrompt(
 	if (!teamsAvailable) {
 		throw new Error(`Agent teams are not available in ${mode} mode.`);
 	}
-	return formatUserCommandBlock(
-		`spawn a team of agents for the following task: ${task}`,
-		"team",
-	);
+}
+
+/**
+ * `/multitask [on|off|stop|<task>]`. The mode lives on the live session and
+ * travels with every later send; stop cancels the session's teammate runs and
+ * leaves the lead's turn running. Any other argument turns the mode on and is
+ * returned as `task` for the caller to send as a normal multitask message.
+ */
+async function runMultitaskCommand(
+	ctx: SidecarContext,
+	manager: ClineCore,
+	sessionId: string,
+	session: LiveSession | undefined,
+	prompt: string,
+	availability: TeamPromptAvailability,
+) {
+	if (!session) throw new Error(`Session ${sessionId} not found`);
+	const task = prompt.slice("/multitask".length).trim();
+	const arg = task.toLowerCase();
+	let text: string;
+	if (arg === "stop") {
+		await manager.abort(sessionId, "stopped_by_user", { scope: "teammates" });
+		text = "Stopped all background teammates.";
+	} else {
+		const enabled = arg !== "off";
+		if (enabled) assertDesktopTeamsAvailable(availability);
+		// Core only saves the mode when a turn runs; save it now so a restart
+		// before the next message still restores it on attach.
+		await manager.update(sessionId, {
+			metadata: { ...readSessionMetadata(sessionId), multitask: enabled },
+		});
+		session.multitask = enabled;
+		sendEvent(ctx, "multitask_state", { sessionId, enabled });
+		text = enabled ? "Multitask mode is on." : "Multitask mode is off.";
+	}
+	sendEvent(ctx, "chat_command_output", {
+		sessionId,
+		command: "multitask",
+		text,
+	});
+	if (!["", "on", "off", "stop"].includes(arg)) return { task };
+	return {
+		sessionId,
+		ok: true,
+		commandHandled: true,
+		multitask: session.multitask === true,
+	};
 }
 
 async function resolveDesktopRuntimePrompt(
@@ -457,6 +513,7 @@ function createLiveSession(
 		prompt: overrides?.prompt,
 		title: overrides?.title,
 		attachedViaHub: overrides?.attachedViaHub ?? false,
+		multitask: overrides?.multitask,
 		queuedAttachmentFiles: overrides?.queuedAttachmentFiles,
 		consumedAttachmentFiles: overrides?.consumedAttachmentFiles,
 	};
@@ -1098,6 +1155,10 @@ async function handleStart(
 				requestedSessionId && binding.kind === "local"
 					? readSessionMetadataTitle(requestedSessionId)
 					: undefined,
+			multitask:
+				requestedSessionId && binding.kind === "local"
+					? readSessionMetadata(requestedSessionId)?.multitask === true
+					: undefined,
 			status: "idle",
 		},
 	);
@@ -1108,6 +1169,7 @@ async function handleStart(
 		cwd,
 		workspaceRoot,
 		environmentId: binding.environmentId,
+		...(session.multitask ? { multitask: true } : {}),
 		...pluginWarningsOf(startResult.pluginIssues),
 	};
 }
@@ -1192,6 +1254,7 @@ async function handleAttach(
 				existing?.title,
 			endedAt: isoTimestampToMs(session.endedAt),
 			attachedViaHub: true,
+			multitask: metadata?.multitask === true,
 			// Preserve tracked attachment files so re-attach (called on every
 			// webview hydrate) does not orphan materialized files still awaiting
 			// cleanup.
@@ -1211,6 +1274,7 @@ async function handleAttach(
 		workspaceRoot: session.workspaceRoot,
 		prompt: session.prompt,
 		metadata,
+		multitask: metadata?.multitask === true,
 	};
 }
 
@@ -1654,6 +1718,22 @@ async function handleSendOnce(
 		});
 		return { sessionId, ok: true, commandHandled: true };
 	}
+	let multitaskTask: string | undefined;
+	if (commandName === "multitask") {
+		if (binding.kind !== "local") {
+			throw new Error("/multitask is only available in local sessions.");
+		}
+		const multitask = await runMultitaskCommand(
+			ctx,
+			manager,
+			sessionId,
+			session,
+			prompt,
+			{ mode: request.config?.mode ?? session?.config?.mode },
+		);
+		if (!("task" in multitask)) return multitask;
+		multitaskTask = multitask.task;
+	}
 	const pluginCommand =
 		commandName && !BUILTIN_SLASH_COMMAND_NAMES.has(commandName)
 			? await runPluginSlashCommand(ctx, {
@@ -1678,6 +1758,7 @@ async function handleSendOnce(
 	// Dispatch the expanded or rewritten instructions, but keep the raw
 	// `/command` token as the session's display prompt.
 	const runtimePrompt =
+		multitaskTask ??
 		pluginCommand?.submitPrompt ??
 		(binding.kind === "ssh"
 			? prompt
@@ -1793,6 +1874,7 @@ async function handleSendOnce(
 					delivery: "queue",
 					userImages: request.attachments?.userImages,
 					userFiles,
+					multitask: session?.multitask,
 				});
 			try {
 				await queuePrompt();
@@ -1852,6 +1934,7 @@ async function handleSendOnce(
 				delivery,
 				userImages: request.attachments?.userImages,
 				userFiles,
+				multitask: session?.multitask,
 			});
 		} catch (error) {
 			deleteMaterializedAttachments(sessionId, userFiles);
@@ -2567,6 +2650,9 @@ export async function handleChatSessionCommand(
 				return await cloud.attach(sessionId);
 			case "send": {
 				if (!sessionId) throw new Error("sessionId is required");
+				if (/^\/multitask\b/i.test(request.prompt?.trim() ?? "")) {
+					throw new Error("/multitask is only available in local sessions.");
+				}
 				if (request.attachments?.userFiles?.length) {
 					throw new Error(
 						"File attachments are not supported in cloud sessions",

@@ -20,6 +20,7 @@ import {
 	shouldSuppressClineCliMigrationNoticeForActiveProvider,
 } from "../kanban-migration/notice";
 import { MigrationNoticeContent } from "../kanban-migration/notice-dialog";
+import { formatTeammateRestartWarning } from "../utils/multitask-command";
 import {
 	isSameRepoStatus,
 	type RepoStatus,
@@ -223,15 +224,29 @@ function App(props: TuiProps) {
 		[clearToastTimeout],
 	);
 
+	const warnTeammateRestart = useCallback(() => {
+		const warning = formatTeammateRestartWarning(session.activeTeammateRuns);
+		if (warning) session.appendEntry({ kind: "status", text: warning });
+	}, [session]);
+
 	const toggleMode = useCallback(() => {
 		const newMode = session.uiMode === "act" ? "plan" : "act";
+		warnTeammateRestart();
 		session.toggleMode();
 		void props.onModeChange(newMode);
-	}, [props, session]);
+	}, [props, session, warnTeammateRestart]);
 
 	const handleModelChange = useCallback(async () => {
+		warnTeammateRestart();
 		await props.onModelChange();
-	}, [props]);
+	}, [props, warnTeammateRestart]);
+
+	const setMultitaskChangeNotifier = props.setMultitaskChangeNotifier;
+	const setSessionMultitask = session.setMultitask;
+	useEffect(() => {
+		setMultitaskChangeNotifier(setSessionMultitask);
+		return () => setMultitaskChangeNotifier(null);
+	}, [setMultitaskChangeNotifier, setSessionMultitask]);
 
 	const openModelSelector = useModelSelector({
 		dialog,
@@ -918,6 +933,7 @@ function App(props: TuiProps) {
 		setIsRunning: session.setIsRunning,
 		setIsStreaming: session.setIsStreaming,
 		addUsageDelta: session.addUsageDelta,
+		setActiveTeammateRuns: session.setActiveTeammateRuns,
 		onTurnErrorReported: props.onTurnErrorReported,
 		verbose: props.config.verbose ?? false,
 		modelId: props.config.modelId,

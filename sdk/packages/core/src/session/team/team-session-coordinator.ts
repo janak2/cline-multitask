@@ -8,6 +8,7 @@ import {
 	buildTeamProgressSummary,
 	isDurableTeamEvent,
 	toTeamProgressLifecycleEvent,
+	toTeamRunResultRecord,
 } from "../../extensions/tools/team";
 import type { CoreSessionEvent } from "../../types/events";
 import type { ActiveSession, TeamRunUpdate } from "../../types/session";
@@ -43,6 +44,7 @@ export function trackTeamRunState(
 				error: runError,
 				iterations: (event.run.result as { iterations?: number } | undefined)
 					?.iterations,
+				text: toTeamRunResultRecord(event.run.result)?.text || undefined,
 			});
 			notifyTeamRunWaiters(session);
 			break;
@@ -298,6 +300,27 @@ export function buildTeamRunContinuationPrompt(
 		`System-delivered teammate async run updates:\n${lines.join("\n")}\n\n${instruction}`,
 		session.config.mode,
 	);
+}
+
+/**
+ * Plain-text delivery of finished teammate runs for a multitask session. The
+ * pending-prompts queue drains it as a new turn, which wraps it in the mode
+ * block like any queued prompt.
+ */
+export function buildTeamRunDeliveryPrompt(
+	session: ActiveSession,
+	updates: TeamRunUpdate[],
+): string {
+	const blocks = updates.map((u) => {
+		const head = `- ${u.runId} (${u.agentId}) -> ${u.status}${u.error ? ` error=${u.error}` : ""}`;
+		return u.text ? `${head}\nResult:\n${u.text}` : head;
+	});
+	const remaining = session.activeTeamRunIds.size;
+	const instruction =
+		remaining > 0
+			? `${remaining} other teammate run(s) are still in progress. Their results will arrive the same way; do not wait for them.`
+			: "No teammate runs are in progress.";
+	return `System-delivered teammate async run updates:\n${blocks.join("\n\n")}\n\n${instruction} Tell the user the outcome briefly and decide whether follow-up work is needed.`;
 }
 
 export function formatModePrompt(

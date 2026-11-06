@@ -316,4 +316,26 @@ describe("slash command registry", () => {
 			getVisibleSystemSlashCommands(registry).map((command) => command.name),
 		).toContain("account");
 	});
+
+	it("lists multitask right after team", () => {
+		const registry = buildSlashCommandRegistry({
+			workflowSlashCommands: [
+				{
+					name: "multitask",
+					instructions: "/multitask [on|off|stop|<task>]",
+					description: "Run big tasks on background teammates",
+				},
+				{
+					name: "team",
+					instructions: "/team [prompt]",
+					description: "Start the task with agent team",
+				},
+			],
+		});
+		const names = getVisibleSystemSlashCommands(registry).map(
+			(command) => command.name,
+		);
+
+		expect(names.indexOf("multitask")).toBe(names.indexOf("team") + 1);
+	});
 });

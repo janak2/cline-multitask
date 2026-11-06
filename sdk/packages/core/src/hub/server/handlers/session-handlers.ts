@@ -212,21 +212,18 @@ function asNullableString(value: unknown): string | null | undefined {
 	return typeof value === "string" || value === null ? value : undefined;
 }
 
-function stripServerOwnedSessionMetadata(
-	metadata: Record<string, JsonValue | undefined> | undefined,
-): Record<string, JsonValue | undefined> | undefined {
+function keepServerOwnedSessionMetadata(
+	metadata: Record<string, JsonValue | undefined>,
+	stored: Record<string, unknown> | undefined,
+): Record<string, JsonValue | undefined> {
 	// Clients may echo old records back through session.update; keep ownership
-	// and approval policy on server-created session state only.
-	if (
-		!metadata ||
-		(!("autoApproveTools" in metadata) &&
-			!(CAPABILITY_OWNER_METADATA_KEY in metadata))
-	) {
-		return metadata;
-	}
+	// and approval policy on server-created session state only. The update
+	// replaces metadata wholesale, so carry the stored values over.
 	const sanitized = { ...metadata };
-	delete sanitized[CAPABILITY_OWNER_METADATA_KEY];
-	delete sanitized.autoApproveTools;
+	for (const key of [CAPABILITY_OWNER_METADATA_KEY, "autoApproveTools"]) {
+		if (stored?.[key] === undefined) delete sanitized[key];
+		else sanitized[key] = stored[key] as JsonValue;
+	}
 	return sanitized;
 }
 
@@ -1154,9 +1151,13 @@ export async function handleSessionUpdate(
 	envelope: HubCommandEnvelope,
 ): Promise<HubReplyEnvelope> {
 	const sessionId = extractSessionId(envelope);
-	const metadata = stripServerOwnedSessionMetadata(
-		asPlainRecord(envelope.payload?.metadata),
-	);
+	const requested = asPlainRecord(envelope.payload?.metadata);
+	const metadata = requested
+		? keepServerOwnedSessionMetadata(
+				requested,
+				(await ctx.sessionHost.getSession(sessionId))?.metadata,
+			)
+		: undefined;
 	const prompt = asNullableString(envelope.payload?.prompt);
 	const title = asNullableString(envelope.payload?.title);
 	const updated = await ctx.sessionHost.updateSession(sessionId, {

@@ -1,6 +1,10 @@
 import type { MessageWithMetadata } from "@cline/llms";
 import type { AgentResult } from "@cline/shared";
-import { formatModeSwitchNotice, formatUserInputBlock } from "@cline/shared";
+import {
+	formatModeSwitchNotice,
+	formatMultitaskNotice,
+	formatUserInputBlock,
+} from "@cline/shared";
 import { describe, expect, it } from "vitest";
 import { withSessionHistoryOriginMetadata } from "../session/history-origin";
 import { makeSubSessionId } from "../session/models/session-graph";
@@ -96,6 +100,14 @@ describe("deriveTitleFromPrompt", () => {
 		expect(deriveTitleFromPrompt(prompt)).toBe("how should we refactor this?");
 		expect(deriveTitleFromPrompt(formatUserInputBlock(prompt, "plan"))).toBe(
 			"how should we refactor this?",
+		);
+	});
+
+	it("never picks up the multitask instructions", () => {
+		const prompt = `${formatMultitaskNotice()}\nadd dark mode`;
+		expect(deriveTitleFromPrompt(prompt)).toBe("add dark mode");
+		expect(deriveTitleFromPrompt(formatUserInputBlock(prompt, "act"))).toBe(
+			"add dark mode",
 		);
 	});
 });

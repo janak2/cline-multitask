@@ -127,10 +127,11 @@ const SYSTEM_COMMAND_ORDER = [
 	"undo",
 	"clear",
 	"team",
+	"multitask",
 	"history",
 	"help",
 	"quit",
-] satisfies ReadonlyArray<LocalSlashCommandName | "team">;
+] satisfies ReadonlyArray<LocalSlashCommandName | "team" | "multitask">;
 
 const SYSTEM_COMMAND_PRIORITY = new Map<string, number>(
 	SYSTEM_COMMAND_ORDER.map((name, index) => [name, index]),

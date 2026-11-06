@@ -273,6 +273,8 @@ export interface SendSessionInput {
 	userFiles?: string[];
 	delivery?: "queue" | "steer";
 	timeoutMs?: number;
+	/** Multitask mode for this turn. Undefined keeps the session's current value. */
+	multitask?: boolean;
 }
 
 export interface SessionAccumulatedUsage {
@@ -407,7 +409,15 @@ export interface RuntimeHost {
 	startSession(input: StartSessionInput): Promise<StartSessionResult>;
 	runTurn(input: SendSessionInput): Promise<AgentResult | undefined>;
 	restoreSession(input: RestoreSessionInput): Promise<RestoreSessionResult>;
-	abort(sessionId: string, reason?: unknown): Promise<void>;
+	/**
+	 * `scope: "teammates"` cancels only the session's teammate runs and
+	 * leaves the lead's turn running.
+	 */
+	abort(
+		sessionId: string,
+		reason?: unknown,
+		options?: { scope?: "turn" | "teammates" },
+	): Promise<void>;
 	stopSession(sessionId: string): Promise<void>;
 	dispose(reason?: string): Promise<void>;
 	getSession(sessionId: string): Promise<SessionRecord | undefined>;

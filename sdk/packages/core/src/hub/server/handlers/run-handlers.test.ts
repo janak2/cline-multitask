@@ -318,6 +318,58 @@ describe("run handlers", () => {
 		);
 	});
 
+	it("forwards the multitask flag on run start", async () => {
+		const runTurn = vi.fn().mockResolvedValue(undefined);
+		const ctx = createContext({ runTurn });
+
+		await handleSessionInput(ctx, {
+			version: "v1",
+			command: "run.start",
+			requestId: "req-multitask",
+			sessionId: "session-1",
+			payload: { sessionId: "session-1", prompt: "go", multitask: true },
+		});
+		await handleSessionInput(ctx, {
+			version: "v1",
+			command: "run.start",
+			requestId: "req-no-multitask",
+			sessionId: "session-1",
+			payload: { sessionId: "session-1", prompt: "go", multitask: "yes" },
+		});
+
+		expect(runTurn.mock.calls[0]?.[0]).toMatchObject({ multitask: true });
+		expect(runTurn.mock.calls[1]?.[0].multitask).toBeUndefined();
+	});
+
+	it("stops teammates without rejecting the lead's pending approvals", async () => {
+		const abort = vi.fn().mockResolvedValue(undefined);
+		const ctx = createContext({ abort });
+		const resolveApproval = vi.fn();
+		ctx.pendingApprovals.set("approval-1", {
+			sessionId: "session-1",
+			resolve: resolveApproval,
+		} as never);
+
+		const reply = await handleRunAbort(ctx, {
+			version: "v1",
+			command: "run.abort",
+			requestId: "req-stop-teammates",
+			sessionId: "session-1",
+			payload: {
+				sessionId: "session-1",
+				reason: "stopped_by_user",
+				scope: "teammates",
+			},
+		});
+
+		expect(reply).toMatchObject({ ok: true, payload: { applied: true } });
+		expect(abort).toHaveBeenCalledWith("session-1", "stopped_by_user", {
+			scope: "teammates",
+		});
+		expect(resolveApproval).not.toHaveBeenCalled();
+		expect(ctx.pendingApprovals.has("approval-1")).toBe(true);
+	});
+
 	it("treats abort as applied when the runtime abort hook rejects", async () => {
 		const abort = vi.fn().mockRejectedValue(new Error("Run aborted"));
 		const ctx = createContext({ abort });

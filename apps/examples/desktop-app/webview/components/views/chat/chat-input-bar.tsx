@@ -131,6 +131,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
 		description: "Create a copy of the current session into a new session",
 	},
 	{ name: "team", description: "Start the task with an agent team" },
+	{ name: "multitask", description: "Run big tasks on background teammates" },
 ];
 const CLOUD_HANDOFF_SLASH_COMMAND: SlashCommand = {
 	name: "cloud",
@@ -333,6 +334,9 @@ type ChatInputBarProps = {
 	model: string;
 	modelContextWindow?: number;
 	mode: "act" | "plan";
+	multitaskEnabled?: boolean;
+	/** Queued and running teammate runs of this session. */
+	activeTeammateRuns?: number;
 	thinking: ChatSessionConfig["thinking"];
 	reasoningEffort: ChatSessionConfig["reasoningEffort"];
 	/** Branch name, "no-git" for a non-repo folder, null while discovery is pending. */
@@ -392,6 +396,8 @@ function ChatInputBarImpl({
 	model,
 	modelContextWindow,
 	mode,
+	multitaskEnabled = false,
+	activeTeammateRuns = 0,
 	thinking,
 	reasoningEffort,
 	gitBranch,
@@ -1685,6 +1691,23 @@ function ChatInputBarImpl({
 							Act
 						</button>
 					</div>
+					{multitaskEnabled && (
+						<span
+							className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+							title="Big tasks run on background teammates"
+						>
+							Multitask
+						</span>
+					)}
+					{multitaskEnabled && activeTeammateRuns > 0 && (
+						<button
+							className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+							onClick={() => onSend("/multitask stop")}
+							type="button"
+						>
+							Stop teammates ({activeTeammateRuns})
+						</button>
+					)}
 					<div className="min-w-0 group-data-[compact]/composer:shrink-0">
 						<ModelSelector
 							key={executionTarget}

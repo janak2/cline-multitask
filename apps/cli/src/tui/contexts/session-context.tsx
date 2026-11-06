@@ -20,6 +20,8 @@ interface SessionContextValue {
 	hasSubmitted: boolean;
 	uiMode: AgentMode;
 	autoApproveAll: boolean;
+	multitask: boolean;
+	activeTeammateRuns: number;
 	compactionMode: CliCompactionMode;
 	lastTotalTokens: number;
 	lastTotalCost: number;
@@ -41,6 +43,8 @@ interface SessionContextValue {
 	setUiMode: (mode: AgentMode) => void;
 	toggleMode: () => void;
 	toggleAutoApprove: () => void;
+	setMultitask: (enabled: boolean) => void;
+	setActiveTeammateRuns: (count: number) => void;
 	setCompactionMode: (mode: CliCompactionMode) => void;
 	requestExit: () => void;
 	clearEntries: () => void;
@@ -116,6 +120,8 @@ export function SessionProvider(props: {
 	const initialAutoApproveAll = config.toolPolicies["*"]?.autoApprove !== false;
 	const autoApproveAllRef = useRef(initialAutoApproveAll);
 	const [autoApproveAll, _setAutoApproveAll] = useState(initialAutoApproveAll);
+	const [multitask, setMultitask] = useState(false);
+	const [activeTeammateRuns, setActiveTeammateRuns] = useState(0);
 	const [compactionMode, _setCompactionMode] = useState<CliCompactionMode>(() =>
 		getCliCompactionMode(config),
 	);
@@ -256,6 +262,8 @@ export function SessionProvider(props: {
 		hasSubmitted,
 		uiMode,
 		autoApproveAll,
+		multitask,
+		activeTeammateRuns,
 		compactionMode,
 		lastTotalTokens,
 		lastTotalCost,
@@ -275,6 +283,8 @@ export function SessionProvider(props: {
 		setUiMode,
 		toggleMode,
 		toggleAutoApprove,
+		setMultitask,
+		setActiveTeammateRuns,
 		setCompactionMode,
 		requestExit,
 		clearEntries,
