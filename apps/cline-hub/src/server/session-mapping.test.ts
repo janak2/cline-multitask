@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { mapHistoryToWebviewMessages } from "./session-mapping";
+import {
+	mapHistoryToWebviewMessages,
+	toWebviewSessionSummary,
+	trackSession,
+} from "./session-mapping";
+
+describe("session summaries", () => {
+	it("carries the parent session id from hub record metadata", () => {
+		const tracked = trackSession({
+			sessionId: "child",
+			status: "running",
+			metadata: { parentSessionId: "lead" },
+		});
+		expect(tracked?.parentSessionId).toBe("lead");
+		expect(tracked && toWebviewSessionSummary(tracked)).toMatchObject({
+			sessionId: "child",
+			parentSessionId: "lead",
+		});
+	});
+
+	it("leaves root sessions without a parent", () => {
+		expect(
+			trackSession({ sessionId: "lead" })?.parentSessionId,
+		).toBeUndefined();
+	});
+});
 
 describe("mapHistoryToWebviewMessages", () => {
 	it("preserves tolerant handling of malformed history entries", () => {

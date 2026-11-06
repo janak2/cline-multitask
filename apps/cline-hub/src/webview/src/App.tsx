@@ -2,6 +2,7 @@ import {
 	ActivityIcon,
 	ArrowUpDownIcon,
 	BotIcon,
+	ChevronRightIcon,
 	ClockIcon,
 	CodeIcon,
 	FileTextIcon,
@@ -65,6 +66,11 @@ import { PageFrame, PageHeader } from "./components/views/page-layout";
 import type { CustomizationSection } from "./components/views/settings/extensions-view";
 import type { SettingsSection } from "./components/views/settings/settings-view";
 import { desktopClient } from "./lib/desktop-client";
+import {
+	buildSessionTree,
+	hasRunningDescendant,
+	visibleSessionRows,
+} from "./lib/session-tree";
 import { syncHubTheme } from "./lib/theme";
 import { postToHost } from "./vscode";
 
@@ -790,6 +796,19 @@ function SessionsView({
 			return sortDirection === "newest" ? bTime - aTime : aTime - bTime;
 		});
 	}, [sessions, sessionFilters, sortDirection]);
+	const [expandedOverrides, setExpandedOverrides] = useState<
+		Record<string, boolean>
+	>({});
+	const sessionTree = useMemo(
+		() => buildSessionTree(filteredSessions),
+		[filteredSessions],
+	);
+	const hasNestedSessions = sessionTree.some(
+		(node) => node.children.length > 0,
+	);
+	const isSessionExpanded = (node: (typeof sessionTree)[number]) =>
+		expandedOverrides[node.session.sessionId] ?? hasRunningDescendant(node);
+	const sessionRows = visibleSessionRows(sessionTree, isSessionExpanded);
 
 	useEffect(() => {
 		const query = searchQuery.trim();
@@ -1007,14 +1026,35 @@ function SessionsView({
 								: "No sessions match the selected filters."}
 						</div>
 					) : null}
-					{filteredSessions.map((session) => {
+					{sessionRows.map(({ node, depth }) => {
+						const session = node.session;
 						const isEditing = editingSessionId === session.sessionId;
 						const title = session.title || shortId(session.sessionId);
+						const expanded = isSessionExpanded(node);
 						return (
 							<div
-								className="grid min-h-14 w-full grid-cols-[minmax(12rem,1.35fr)_minmax(7rem,0.85fr)_minmax(10rem,1.1fr)_5rem_5rem_4.5rem_5.5rem_2rem] items-center gap-x-4 border-b px-4 py-3 text-left text-[15px] transition-colors hover:bg-accent/40"
+								className="relative grid min-h-14 w-full grid-cols-[minmax(12rem,1.35fr)_minmax(7rem,0.85fr)_minmax(10rem,1.1fr)_5rem_5rem_4.5rem_5.5rem_2rem] items-center gap-x-4 border-b px-4 py-3 text-left text-[15px] transition-colors hover:bg-accent/40"
 								key={session.sessionId}
 							>
+								{node.children.length > 0 && !isEditing ? (
+									<button
+										aria-expanded={expanded}
+										aria-label={`${expanded ? "Collapse" : "Expand"} agents of ${title}`}
+										className="absolute top-1/2 z-10 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										onClick={() =>
+											setExpandedOverrides((current) => ({
+												...current,
+												[session.sessionId]: !expanded,
+											}))
+										}
+										style={{ left: `${1 + depth * 1.25}rem` }}
+										type="button"
+									>
+										<ChevronRightIcon
+											className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`}
+										/>
+									</button>
+								) : null}
 								{isEditing ? (
 									<form
 										className="col-span-7 grid grid-cols-[minmax(12rem,1.35fr)_minmax(7rem,0.85fr)_minmax(10rem,1.1fr)_5rem_5rem_4.5rem_5.5rem] items-center gap-x-4"
@@ -1080,11 +1120,23 @@ function SessionsView({
 										onClick={() => onOpenSession(session.sessionId)}
 										type="button"
 									>
-										<span className="flex min-w-0 items-center gap-3 font-semibold">
+										<span
+											className="flex min-w-0 items-center gap-3 font-semibold"
+											style={{ paddingLeft: `${depth * 1.25}rem` }}
+										>
+											{hasNestedSessions ? (
+												<span className="size-5 shrink-0" />
+											) : null}
 											<span
 												className={`size-1.5 shrink-0 rounded-full ${statusTone(session.status)}`}
 											/>
 											<span className="truncate">{title}</span>
+											{node.children.length > 0 ? (
+												<span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-xs font-normal text-muted-foreground">
+													{node.children.length}{" "}
+													{node.children.length === 1 ? "agent" : "agents"}
+												</span>
+											) : null}
 										</span>
 										<span className="truncate text-muted-foreground">
 											{workspaceName(session.workspaceRoot) ?? "No workspace"}
