@@ -397,6 +397,82 @@ describe("UnifiedSessionPersistenceService", () => {
 	);
 
 	sqliteIt(
+		"keeps a resumed lead and its teammates running under the current process",
+		async () => {
+			const dbDir = mkdtempSync(join(tmpdir(), "resumed-pid-db-"));
+			const sessionsDir = mkdtempSync(join(tmpdir(), "resumed-pid-"));
+			tempDirs.push(dbDir, sessionsDir);
+			const store = new SqliteSessionStore({ sessionsDir: dbDir });
+			stores.push(store);
+			const service = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			const rootSessionId = "resumed-root";
+			await service.createRootSessionWithArtifacts({
+				sessionId: rootSessionId,
+				source: SessionSource.CLI,
+				pid: 999_999_999,
+				interactive: true,
+				provider: "anthropic",
+				model: "claude-sonnet-4-6",
+				cwd: "/tmp/project",
+				workspaceRoot: "/tmp/project",
+				enableTools: true,
+				enableSpawn: true,
+				enableTeams: true,
+				prompt: "lead task",
+				startedAt: "2026-04-10T19:00:00.000Z",
+			});
+
+			await service.onTeamTaskStart(rootSessionId, "worker", "Do work");
+			await service.updateSessionPid(rootSessionId, process.pid);
+
+			expect(await service.reconcileDeadSessions()).toBe(0);
+			const rows = await service.listSessions(10);
+			expect(rows.map((row) => [row.pid, row.status])).toEqual([
+				[process.pid, "running"],
+				[process.pid, "running"],
+			]);
+		},
+	);
+
+	sqliteIt(
+		"rewrites a teammate status file with its final status",
+		async () => {
+			const dbDir = mkdtempSync(join(tmpdir(), "teammate-status-db-"));
+			const sessionsDir = mkdtempSync(join(tmpdir(), "teammate-status-"));
+			tempDirs.push(dbDir, sessionsDir);
+			const store = new SqliteSessionStore({ sessionsDir: dbDir });
+			stores.push(store);
+			const service = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			const rootSessionId = "status-root";
+			await createRootSession(service, rootSessionId, "lead task");
+			await service.onTeamTaskStart(rootSessionId, "worker", "Do work");
+			const teammateSessionId = (await service.listSessions(10)).find((row) =>
+				row.sessionId.includes("__teamtask__worker__"),
+			)?.sessionId as string;
+			// An earlier process's stale-session check left a "failed" status file.
+			store.run("UPDATE sessions SET pid = ? WHERE session_id = ?", [
+				999_999_999,
+				teammateSessionId,
+			]);
+			await service.reconcileDeadSessions();
+			expect(service.readSessionManifest(teammateSessionId)?.status).toBe(
+				"failed",
+			);
+
+			await service.onTeamTaskEnd(rootSessionId, "worker", "completed");
+
+			expect(service.readSessionManifest(teammateSessionId)).toMatchObject({
+				status: "completed",
+				exit_code: 0,
+			});
+		},
+	);
+
+	sqliteIt(
 		"persists teammate task metadata in the file envelope and usage on messages",
 		async () => {
 			const dbDir = mkdtempSync(join(tmpdir(), "team-task-messages-db-"));

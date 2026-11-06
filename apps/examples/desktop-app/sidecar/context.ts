@@ -551,6 +551,14 @@ export function handleCoreSessionEvent(
 		}
 		case "agent_event": {
 			const { sessionId, event: agentEvent } = event.payload;
+			// Teammate output belongs to the teammate's own session, but its usage
+			// still counts toward the lead's live totals.
+			if (
+				event.payload.teamRole === "teammate" &&
+				agentEvent.type !== "usage"
+			) {
+				break;
+			}
 			handleAgentEvent(ctx, sessionId, agentEvent);
 			break;
 		}
@@ -641,10 +649,6 @@ export function handleCoreSessionEvent(
 				}
 			}
 			sendEvent(ctx, "chat_session_status", { sessionId, status });
-			break;
-		}
-		case "team_progress": {
-			sendEvent(ctx, "team_progress", event.payload);
 			break;
 		}
 	}
@@ -947,6 +951,12 @@ export function handleHubLiveEvent(
 		sendEvent(ctx, event.event, event.payload ?? {});
 		return;
 	}
+	// The Hub runtime host does not project team.progress into core session
+	// events, so this observer is its only path to the webview.
+	if (event.event === "team.progress") {
+		sendEvent(ctx, "team_progress", event.payload ?? {});
+		return;
+	}
 
 	const sessionId = typeof event.sessionId === "string" ? event.sessionId : "";
 	if (!sessionId) {
@@ -983,6 +993,10 @@ export function handleHubLiveEvent(
 			.get(ctx.activeEnvironmentId ?? LOCAL_ENVIRONMENT_ID)
 			?.sessionManager.hasSessionSubscription(sessionId)
 	) {
+		return;
+	}
+	const agent = event.payload?.agent as { teamRole?: unknown } | undefined;
+	if (agent?.teamRole === "teammate" && event.event !== "usage.updated") {
 		return;
 	}
 

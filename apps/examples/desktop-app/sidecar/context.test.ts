@@ -851,6 +851,99 @@ describe("Code sidecar runtime capabilities", () => {
 		});
 	});
 
+	it("keeps raw hub teammate output out of the lead's chat but keeps usage", async () => {
+		const { createSidecarContext, handleHubLiveEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		ctx.wsClients.add({ send: vi.fn() });
+		ctx.liveSessions.set("lead-1", {
+			config: {},
+			messages: [],
+			promptsInQueue: [],
+			busy: true,
+			startedAt: Date.now(),
+			status: "running",
+			attachedViaHub: true,
+		});
+		const teammate = { kind: "teammate", teamRole: "teammate" };
+
+		handleHubLiveEvent(ctx, {
+			event: "assistant.delta",
+			sessionId: "lead-1",
+			payload: { text: "teammate text", agent: teammate },
+		});
+		handleHubLiveEvent(ctx, {
+			event: "tool.started",
+			sessionId: "lead-1",
+			payload: { toolCallId: "t-1", toolName: "read_files", agent: teammate },
+		});
+		handleHubLiveEvent(ctx, {
+			event: "usage.updated",
+			sessionId: "lead-1",
+			payload: { delta: { inputTokens: 5 }, totals: {}, agent: teammate },
+		});
+		handleHubLiveEvent(ctx, {
+			event: "assistant.delta",
+			sessionId: "lead-1",
+			payload: { text: "lead text", agent: { kind: "lead" } },
+		});
+
+		const streams = readEvents(ctx)
+			.filter((message) => message.event.name === "chat_event")
+			.map((message) => message.event.payload);
+		expect(streams).toEqual([
+			expect.objectContaining({ stream: "chat_usage" }),
+			expect.objectContaining({ stream: "chat_text", chunk: "lead text" }),
+		]);
+	});
+
+	it("keeps core teammate agent events out of the lead's chat but keeps usage", async () => {
+		const { createSidecarContext, handleCoreSessionEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		ctx.wsClients.add({ send: vi.fn() });
+		const agentEvent = (
+			event: Record<string, unknown>,
+			teamRole?: "lead" | "teammate",
+		) =>
+			({
+				type: "agent_event",
+				payload: { sessionId: "lead-1", event, teamRole },
+			}) as never;
+
+		handleCoreSessionEvent(
+			ctx,
+			agentEvent(
+				{ type: "content_start", contentType: "text", text: "teammate text" },
+				"teammate",
+			),
+		);
+		handleCoreSessionEvent(
+			ctx,
+			agentEvent(
+				{ type: "usage", inputTokens: 5, outputTokens: 1 },
+				"teammate",
+			),
+		);
+		handleCoreSessionEvent(
+			ctx,
+			agentEvent(
+				{ type: "content_start", contentType: "text", text: "lead text" },
+				"lead",
+			),
+		);
+
+		const streams = readEvents(ctx)
+			.filter((message) => message.event.name === "chat_event")
+			.map((message) => message.event.payload);
+		expect(streams).toEqual([
+			expect.objectContaining({ stream: "chat_usage" }),
+			expect.objectContaining({ stream: "chat_text", chunk: "lead text" }),
+		]);
+	});
+
 	it("forwards proceed-while-running requests to the hub", async () => {
 		const { createSidecarContext, initializeSessionManager } = await import(
 			"./context"
@@ -1779,6 +1872,37 @@ describe("Code sidecar runtime capabilities", () => {
 			{
 				type: "event",
 				event: { name: event, payload: { environmentId: "local", ...payload } },
+			},
+		]);
+	});
+
+	it("forwards Hub team progress so the desktop can count running teammates", async () => {
+		const { createSidecarContext, handleHubLiveEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		ctx.wsClients.add({ send: vi.fn() } as never);
+		const payload = {
+			type: "team_progress_projection",
+			version: 1,
+			sessionId: "lead-1",
+			summary: { runs: { activeRunIds: ["run-1", "run-2"] } },
+			lastEvent: { type: "run_started" },
+		};
+
+		handleHubLiveEvent(ctx, {
+			event: "team.progress",
+			sessionId: "lead-1",
+			payload,
+		});
+
+		expect(readEvents(ctx)).toEqual([
+			{
+				type: "event",
+				event: {
+					name: "team_progress",
+					payload: { environmentId: "local", ...payload },
+				},
 			},
 		]);
 	});

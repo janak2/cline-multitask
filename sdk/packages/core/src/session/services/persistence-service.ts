@@ -219,6 +219,14 @@ export class UnifiedSessionPersistenceService {
 		return { updated: false };
 	}
 
+	async updateSessionPid(
+		sessionId: string,
+		pid: number,
+	): Promise<{ updated: boolean }> {
+		const result = await this.adapter.updateSession({ sessionId, pid });
+		return { updated: result.updated };
+	}
+
 	async updateSession(input: {
 		sessionId: string;
 		prompt?: string | null;
