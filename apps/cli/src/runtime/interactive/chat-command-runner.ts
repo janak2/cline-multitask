@@ -6,6 +6,10 @@ import {
 	maybeHandleChatCommand,
 } from "../../utils/chat-commands";
 import {
+	MULTITASK_COMMAND_USAGE,
+	parseMultitaskCommand,
+} from "../../utils/multitask-command";
+import {
 	rewriteTeamPrompt,
 	TEAM_COMMAND_USAGE,
 } from "../../utils/team-command";
@@ -22,6 +26,8 @@ export type InteractiveChatCommandRuntime = Pick<
 	| "getActiveSessionId"
 	| "resetForNewSession"
 	| "restartEmpty"
+	| "restartWithCurrentMessages"
+	| "stopTeammates"
 >;
 
 export type InteractiveChatCommandResult =
@@ -45,9 +51,45 @@ export async function runInteractiveChatCommand(input: {
 	autoApproveAllRef: AutoApproveRef;
 	setInteractiveAutoApprove: (enabled: boolean) => void;
 	sessionRuntime: InteractiveChatCommandRuntime;
+	setMultitask: (enabled: boolean) => void;
+	getActiveTeammateRuns: () => number;
 	stop: () => void;
 	onCommandOutput?: (text: string) => void;
 }): Promise<InteractiveChatCommandResult> {
+	const multitaskCommand = parseMultitaskCommand(input.prompt);
+	if (multitaskCommand.kind === "usage") {
+		return {
+			handled: true,
+			turnResult: commandTurnResult(MULTITASK_COMMAND_USAGE),
+		};
+	}
+	if (multitaskCommand.kind === "stop") {
+		await input.sessionRuntime.stopTeammates();
+		return {
+			handled: true,
+			turnResult: commandTurnResult("Stopped all background teammates."),
+		};
+	}
+	if (multitaskCommand.kind === "set") {
+		if (multitaskCommand.enabled && !input.config.enableAgentTeams) {
+			input.config.enableAgentTeams = true;
+			input.config.teamName = input.config.teamName?.trim() || createTeamName();
+			await input.sessionRuntime.restartWithCurrentMessages();
+		}
+		input.setMultitask(multitaskCommand.enabled);
+		const activeRuns = input.getActiveTeammateRuns();
+		return {
+			handled: true,
+			turnResult: commandTurnResult(
+				multitaskCommand.enabled
+					? "Multitask mode is on."
+					: activeRuns > 0
+						? `Multitask mode is off. ${activeRuns} teammate run(s) are still going; your next message waits for them.`
+						: "Multitask mode is off.",
+			),
+		};
+	}
+
 	let prompt = input.prompt;
 	const rewrittenTeamPrompt = rewriteTeamPrompt(prompt);
 	if (rewrittenTeamPrompt.kind !== "none") {

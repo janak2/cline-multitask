@@ -138,6 +138,11 @@ export function listInteractiveSlashCommands(
 			instructions: "/team [prompt]",
 			description: "Start the task with agent team",
 		},
+		{
+			name: "multitask",
+			instructions: "/multitask [on|off|stop]",
+			description: "Run big tasks on background teammates",
+		},
 	];
 	if (!userInstructionService) {
 		return builtins;

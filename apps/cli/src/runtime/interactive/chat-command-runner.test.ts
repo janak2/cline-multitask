@@ -45,7 +45,33 @@ function makeRuntime(): InteractiveChatCommandRuntime {
 		getActiveSessionId: vi.fn(() => "session-1"),
 		resetForNewSession: vi.fn(async () => {}),
 		restartEmpty: vi.fn(async () => {}),
+		restartWithCurrentMessages: vi.fn(async () => {}),
+		stopTeammates: vi.fn(async () => {}),
 	};
+}
+
+function runMultitaskCommand(
+	prompt: string,
+	config: Config,
+	runtime: InteractiveChatCommandRuntime,
+	options: {
+		setMultitask?: (enabled: boolean) => void;
+		activeTeammateRuns?: number;
+	} = {},
+) {
+	return runInteractiveChatCommand({
+		prompt,
+		enabled: true,
+		config,
+		host: chatCommandHost,
+		chatCommandState: makeState(config),
+		autoApproveAllRef: { current: false },
+		setInteractiveAutoApprove: () => {},
+		sessionRuntime: runtime,
+		setMultitask: options.setMultitask ?? (() => {}),
+		getActiveTeammateRuns: () => options.activeTeammateRuns ?? 0,
+		stop: () => {},
+	});
 }
 
 describe("runInteractiveChatCommand", () => {
@@ -62,6 +88,8 @@ describe("runInteractiveChatCommand", () => {
 			autoApproveAllRef: { current: false },
 			setInteractiveAutoApprove: () => {},
 			sessionRuntime: runtime,
+			setMultitask: () => {},
+			getActiveTeammateRuns: () => 0,
 			stop: () => {},
 		});
 
@@ -90,6 +118,8 @@ describe("runInteractiveChatCommand", () => {
 			autoApproveAllRef: { current: false },
 			setInteractiveAutoApprove: () => {},
 			sessionRuntime: runtime,
+			setMultitask: () => {},
+			getActiveTeammateRuns: () => 0,
 			stop: () => {},
 		});
 
@@ -116,6 +146,8 @@ describe("runInteractiveChatCommand", () => {
 			autoApproveAllRef: { current: false },
 			setInteractiveAutoApprove: () => {},
 			sessionRuntime: runtime,
+			setMultitask: () => {},
+			getActiveTeammateRuns: () => 0,
 			stop: () => {},
 		});
 
@@ -149,6 +181,8 @@ describe("runInteractiveChatCommand", () => {
 			autoApproveAllRef,
 			setInteractiveAutoApprove,
 			sessionRuntime: runtime,
+			setMultitask: () => {},
+			getActiveTeammateRuns: () => 0,
 			stop: () => {},
 		});
 
@@ -185,6 +219,8 @@ describe("runInteractiveChatCommand", () => {
 			autoApproveAllRef: { current: false },
 			setInteractiveAutoApprove: () => {},
 			sessionRuntime: runtime,
+			setMultitask: () => {},
+			getActiveTeammateRuns: () => 0,
 			stop: () => {},
 			onCommandOutput,
 		});
@@ -195,5 +231,67 @@ describe("runInteractiveChatCommand", () => {
 			commandOutput: "Goal guard set: fix tests",
 		});
 		expect(onCommandOutput).toHaveBeenCalledWith("Goal guard set: fix tests");
+	});
+
+	it("turns multitask on and off without a model call", async () => {
+		const config = { ...makeConfig(), enableAgentTeams: true };
+		const runtime = makeRuntime();
+		const setMultitask = vi.fn();
+
+		const on = await runMultitaskCommand("/multitask", config, runtime, {
+			setMultitask,
+		});
+		const off = await runMultitaskCommand("/multitask off", config, runtime, {
+			setMultitask,
+			activeTeammateRuns: 2,
+		});
+
+		expect(on).toMatchObject({
+			handled: true,
+			turnResult: { commandOutput: "Multitask mode is on." },
+		});
+		expect(off).toMatchObject({
+			handled: true,
+			turnResult: {
+				commandOutput:
+					"Multitask mode is off. 2 teammate run(s) are still going; your next message waits for them.",
+			},
+		});
+		expect(setMultitask.mock.calls).toEqual([[true], [false]]);
+		expect(runtime.restartWithCurrentMessages).not.toHaveBeenCalled();
+	});
+
+	it("enables teams for multitask while keeping the conversation", async () => {
+		const config = makeConfig();
+		const runtime = makeRuntime();
+
+		await runMultitaskCommand("/multitask on", config, runtime);
+
+		expect(config.enableAgentTeams).toBe(true);
+		expect(config.teamName).toBeTruthy();
+		expect(runtime.restartWithCurrentMessages).toHaveBeenCalledOnce();
+		expect(runtime.restartEmpty).not.toHaveBeenCalled();
+	});
+
+	it("stops teammates without changing the mode", async () => {
+		const config = makeConfig();
+		const runtime = makeRuntime();
+		const setMultitask = vi.fn();
+
+		const result = await runMultitaskCommand(
+			"/multitask stop",
+			config,
+			runtime,
+			{
+				setMultitask,
+			},
+		);
+
+		expect(result).toMatchObject({
+			handled: true,
+			turnResult: { commandOutput: "Stopped all background teammates." },
+		});
+		expect(runtime.stopTeammates).toHaveBeenCalledOnce();
+		expect(setMultitask).not.toHaveBeenCalled();
 	});
 });

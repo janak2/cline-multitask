@@ -13,6 +13,7 @@ import {
 	formatToolOutput,
 	truncate,
 } from "../../utils/helpers";
+import { trackActiveTeamRuns } from "../../utils/multitask-command";
 import type { ChatEntry, InlineStream, TuiProps } from "../types";
 import { parseCompactionNoticeMetadata } from "../utils/compaction-status";
 
@@ -29,6 +30,7 @@ interface AgentEventDeps {
 		outputTokens?: number;
 		cost?: number;
 	}) => void;
+	setActiveTeammateRuns: (count: number) => void;
 	onTurnErrorReported: TuiProps["onTurnErrorReported"];
 	verbose: boolean;
 	modelId?: string;
@@ -45,10 +47,12 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 		setIsRunning,
 		setIsStreaming,
 		addUsageDelta,
+		setActiveTeammateRuns,
 		onTurnErrorReported,
 		verbose,
 		modelId,
 	} = deps;
+	const activeTeammateRunsRef = useRef(new Set<string>());
 
 	// Compaction dividers that arrived while an assistant message was still
 	// streaming. Appending them immediately would split the message in two, so
@@ -337,6 +341,8 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 				closeInlineStream();
 				appendEntry({ kind: "team", text });
 			};
+			trackActiveTeamRuns(activeTeammateRunsRef.current, event);
+			setActiveTeammateRuns(activeTeammateRunsRef.current.size);
 			switch (event.type) {
 				case "teammate_spawned":
 					team(`[team] teammate spawned: ${event.agentId}`);
@@ -407,7 +413,7 @@ export function useAgentEventHandlers(deps: AgentEventDeps) {
 					break;
 			}
 		},
-		[appendEntry, closeInlineStream],
+		[appendEntry, closeInlineStream, setActiveTeammateRuns],
 	);
 
 	const handlePendingPrompts = useCallback((event: PendingPromptSnapshot) => {

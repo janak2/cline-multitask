@@ -459,6 +459,15 @@ function createDefaultChatCommandHost(): ChatCommandHost {
 			},
 		})
 		.register("command", {
+			names: ["/multitask"],
+			run: async (_parsed, context) => {
+				// The interactive runtime handles /multitask before this host runs.
+				await context.reply(
+					"The /multitask command must be entered directly in the interactive chat.",
+				);
+			},
+		})
+		.register("command", {
 			names: ["/fork"],
 			isAvailable: (context) => typeof context.fork === "function",
 			run: async (_parsed, context) => {

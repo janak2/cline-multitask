@@ -261,6 +261,9 @@ export interface TuiProps {
 		handler: ((question: string, options: string[]) => Promise<string>) | null,
 	) => void;
 	setModeChangeNotifier: (handler: ((mode: AgentMode) => void) | null) => void;
+	setMultitaskChangeNotifier: (
+		handler: ((enabled: boolean) => void) | null,
+	) => void;
 	/** Omitted when cloud sessions are unavailable. */
 	cloudSessions?: CloudSessionsClient;
 }

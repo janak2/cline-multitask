@@ -36,6 +36,7 @@ import {
 	zeroCliAgentEventCost,
 	zeroCliUsageCost,
 } from "../utils/free-model-cost";
+import { trackActiveTeamRuns } from "../utils/multitask-command";
 import {
 	prepareTerminalForPostTuiOutput,
 	writeErr,
@@ -260,6 +261,15 @@ export async function runInteractive(
 	const tuiModeChanged: {
 		current: ((mode: "plan" | "act") => void) | null;
 	} = { current: null };
+	const multitaskRef = { current: false };
+	const tuiMultitaskChanged: {
+		current: ((enabled: boolean) => void) | null;
+	} = { current: null };
+	const setMultitask = (enabled: boolean) => {
+		multitaskRef.current = enabled;
+		tuiMultitaskChanged.current?.(enabled);
+	};
+	const activeTeammateRuns = new Set<string>();
 
 	const switchToActModeTool = createInteractiveModeSwitchTool({
 		config,
@@ -298,6 +308,7 @@ export async function runInteractive(
 			uiEvents.emit("agent", zeroCliAgentEventCost(event, zeroCurrentTurnCost));
 		},
 		onTeamEvent: (event) => {
+			trackActiveTeamRuns(activeTeammateRuns, event);
 			uiEvents.emit("team", event);
 		},
 		onPendingPrompts: (event) => {
@@ -504,6 +515,7 @@ export async function runInteractive(
 		? async () => {
 				try {
 					await sessionRuntime.ensureReady();
+					setMultitask(await sessionRuntime.isActiveSessionMultitask());
 					const { messages } = await sessionRuntime.readCurrentMessages();
 					const usage = await sessionRuntime.getAccumulatedUsage({
 						inputTokens: 0,
@@ -602,6 +614,8 @@ export async function runInteractive(
 					autoApproveAllRef,
 					setInteractiveAutoApprove,
 					sessionRuntime,
+					setMultitask,
+					getActiveTeammateRuns: () => activeTeammateRuns.size,
 					stop: () => tuiApp?.destroy(),
 					onCommandOutput,
 				});
@@ -662,9 +676,14 @@ export async function runInteractive(
 								mergedUserImages.length > 0 ? mergedUserImages : undefined,
 							userFiles: userFiles.length > 0 ? userFiles : undefined,
 							delivery,
+							multitask: multitaskRef.current,
 						}),
 					sendContinuationTurn: (prompt) =>
-						sessionRuntime.sendCurrentTurn({ prompt, mode: "act" }),
+						sessionRuntime.sendCurrentTurn({
+							prompt,
+							mode: "act",
+							multitask: multitaskRef.current,
+						}),
 					applyPendingModeChange,
 				});
 
@@ -814,8 +833,11 @@ export async function runInteractive(
 		// resumeSession initializes the manager and starts the selected session
 		// directly. Ensuring a session first would mint an empty history entry
 		// when the TUI was launched through `cline history`.
-		onResumeSession: async (sessionId: string) =>
-			await resumeInteractiveSession(sessionRuntime, sessionId),
+		onResumeSession: async (sessionId: string) => {
+			const resumed = await resumeInteractiveSession(sessionRuntime, sessionId);
+			setMultitask(await sessionRuntime.isActiveSessionMultitask());
+			return resumed;
+		},
 		onExportHistorySession: async (sessionId, format) =>
 			await exportHistorySession({
 				sessionId,
@@ -853,6 +875,10 @@ export async function runInteractive(
 		},
 		setModeChangeNotifier: (fn) => {
 			tuiModeChanged.current = fn;
+		},
+		setMultitaskChangeNotifier: (fn) => {
+			tuiMultitaskChanged.current = fn;
+			fn?.(multitaskRef.current);
 		},
 	});
 

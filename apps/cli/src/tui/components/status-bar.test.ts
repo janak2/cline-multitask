@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	createContextBar,
+	formatMultitaskStatusText,
 	formatStatusBarUsageText,
 	resolveContextBarFilledForeground,
 	resolveModelDisplayName,
@@ -128,5 +129,20 @@ describe("resolveModelDisplayName", () => {
 				},
 			}),
 		).toBe("GLM 5.2");
+	});
+});
+
+describe("formatMultitaskStatusText", () => {
+	it("shows the badge alone while no teammates run", () => {
+		expect(formatMultitaskStatusText(0)).toBe("● Multitask");
+	});
+
+	it("adds the running count and how to stop", () => {
+		expect(formatMultitaskStatusText(1)).toBe(
+			"● Multitask · 1 teammate running (/multitask stop)",
+		);
+		expect(formatMultitaskStatusText(3)).toBe(
+			"● Multitask · 3 teammates running (/multitask stop)",
+		);
 	});
 });

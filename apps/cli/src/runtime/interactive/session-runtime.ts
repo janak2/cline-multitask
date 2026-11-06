@@ -891,6 +891,19 @@ export function createInteractiveSessionRuntime(input: {
 		return true;
 	};
 
+	const isActiveSessionMultitask = async (): Promise<boolean> => {
+		if (!sessionManager || !activeSessionId) return false;
+		const session = await sessionManager.get(activeSessionId);
+		return session?.metadata?.multitask === true;
+	};
+
+	const stopTeammates = async (): Promise<void> => {
+		if (!sessionManager || !activeSessionId) return;
+		await sessionManager.abort(activeSessionId, "stopped_by_user", {
+			scope: "teammates",
+		});
+	};
+
 	let cleanupPromise: Promise<InteractiveExitSummary | undefined> | undefined;
 	const cleanup = async (): Promise<InteractiveExitSummary | undefined> => {
 		if (cleanupPromise) {
@@ -950,6 +963,8 @@ export function createInteractiveSessionRuntime(input: {
 		applyMode,
 		resetAbortRequest,
 		abortAll,
+		stopTeammates,
+		isActiveSessionMultitask,
 		cleanup,
 		getActiveSessionId: () => activeSessionId,
 		isShutdownRequested: () => shutdownRequested,
