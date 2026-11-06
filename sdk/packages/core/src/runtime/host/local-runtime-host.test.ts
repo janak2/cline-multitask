@@ -8343,15 +8343,25 @@ describe("LocalRuntimeHost", () => {
 			await host.manager.dispose();
 		});
 
-		it("restores the flag on resume", async () => {
+		it("restores the flag on resume and delivers runs interrupted during recovery", async () => {
 			const host = createMultitaskHost({
 				sessionId: "sess-multitask-resume",
 				resumeMetadata: { multitask: true },
+				onBuild: (onTeamEvent) =>
+					onTeamEvent({
+						type: TeamMessageType.RunInterrupted,
+						run: makeRun("run_1", "interrupted"),
+						reason: "teammate_unavailable_after_recovery",
+					}),
 			});
 
 			await host.start();
 
 			expect(host.session().multitask).toBe(true);
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(1));
+			expect(host.prompts[0]).toContain(
+				"run_1 (ui-dev) -> interrupted error=teammate_unavailable_after_recovery",
+			);
 			await host.manager.dispose();
 		});
 	});

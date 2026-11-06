@@ -685,6 +685,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// no session and be dropped, so hold them until registration below.
 		let heldSessionEvents: Array<{ name: string; payload?: unknown }> | null =
 			[];
+		// Team persistence recovers runs while the runtime is built, also
+		// before registration; hold those events so run tracking sees them.
+		let heldTeamEvents: TeamEvent[] | null = [];
 		const subAgentDeps = {
 			getSession: (sid: string) => this.sessions.get(sid),
 			subAgentStarts: this.subAgentStarts,
@@ -755,8 +758,12 @@ export class LocalRuntimeHost implements RuntimeHost {
 				});
 			},
 			onTeamEvent: (event: TeamEvent) => {
-				void this.eventBridge.handleTeamEvent(sessionId, event);
-				this.deliverMultitaskTeamRunUpdates(sessionId);
+				if (heldTeamEvents) {
+					heldTeamEvents.push(event);
+				} else {
+					void this.eventBridge.handleTeamEvent(sessionId, event);
+					this.deliverMultitaskTeamRunUpdates(sessionId);
+				}
 				bootstrap.config.onTeamEvent?.(event);
 			},
 			createSpawnTool: () =>
@@ -1146,6 +1153,15 @@ export class LocalRuntimeHost implements RuntimeHost {
 				pluginEventFallbackAutomation,
 				pluginEventFallbackTelemetry,
 			);
+		}
+		const heldTeam = heldTeamEvents ?? [];
+		heldTeamEvents = null;
+		for (const event of heldTeam) {
+			void this.eventBridge.handleTeamEvent(sessionId, event);
+		}
+		// With a start prompt, its turn delivers them when it completes.
+		if (!startInput.prompt?.trim()) {
+			this.deliverMultitaskTeamRunUpdates(sessionId);
 		}
 		if (resumedArtifacts) {
 			await this.refreshActiveSessionGitMetadata(active, bootstrap.gitState);
