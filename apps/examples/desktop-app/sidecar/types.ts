@@ -12,6 +12,7 @@ import type {
 import type { MessageWithMetadata } from "@cline/llms";
 import type { UserContext } from "@cline/shared";
 import type { HubStartup } from "./hub-startup";
+import type { PhoneAccess } from "./phone-access";
 
 export const LOCAL_ENVIRONMENT_ID = "local";
 
@@ -181,6 +182,8 @@ export type SidecarContext = {
 	hubBuildMismatch: ManagedHubBuildMismatchEvent | null;
 	/** Local Hub setup, which runs after the transport is published. */
 	hubStartup?: HubStartup;
+	/** Serves the Hub dashboard to the user's phone through Tailscale. */
+	phoneAccess?: PhoneAccess;
 };
 export type BunRuntimeApi = {
 	serve: (options: unknown) => { port: number; stop?: () => void };

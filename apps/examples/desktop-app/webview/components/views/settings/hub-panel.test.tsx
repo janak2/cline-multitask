@@ -6,6 +6,7 @@ import { HubPanel } from "./hub-panel";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@/lib/desktop-client", () => ({ desktopClient: { invoke } }));
+vi.mock("./phone-access-panel", () => ({ PhoneAccessPanel: () => null }));
 let root: Root;
 let container: HTMLDivElement;
 const status = {

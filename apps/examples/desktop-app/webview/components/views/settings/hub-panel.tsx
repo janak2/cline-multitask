@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { desktopClient } from "@/lib/desktop-client";
 import type { HubStatus } from "@/lib/hub-status";
+import { PhoneAccessPanel } from "./phone-access-panel";
 
 export function HubPanel() {
 	const [status, setStatus] = useState<HubStatus | null>(null);
@@ -98,6 +99,7 @@ export function HubPanel() {
 					{restarting ? "Restarting…" : "Restart Hub"}
 				</Button>
 			</div>
+			<PhoneAccessPanel />
 			{error ? (
 				<p className="mt-3 text-sm text-destructive" role="alert">
 					{error}
