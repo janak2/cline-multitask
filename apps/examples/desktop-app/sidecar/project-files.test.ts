@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -10,11 +12,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	createLocalProjectDirectory,
+	deleteLocalProjectEntry,
 	listLocalProjectEntries,
+	moveLocalProjectEntry,
 	PROJECT_FILE_READ_LIMIT_BYTES,
 	parseRemoteListing,
 	REMOTE_LIST_SCRIPT,
 	readLocalProjectFile,
+	writeLocalProjectFile,
 } from "./project-files";
 
 let root: string;
@@ -85,6 +91,61 @@ describe("readLocalProjectFile", () => {
 		const result = readLocalProjectFile(root, big);
 		expect(result.truncated).toBe(true);
 		expect(result.content?.length).toBe(PROJECT_FILE_READ_LIMIT_BYTES);
+	});
+});
+
+describe("local project file changes", () => {
+	it("creates a folder and refuses one that exists", () => {
+		createLocalProjectDirectory(root, join(root, "docs"));
+		expect(existsSync(join(root, "docs"))).toBe(true);
+		expect(() => createLocalProjectDirectory(root, join(root, "docs"))).toThrow(
+			/EEXIST/,
+		);
+	});
+
+	it("moves an entry without replacing one at the destination", () => {
+		moveLocalProjectEntry(
+			root,
+			join(root, "README.md"),
+			join(root, "src", "README.md"),
+		);
+		expect(existsSync(join(root, "src", "README.md"))).toBe(true);
+		expect(() =>
+			moveLocalProjectEntry(
+				root,
+				join(root, "src", "index.ts"),
+				join(root, "src", "README.md"),
+			),
+		).toThrow(/README.md already exists/);
+	});
+
+	it("deletes a folder with its contents, and a link without its target", () => {
+		symlinkSync(join(root, "src"), join(root, "link"));
+		deleteLocalProjectEntry(root, join(root, "link"));
+		expect(existsSync(join(root, "src", "index.ts"))).toBe(true);
+		deleteLocalProjectEntry(root, join(root, "src"));
+		expect(existsSync(join(root, "src"))).toBe(false);
+	});
+
+	it("writes a dropped file and replaces one only when asked", () => {
+		const target = join(root, "README.md");
+		const contents = Buffer.from("new").toString("base64");
+		expect(() => writeLocalProjectFile(root, target, contents, false)).toThrow(
+			/EEXIST/,
+		);
+		writeLocalProjectFile(root, target, contents, true);
+		expect(readFileSync(target, "utf8")).toBe("new");
+	});
+
+	it("refuses the root itself, relative paths and paths outside it", () => {
+		expect(() => deleteLocalProjectEntry(root, root)).toThrow(/itself/);
+		expect(() => deleteLocalProjectEntry(root, "README.md")).toThrow(
+			/absolute/,
+		);
+		expect(() =>
+			moveLocalProjectEntry(root, join(root, "README.md"), join(tmpdir(), "x")),
+		).toThrow(/outside the workspace/);
+		expect(existsSync(join(root, "README.md"))).toBe(true);
 	});
 });
 
