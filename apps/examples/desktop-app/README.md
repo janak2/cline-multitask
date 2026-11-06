@@ -126,6 +126,41 @@ API keys, `JAVA_HOME`-style tool roots) are not pulled in. Set
 `CLINE_SIDECAR_SKIP_SHELL_PATH=1` to disable. Implementation and details:
 [`core shell-path.ts`](../../../sdk/packages/core/src/remote/shell-path.ts).
 
+## Use Cline from your phone
+
+While the app is open, your phone can open the Cline Hub dashboard and drive
+the same sessions. It goes through Tailscale, a private network app that links
+your own devices, so it works on mobile data too.
+
+One-time setup:
+
+1. Install Tailscale on this computer and on your phone, and sign in to the
+   same account on both. On Linux, run `sudo tailscale up`.
+2. In the Tailscale admin console, turn on HTTPS certificates
+   ([Enabling HTTPS](https://tailscale.com/kb/1153/enabling-https)). MagicDNS
+   must be on too; it is on by default.
+3. On Linux only, run `sudo tailscale set --operator=$USER` once, so the app can
+   set up Tailscale Serve without `sudo`.
+
+Then open **Settings → General → Cline Hub**. The **Phone access** block says
+which step is missing, or shows a QR code for
+`https://<machine>.<tailnet>.ts.net`. Scan it with the phone camera and
+bookmark the page. Phone access stops when the app quits. The switch turns it
+off for good.
+
+Security, in plain words:
+
+- Any device that can reach this computer through your Tailscale network can
+  open the dashboard and control Cline, including approving shell commands.
+  There is no extra password. If other people share your tailnet, limit them
+  with Tailscale access rules or turn phone access off.
+- Nobody outside your tailnet can reach it. The dashboard listens only on
+  `127.0.0.1`, and the app never turns on Tailscale Funnel (public sharing).
+- Turning on HTTPS certificates puts the machine's ts.net name in public
+  certificate logs. The name gives no access.
+- The app only uses Tailscale Serve on port 443 when it is free or already
+  the app's own, and removes its setting on quit.
+
 ## SSH Remote Environments
 
 Open **Settings → Remote** to add and test an SSH host. Saving or testing a

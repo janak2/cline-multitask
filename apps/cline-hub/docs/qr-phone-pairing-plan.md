@@ -1,6 +1,6 @@
 # Plan: open Cline on your phone by scanning a QR code
 
-Status: proposed. Nothing in this document is implemented yet.
+Status: implemented. This document describes what the desktop app does.
 
 ## 1. Goal
 
@@ -41,7 +41,7 @@ The settings panel checks each step and says which one is missing (section 5.7).
 
 If Tailscale is not installed or not signed in, the app does nothing. The **Phone access** block shows one short hint.
 
-## 4. What exists today
+## 4. What existed before this change
 
 Paths are relative to the repository root.
 
@@ -117,7 +117,7 @@ The sidecar owns phone access. When the setup is complete, it does three things:
    tailscale serve --bg --https=443 http://127.0.0.1:<free port>
    ```
 
-The QR code holds `https://<machine>.<tailnet>.ts.net/`. The local port never appears in it, so the port can change on every start.
+The QR code holds `https://<machine>.<tailnet>.ts.net`. The local port never appears in it, so the port can change on every start.
 
 `--bg` saves the setting in Tailscale itself, so it survives the command exiting and even a reboot. That is why the sidecar must remove it on quit and must recognise a leftover one after a crash (section 5.5). The commands follow the syntax from Tailscale 1.52 onward ([`tailscale serve` reference](https://tailscale.com/kb/1242/tailscale-serve)).
 
@@ -131,13 +131,14 @@ From `tailscale status --json`:
 
 | Field | Meaning |
 | --- | --- |
-| `BackendState` | Must be `Running`. `NeedsLogin` means not signed in; `Stopped` means turned off. |
+| `BackendState` | Must be `Running`. `Stopped` means turned off; any other state, such as `NeedsLogin`, means not signed in. If the command fails (the Tailscale service is not running), Tailscale counts as turned off. |
 | `Self.DNSName` | The machine name, for example `my-laptop.example-tailnet.ts.net.`. The trailing dot is removed. Empty means MagicDNS is off. |
+| `CurrentTailnet.MagicDNSEnabled` | `false` also means MagicDNS is off. |
 | `CertDomains` | Names Tailscale can issue certificates for. Empty means HTTPS certificates are off in the admin console. |
 
 On Linux, `tailscale debug prefs` gives `OperatorUser`. If it is not the current user (and the app is not running as root), the operator step is missing. As a fallback, a `tailscale serve` failure whose output says access was denied is reported the same way.
 
-From `tailscale serve status --json`, the sidecar reads what port 443 on this machine forwards to: `Web["<name>:443"].Handlers["/"].Proxy`, plus `AllowFunnel["<name>:443"]`.
+From `tailscale serve status --json`, the sidecar reads what port 443 on this machine forwards to: the `Web` entry whose key ends in `:443`, its `Handlers["/"].Proxy`, plus any `AllowFunnel` entry for port 443. Port 443 counts as free only when there is no such `Web` entry and no `TCP["443"]`. A handler on any other path, or a raw TCP forward, counts as someone else's setting.
 
 Readiness is checked at sidecar startup and then every 30 seconds. This picks up a user who finishes the setup after opening the app, and stops phone access when Tailscale is turned off.
 
@@ -167,7 +168,7 @@ File: `<Cline data dir>/hub/phone-access.json`, created with directory mode `070
 
 1. If port 443 still forwards to our `serveTarget`, run `tailscale serve --https=443 off`. This removes only the port 443 setting. The sidecar never runs `tailscale serve reset`, which would clear every Serve setting on the machine.
 2. Send `SIGTERM` to the dashboard, and `SIGKILL` after 3 seconds.
-3. Clear `serveTarget` and the PIDs.
+3. Clear `serveTarget` and the PIDs. If `tailscale serve --https=443 off` fails (for example, Tailscale's service is not running), keep them, so the next start recognises the leftover as ours and replaces it.
 
 If the dashboard exits on its own, the sidecar turns Serve off as above, records the last output lines as the error, and tries again on the next 30-second check.
 
@@ -180,8 +181,8 @@ Without `CLINE_DESKTOP_CLI_PATH` (some development setups), the status is `unava
 Port 443 in Serve is shared by the whole machine. Before starting, the sidecar compares what 443 forwards to with the state file:
 
 1. **Nothing on 443.** Start normally.
-2. **Our leftover from a crash.** 443 forwards to the saved `serveTarget`, and the saved `ownerPid` is no longer running. Stop the saved `dashboardPid` if it is still running, then start normally. Step 3 of the start overwrites the old target.
-3. **Another Cline app is running it.** This happens when the stable and Beta apps run side by side; they share the data directory. 443 forwards to the saved `serveTarget`, and the saved `ownerPid` is alive and is not this sidecar. Do not start. The status is `running` with the note "Running from another Cline app", and the same QR code is shown, since the address is the same. When that app quits, it turns Serve off, and the next 30-second check here starts a new one.
+2. **Our leftover from a crash.** 443 forwards to the saved `serveTarget`, and the saved `ownerPid` is no longer running, or the saved target no longer answers `GET /`. Stop the saved `dashboardPid` only if it is still running and the saved target still answers, so a process that reused the ID after a reboot is never signalled. Then start normally. Step 3 of the start overwrites the old target.
+3. **Another Cline app is running it.** This happens when the stable and Beta apps run side by side; they share the data directory. 443 forwards to the saved `serveTarget`, the saved `ownerPid` is alive and is not this sidecar, and the saved target answers `GET /`. Do not start. The status is `running` with the note "Running from another Cline app", and the same QR code is shown, since the address is the same. When that app quits, it turns Serve off, and the next 30-second check here starts a new one.
 4. **Someone else's setting.** 443 forwards anywhere else, or Funnel is on for 443. Change nothing. The status is `blocked` with "Tailscale Serve on port 443 is already used for something else. Remove it with `tailscale serve --https=443 off` if you no longer need it."
 
 A crash followed by a reboot leaves our Serve setting in place, pointing at a closed port. The phone gets an error page until the app opens again and case 2 replaces it.
@@ -238,7 +239,7 @@ A new `phone-access-panel.tsx`, rendered inside `HubPanel` under the existing Hu
 
 Neither the desktop app nor the hub has a QR library. The plan adds [`uqr`](https://www.npmjs.com/package/uqr) to `apps/examples/desktop-app/package.json`. It is MIT licensed, has no dependencies and has a `renderSVG` function, so the panel needs only a few lines.
 
-Needs approval: `uqr` is a new dependency. The fallback is to copy OpenCode's dependency-free encoder ([`packages/util/src/qr.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/util/src/qr.ts), about 320 lines, MIT) into `webview/lib/qr.ts`, keeping its MIT notice.
+`uqr` was approved as a new dependency. The panel shows its SVG output as a `data:` image.
 
 ### 5.9 What this replaces
 
@@ -277,7 +278,7 @@ All paths under `apps/examples/desktop-app/` unless they start with `apps/cline-
 
 | File | What it holds |
 | --- | --- |
-| `sidecar/phone-access.ts` | Tailscale lookup; parsing of `status`, `serve status` and `debug prefs` output (pure functions that take the JSON); the state file; free-port pick; the CLI and Serve arguments; the four port-443 cases; the 30-second check loop; start and stop. The process runner, port probe and clock are passed in, so tests need no real Tailscale. |
+| `sidecar/phone-access.ts` | Tailscale lookup; parsing of `status`, `serve status` and `debug prefs` output (pure functions that take the JSON); the state file; free-port pick; the CLI and Serve arguments; the four port-443 cases; the 30-second check loop; start and stop. The Tailscale runner, the dashboard spawner and the timeouts are passed in, so tests need no real Tailscale; they run small real HTTP servers as dashboards. |
 | `sidecar/phone-access.test.ts` | Tests in section 8.1. |
 | `webview/lib/phone-access.ts` | `PhoneAccessStatus` type, shared by sidecar and webview (like `webview/lib/hub-status.ts`). |
 | `webview/components/views/settings/phone-access-panel.tsx` | The block in section 5.7. |
@@ -288,12 +289,13 @@ All paths under `apps/examples/desktop-app/` unless they start with `apps/cline-
 | File | Change |
 | --- | --- |
 | `sidecar/types.ts` | Add the phone access controller to `SidecarContext`. |
-| `sidecar/index.ts` | Create and start the controller after Hub startup begins. |
+| `sidecar/index.ts` | Create the controller, and start it once Hub startup settles, so the dashboard joins the Hub the app just started instead of racing it. |
 | `sidecar/context.ts` | Stop the controller in `disposeSidecarContext`, so Serve is turned off and the dashboard stopped on quit. |
 | `sidecar/commands.ts` | The two commands in section 5.6, with the `canApproveTools` check. |
 | `sidecar/commands-settings.test.ts` | Both commands refuse an untrusted connection. |
 | `webview/components/views/settings/hub-panel.tsx` | Render `<PhoneAccessPanel />` in the Cline Hub section. |
-| `package.json` | Add `uqr` (needs approval). |
+| `webview/components/views/settings/hub-panel.test.tsx` | Stub `PhoneAccessPanel`, so the Hub panel tests stay focused on the Hub. |
+| `package.json` | Add `uqr`. |
 | `README.md` | A short "Use Cline from your phone" section: the one-time setup in section 3.1, scanning the QR code, and the security points from section 6. |
 | `apps/cline-hub/src/server/browser-auth.test.ts` | Pin the Serve contract this design relies on (section 8.3). Test only; no server change. |
 
