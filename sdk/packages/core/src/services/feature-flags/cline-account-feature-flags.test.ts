@@ -88,6 +88,18 @@ describe("Cline account beta flags", () => {
 		expect(mocks.getAllFlagsAndPayloads).not.toHaveBeenCalled();
 	});
 
+	it("warns once per process when the provider key is missing", async () => {
+		vi.resetModules();
+		const fresh = await import("./cline-account-feature-flags");
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.stubEnv("TELEMETRY_SERVICE_API_KEY", "");
+		expect(await fresh.isClineAccountFeatureEnabled(flag)).toBe(false);
+		expect(await fresh.isClineAccountFeatureEnabled(flag)).toBe(false);
+		expect(warn).toHaveBeenCalledOnce();
+		expect(warn.mock.calls[0]?.[0]).toContain("TELEMETRY_SERVICE_API_KEY");
+		warn.mockRestore();
+	});
+
 	it("does not transfer grants to another account or across sign-out", async () => {
 		expect(await isClineAccountFeatureEnabled(flag)).toBe(true);
 		mocks.accountId = "account-2";

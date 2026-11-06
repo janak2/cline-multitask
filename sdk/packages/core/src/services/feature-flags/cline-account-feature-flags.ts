@@ -13,6 +13,7 @@ let current:
 			pending?: Promise<void>;
 	  }
 	| undefined;
+let warnedMissingApiKey = false;
 
 function getAccountId(): string | undefined {
 	return (
@@ -30,6 +31,12 @@ export async function isClineAccountFeatureEnabled(
 ): Promise<boolean> {
 	const accountId = getAccountId();
 	const apiKey = process.env.TELEMETRY_SERVICE_API_KEY;
+	if (!apiKey && !warnedMissingApiKey) {
+		warnedMissingApiKey = true;
+		console.warn(
+			"[feature-flags] TELEMETRY_SERVICE_API_KEY is not set; Cline account feature flags will report disabled.",
+		);
+	}
 	if (!accountId || !apiKey) {
 		current = undefined;
 		return false;
