@@ -1783,6 +1783,37 @@ describe("Code sidecar runtime capabilities", () => {
 		]);
 	});
 
+	it("forwards Hub team progress so the desktop can count running teammates", async () => {
+		const { createSidecarContext, handleHubLiveEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		ctx.wsClients.add({ send: vi.fn() } as never);
+		const payload = {
+			type: "team_progress_projection",
+			version: 1,
+			sessionId: "lead-1",
+			summary: { runs: { activeRunIds: ["run-1", "run-2"] } },
+			lastEvent: { type: "run_started" },
+		};
+
+		handleHubLiveEvent(ctx, {
+			event: "team.progress",
+			sessionId: "lead-1",
+			payload,
+		});
+
+		expect(readEvents(ctx)).toEqual([
+			{
+				type: "event",
+				event: {
+					name: "team_progress",
+					payload: { environmentId: "local", ...payload },
+				},
+			},
+		]);
+	});
+
 	it("forwards Hub settings changes so open desktop views can refresh", async () => {
 		const { createSidecarContext, handleHubLiveEvent } = await import(
 			"./context"

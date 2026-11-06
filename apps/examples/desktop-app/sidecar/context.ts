@@ -643,10 +643,6 @@ export function handleCoreSessionEvent(
 			sendEvent(ctx, "chat_session_status", { sessionId, status });
 			break;
 		}
-		case "team_progress": {
-			sendEvent(ctx, "team_progress", event.payload);
-			break;
-		}
 	}
 }
 
@@ -945,6 +941,12 @@ export function handleHubLiveEvent(
 	}
 	if (event.event === "settings.changed") {
 		sendEvent(ctx, event.event, event.payload ?? {});
+		return;
+	}
+	// The Hub runtime host does not project team.progress into core session
+	// events, so this observer is its only path to the webview.
+	if (event.event === "team.progress") {
+		sendEvent(ctx, "team_progress", event.payload ?? {});
 		return;
 	}
 
