@@ -2,8 +2,13 @@
 
 import type { HandoffGitPreview } from "@cline/core/cloud";
 import type { ProviderAuthInfo } from "@cline/shared/browser";
-import { AttachmentDropZone } from "@cline/ui";
-import { Loader2, LoaderCircle, SquareTerminal } from "lucide-react";
+import { AgentConversationHeader, AttachmentDropZone } from "@cline/ui";
+import {
+	FolderTree,
+	Loader2,
+	LoaderCircle,
+	SquareTerminal,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import {
 	Activity,
@@ -3211,13 +3216,15 @@ function ChatThreadPane({
 
 	// Fetch the panel's code as soon as a session could show it, so the first
 	// toggle opens it without waiting on the chunk.
-	const mayBrowseFiles =
-		!isCloudSession && Boolean(resolvedWorkspaceRoot) && !isWelcomeState;
+	// The file tree needs a workspace but no session, so it also opens from
+	// the welcome screen; session changes need a session.
+	const mayOpenFiles = !isCloudSession && Boolean(resolvedWorkspaceRoot);
+	const mayBrowseFiles = mayOpenFiles && !isWelcomeState;
 	useEffect(() => {
-		if (mayBrowseFiles) {
-			void loadProjectFilesPanel();
-			void loadChangesPanel();
-		}
+		if (mayOpenFiles) void loadProjectFilesPanel();
+	}, [mayOpenFiles]);
+	useEffect(() => {
+		if (mayBrowseFiles) void loadChangesPanel();
 	}, [mayBrowseFiles]);
 
 	// Each turn adds a user message and each tool call a tool message, so the
@@ -3341,7 +3348,7 @@ function ChatThreadPane({
 	// Cloud runs have no reachable workspace, and the welcome state has no
 	// session to browse alongside yet.
 	const canBrowseFiles = mayBrowseFiles;
-	const filesPanelVisible = canBrowseFiles && workspacePanel === "files";
+	const filesPanelVisible = mayOpenFiles && workspacePanel === "files";
 	const changesPanelVisible = canBrowseFiles && workspacePanel === "changes";
 
 	return (
@@ -3349,12 +3356,13 @@ function ChatThreadPane({
 			{/* Requires `dragDropEnabled: false` on the Tauri window so the native shell does not swallow OS file drags. */}
 			<AttachmentDropZone
 				className={
-					isWelcomeState
-						? "grid h-full min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
-						: filesPanelVisible || changesPanelVisible
-							? // The panel is placed explicitly in column 2 spanning both
-								// rows, so the transcript and composer auto-flow into column 1.
-								"grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+					filesPanelVisible || changesPanelVisible
+						? // The panel is placed explicitly in column 2 spanning both
+							// rows, so the transcript and composer (or the welcome
+							// screen) auto-flow into column 1.
+							"grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+						: isWelcomeState
+							? "grid h-full min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
 							: "grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
 				}
 				disabled={isCloudSessionExpired || showingHistoryPreview}
@@ -3403,6 +3411,34 @@ function ChatThreadPane({
 								terminalShortcut={terminal?.shortcut}
 							/>
 						</div>
+					</WindowTitleBarContent>
+				) : mayOpenFiles ? (
+					<WindowTitleBarContent>
+						<AgentConversationHeader
+							actions={
+								<Button
+									aria-label={
+										filesPanelVisible
+											? "Hide project files"
+											: "Show project files"
+									}
+									aria-pressed={filesPanelVisible}
+									id="toggle-project-files"
+									onClick={toggleFilesPanel}
+									size="icon-xs"
+									title={
+										filesPanelVisible
+											? "Hide project files"
+											: "Show project files"
+									}
+									type="button"
+									variant="toolbar"
+								>
+									<FolderTree className="size-4" />
+								</Button>
+							}
+							className="max-md:h-7"
+						/>
 					</WindowTitleBarContent>
 				) : null}
 				<WelcomeScreen
@@ -3538,6 +3574,7 @@ function ChatThreadPane({
 						cwd={config.cwd || config.workspaceRoot}
 						environmentId={environmentId}
 						fileDiffs={fileDiffs}
+						key={`${environmentId}:${resolvedWorkspaceRoot}`}
 						onClose={toggleFilesPanel}
 						workspaceRoot={resolvedWorkspaceRoot}
 					/>
