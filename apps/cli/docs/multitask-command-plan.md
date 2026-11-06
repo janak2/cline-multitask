@@ -1,6 +1,6 @@
 # Plan: the `/multitask` command
 
-Status: proposed. Nothing in this document is implemented yet.
+Status: implemented on the `multitask-command` branch. Where the build differs from the first draft, this document has been updated to match it.
 
 ## 1. Goal
 
@@ -240,18 +240,23 @@ That one change hides the block from transcripts, titles, session search and the
 
 ### 7.4 Core runtime host (`src/runtime/host/local-runtime-host.ts`)
 
-**Accept and remember the flag.** `runTurn` passes `input.multitask` into `executeTurn`, and into `pendingPromptsController.enqueue` when it queues the message. At the start of `executeTurn`, after `ensureSessionPersisted`:
+**Accept and remember the flag.** `runTurn` passes `input.multitask` into `executeTurn`, and into `pendingPromptsController.enqueue` when it queues the message. `executeTurn` sets the in-memory flag first, because `prepareTurnInput` needs it to add the coordinator block:
 
 ```ts
-if (input.multitask !== undefined && input.multitask !== (session.multitask === true)) {
-	session.multitask = input.multitask;
+if (input.multitask !== undefined) session.multitask = input.multitask;
+const multitask = session.multitask === true;
+```
+
+After `ensureSessionPersisted`, it writes the flag to metadata when the stored value differs:
+
+```ts
+if ((session.sessionMetadata?.multitask === true) !== multitask) {
 	await this.persistSessionMetadata(session.sessionId, (current) => ({
 		...(current ?? {}),
 		...(session.sessionMetadata ?? {}),
-		multitask: input.multitask,
+		multitask,
 	}));
 }
-const multitask = session.multitask === true;
 ```
 
 **Add the coordinator block.** `prepareTurnInput` gets a `multitask` argument:
@@ -309,7 +314,7 @@ private deliverMultitaskTeamRunUpdates(sessionId: string): void {
 }
 ```
 
-The entry has no `multitask` field, so the drained turn uses the session's current value (section 4.3). `executeTurn` also calls this method once after it switches a session into multitask mode. That flushes updates that piled up while the mode was off.
+The entry has no `multitask` field, so the drained turn uses the session's current value (section 4.3). `completeInteractiveTurn` also calls this method after it marks the session idle. That flushes updates that piled up while the mode was off. The flush happens at the end of the turn, not when `executeTurn` switches the mode on: a delivery queued while a turn is still being prepared could drain into a second turn that runs alongside it.
 
 **Abort and stop all.** Move the teammate part of `abort` (lines 1384–1392) into one private helper, so a plain abort and stop all share it:
 
@@ -348,6 +353,8 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 
 **Restore on resume.** When building `ActiveSession` (lines 1074–1106), set `multitask: initialSessionMetadata?.multitask === true`.
 
+**Track runs recovered during a rebuild.** Team persistence re-queues or interrupts runs while the runtime is built, before the session is registered. `onTeamEvent` holds those events in `heldTeamEvents`, the same way `heldSessionEvents` holds plugin events, and replays them through `handleTeamEvent` right after registration. When the start has no prompt, the host then calls `deliverMultitaskTeamRunUpdates` once, so a multitask session reports runs that recovery marked `interrupted`. With a start prompt, that turn's `completeInteractiveTurn` delivers them.
+
 ### 7.5 CLI (`apps/cli`)
 
 - New `src/utils/multitask-command.ts`, next to `team-command.ts`:
@@ -373,19 +380,20 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   }
   ```
 
-- `src/runtime/interactive/chat-command-runner.ts`: handle it before `/team`. It takes a new `multitaskRef: { current: boolean }` and an `onMultitaskChanged` callback.
+- `src/utils/multitask-command.ts` also holds two small helpers: `trackActiveTeamRuns(active, event)`, which adds a run ID on `run_queued` and `run_started` and removes it on `run_completed`, `run_failed`, `run_cancelled` and `run_interrupted`, and `formatTeammateRestartWarning(count)` for the warning below.
+- `src/runtime/interactive/chat-command-runner.ts`: handle it before `/team`. It takes a `setMultitask(enabled)` callback and a `getActiveTeammateRuns()` getter for the off reply.
   - Turning on with teams disabled (for example under `--yolo`) sets `config.enableAgentTeams = true` and a team name, like `/team`, but calls `restartWithCurrentMessages()` instead of `restartEmpty()`, so the conversation is kept. Add `restartWithCurrentMessages` to `InteractiveChatCommandRuntime`; the session runtime already returns it.
-  - The reply is "Multitask mode is on." or "Multitask mode is off."
+  - The reply is "Multitask mode is on." or "Multitask mode is off." With runs still active, the off reply adds "N teammate run(s) are still going; your next message waits for them."
   - `stop` calls a new `sessionRuntime.stopTeammates()` and replies "Stopped all background teammates." It works whether the mode is on or off, and does not change it.
 - `src/runtime/interactive/session-runtime.ts`: add `stopTeammates`, which calls `manager.abort(activeSessionId, "stopped_by_user", { scope: "teammates" })`, and add it to `InteractiveChatCommandRuntime`.
 - `src/runtime/run-interactive.ts`:
-  - own `multitaskRef`;
+  - own `multitaskRef` and a set of active run IDs, kept with `trackActiveTeamRuns` in the existing `onTeamEvent` callback;
   - pass `multitask: multitaskRef.current` in both `sendCurrentTurn` calls inside `sendTurnWithActModeContinuation` (lines 656–669);
   - add a `setMultitaskChangeNotifier`, shaped like `setModeChangeNotifier` (lines 854–856), so the TUI can show the badge;
-  - when resuming a session, seed `multitaskRef` from `metadata.multitask` of the resumed session row.
-- `src/runtime/interactive/session-runtime.ts`: add `multitask?: boolean` to `CurrentTurnInput`. `sendCurrentTurn` already spreads it into `manager.send`.
+  - when resuming a session (at launch and from history), seed `multitaskRef` from `metadata.multitask` of the resumed session row through a new `sessionRuntime.isActiveSessionMultitask()`.
+- `src/runtime/interactive/session-runtime.ts`: `CurrentTurnInput` is derived from `ClineCore.send`, so it gains `multitask` from `SendSessionInput` without a change. `sendCurrentTurn` already spreads it into `manager.send`.
 - `src/tui/components/status-bar.tsx`: add a `multitask: boolean` prop and an `activeTeammateRuns: number` prop. When multitask is on, render a `● Multitask` line in the act accent above the auto-approve line. While runs are active, add ` · N teammates running (/multitask stop)`.
-- `src/tui/hooks/use-agent-events.ts`: in `handleTeamEvent`, keep a count of active runs. `run_queued` and `run_started` add the run ID; `run_completed`, `run_failed`, `run_cancelled` and `run_interrupted` remove it. Expose the count through the session context for the status bar and the warning below.
+- `src/tui/hooks/use-agent-events.ts`: in `handleTeamEvent`, keep the active run IDs with `trackActiveTeamRuns` and pass the count to a new `setActiveTeammateRuns` dependency. The session context holds the count for the status bar and the warning below.
 - `src/tui/root.tsx`: warn before a session restart while teammates run. In `toggleMode` and `handleModelChange`, if the count is above zero, add a chat entry of the existing `{ kind: "status" }` type, then go ahead with the switch:
 
   ```ts
@@ -403,13 +411,14 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 - `sidecar/chat-session.ts`:
   - add `"multitask"` to `BUILTIN_SLASH_COMMAND_NAMES`;
   - pull the availability checks out of `rewriteDesktopTeamPrompt` into `assertDesktopTeamsAvailable(availability)`, so `/team` and `/multitask` share them;
-  - in `handleSendOnce`, next to the `/compact` branch, handle `/multitask`: refuse cloud bindings, check availability when turning on, set `session.multitask`, emit `chat_command_output` and a new `multitask_state` event `{ sessionId, enabled }`, then return `{ sessionId, ok: true, commandHandled: true, multitask }`;
+  - in `handleSendOnce`, next to the `/compact` branch, handle `/multitask`: refuse non-local bindings (SSH environments) with "/multitask is only available in local sessions.", check availability when turning on, set `session.multitask`, emit `chat_command_output` and a new `multitask_state` event `{ sessionId, enabled }`, then return `{ sessionId, ok: true, commandHandled: true, multitask }`;
   - in the same branch, handle `/multitask stop`: call `manager.abort(sessionId, "stopped_by_user", { scope: "teammates" })`, emit `chat_command_output` with "Stopped all background teammates.", and leave `session.busy` and `session.status` alone, unlike `handleAbort`;
-  - pass `multitask: session?.multitask === true` to both `manager.send` calls (the queued one, lines 1790–1796, and the direct one, lines 1849–1855);
-  - in `handleAttach` and the resume branch of session start, set `multitask` from `metadata.multitask` and include it in the response.
+  - pass `multitask: session?.multitask` to both `manager.send` calls (the queued one, lines 1790–1796, and the direct one, lines 1849–1855). A session the user never switched sends nothing, which keeps the core's value;
+  - in `handleAttach` and the resume branch of session start, set `multitask` from `metadata.multitask` and include it in the response (start includes it only when it is on);
+  - in the cloud session router's `send` case, refuse `/multitask` with the same message, since cloud sessions never reach `handleSendOnce`.
 - `webview/hooks/use-chat-session.ts`:
   - keep `multitaskEnabled` for the active session, set from start and attach responses and from `multitask_state` events;
-  - keep `activeTeammateRuns` from the `team_progress` events the sidecar already forwards (`sidecar/context.ts`, lines 646–648). The count is `summary.runsByStatus.queued + summary.runsByStatus.running`.
+  - keep `activeTeammateRuns` from the `team_progress` events the sidecar already forwards (`sidecar/context.ts`, lines 646–648). The count is `summary.runs.activeRunIds.length` (queued plus running runs).
 - `webview/components/views/chat/chat-input-bar.tsx`:
   - add `{ name: "multitask", description: "Run big tasks on background teammates" }` to `BUILTIN_SLASH_COMMANDS`;
   - render a small **Multitask** badge next to the Plan/Act toggle while it is on;
@@ -417,25 +426,25 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 
 ## 8. Edge cases
 
-- **Turned off while teammates run.** Turning the mode off does not stop teammates. Until the user sends the next message, results are still delivered as messages. That message carries `multitask: false`. From then on the lead is back to today's behavior: its turn waits for the runs that are still active. The off reply says how many runs are still going, so this is not a surprise.
+- **Turned off while teammates run.** Turning the mode off does not stop teammates. Until the user sends the next message, results are still delivered as messages. That message carries `multitask: false`. From then on the lead is back to today's behavior: its turn waits for the runs that are still active. In the CLI, the off reply says how many runs are still going, so this is not a surprise. Desktop shows the count on the **Stop teammates** button instead.
 - **Abort (Esc).** In multitask mode, Esc stops only the lead's current turn. Background teammates keep running, and their results are still delivered. To stop them all, the user runs `/multitask stop` or presses **Stop teammates**. To stop one, the user asks the lead, which calls `team_cancel_run`. Closing the session (`/clear`, quit, delete) shuts the team runtime down as today.
 - **Stop all.**
   - It cancels queued and running teammate runs. The lead's turn, queued user prompts and already-queued deliveries are untouched.
   - The cancelled runs are not delivered as messages, so the stop does not start a lead turn. The lead learns about it from `team_list_runs` when it next checks (section 6).
   - Teammates stay on the team, so a later follow-up can reuse them with their conversation.
   - It also works with the mode off, for runs left over from an earlier multitask period. With no active runs, it is a no-op with the same reply.
-  - Pending tool approvals from the stopped teammates are not rejected by the Hub handler, because `scope: "teammates"` skips that step. Cancelling a teammate's run aborts its agent, which should settle its approval request. Confirm this together with the approval-status check in section 12.
+  - The Hub handler does not reject pending approvals for `scope: "teammates"`, because they belong to the lead's turn. Teammates never have pending approvals of their own (section 12, first check).
 - **Lead errors.** A turn that ends in error does not drain the queue (existing rule in `runTurn`). Deliveries stay queued and run after the next successful turn or the next enqueue, like queued user prompts today.
 - **Teammate fails, is cancelled or is interrupted.** The delivery lists the status and the error. The lead tells the user and decides whether to retry.
 - **Delivery while the user is typing or mid-turn.** It joins the queue behind any user prompts already queued, so the order stays fair. Like any queued prompt, it is visible in the queue UI and can be removed there.
 - **Lead calls `team_await_runs` or uses `sync` anyway.** The instructions forbid it, but the tools still exist. The lead's turn then blocks as today. The user can still type, and their messages queue, or press Esc. This plan relies on the instructions alone (section 11).
-- **Teammate needs a tool approval while the lead is idle.** See the first check in section 12.
-- **Hub restart with active runs.** The core rebuilds the session from disk and reads `metadata.multitask`. Team persistence re-queues runs whose teammate was restored, and their results are delivered when they finish. Runs that recovery marks `interrupted` are covered by the second check in section 12.
+- **Teammate needs a tool approval while the lead is idle.** This cannot happen: teammates run without approval prompts (section 12, first check).
+- **Hub restart with active runs.** The core rebuilds the session from disk and reads `metadata.multitask`. Team persistence re-queues runs whose teammate was restored, and their results are delivered when they finish. Runs that recovery marks `interrupted` are delivered as well (section 12, second check).
 - **CLI Plan/Act or model switch while teammates run.** The CLI restarts the session for both (`restartWithCurrentMessages`), which shuts the team runtime down and rebuilds it. The switch is allowed. The CLI first adds a one-line warning to the chat with the number of active runs (section 7.5). After the restart, team persistence re-queues the runs it can, and the rest are reported as `interrupted`.
 - **Delivered results.** They render like any other message in the chat, the same way today's system-delivered continuation does. No client change is needed for them.
 - **Teams tool disabled, or no team tools in the mode.** Desktop refuses `/multitask` with the same messages `/team` uses. The CLI turns teams on as described in section 7.5.
 - **Plan mode.** Team tools exist in plan mode, so multitask works. Teammates build their tools with the session's mode, so in plan mode they are read-only too.
-- **`--yolo`.** The yolo preset turns teams off. `/multitask` turns them on for the session, keeping the conversation. Teammates then run with auto-approval like the lead.
+- **`--yolo`.** The yolo preset turns teams off. `/multitask` turns them on for the session, keeping the conversation. Teammates run without approval prompts, in this mode as in every other.
 - **`/team` while multitask is on.** The `/team` prompt is sent as a multitask turn, so the lead spawns the team, does not wait, and results arrive as deliveries. With multitask off, `/team` is unchanged.
 - **Non-interactive sessions.** `finalizeSingleRun` is untouched. `/multitask` is only accepted in interactive sessions.
 
@@ -459,7 +468,8 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   - a delivery queued before the stop is still drained;
   - the flag is written to metadata and restored from it on resume;
   - the completion guard is skipped in multitask mode and still applies otherwise;
-  - the coordinator block is in the model-bound prompt but not in the session title.
+  - the coordinator block is in the model-bound prompt but not in the session title;
+  - a resumed session delivers a run that recovery interrupted while the runtime was built.
 - `sdk/packages/core/src/hub/server/handlers/run-handlers.test.ts`:
   - `run.start` forwards `multitask`;
   - `run.abort` forwards `scope`, and with `"teammates"` does not reject pending approvals.
@@ -470,8 +480,8 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
   - with teams disabled, turning on calls `restartWithCurrentMessages` and not `restartEmpty`;
   - `stop` calls `stopTeammates` and leaves the mode unchanged.
 - `apps/cli/src/tui/hooks/use-agent-events.test.ts` (new): the active-run count follows queued, started and terminal run events.
-- `apps/cli/src/tui/components/status-bar.test.ts`: the Multitask line, with and without the running count.
-- A new TUI test for the warning: a Plan/Act switch with active runs adds the warning entry and still switches; with no runs it adds nothing.
+- `apps/cli/src/tui/components/status-bar.test.ts`: the Multitask line text (`formatMultitaskStatusText`), with and without the running count.
+- The warning text (`formatTeammateRestartWarning`, in `multitask-command.test.ts`): present with active runs, absent without. The CLI has no OpenTUI render tests, so the component wiring is covered by the smoke test in section 10.
 - `apps/cli/src/tui/commands/slash-command-registry.test.ts`: `/multitask` is listed after `/team`.
 - `apps/examples/desktop-app/sidecar/chat-session.test.ts`:
   - `/multitask` is handled without calling `manager.send`;
@@ -517,5 +527,9 @@ So in multitask mode, Esc stops only the lead's current turn. `/multitask stop` 
 
 ## 12. Checks during implementation
 
-1. **Tool approvals while the lead is idle.** The approval wrapper (local-runtime-host.ts, lines 957–978) sets the session to `pending` and then always back to `running`. If teammate approvals go through this wrapper, an idle session would be left showing `running`. If so, restore the previous status instead of always `running`.
-2. **Runs interrupted during a Hub restart.** Runs that recovery marks `interrupted` emit their event while the runtime is being built, before the session is registered, so `trackTeamRunState` misses them. Hold team events that arrive before registration and replay them afterwards, the same way `heldSessionEvents` already does for plugin events (lines 1126–1136).
+1. **Tool approvals while the lead is idle.** The approval wrapper (local-runtime-host.ts, lines 957–978) sets the session to `pending` and then always back to `running`. If teammate approvals went through this wrapper, an idle session would be left showing `running`.
+
+   Result: no change needed. Only the lead's agent config gets the wrapper. Teammates are built by `buildDelegatedAgentConfig` (`extensions/tools/team/delegated-agent.ts`) with no tool policies and no approval callback, so the agent loop never asks for an approval on their tool calls. They never reach the wrapper, and they never leave an approval pending that a stop would need to settle.
+2. **Runs interrupted during a Hub restart.** Runs that recovery marks `interrupted` emit their event while the runtime is being built, before the session is registered, so `trackTeamRunState` misses them. The same is true of the `run_queued` events for runs it re-queues.
+
+   Result: fixed as proposed. The host holds team events that arrive before registration and replays them afterwards, the same way `heldSessionEvents` does for plugin events (section 7.4, "Track runs recovered during a rebuild").
