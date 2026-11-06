@@ -70,6 +70,8 @@ sequenceDiagram
 
 The client owns the on/off switch and sends it with every message. The core remembers the last value it saw on the active session and saves it in the session's metadata as `multitask: true`.
 
+Desktop also saves the value as soon as the user types `/multitask on` or `off`, through the existing `session.update` command. Otherwise a restart before the next message would lose the switch. That update replaces the whole metadata record, so the Hub copies the stored `autoApproveTools` and capability owner into it rather than dropping them.
+
 Why this split:
 
 - **A per-turn field is the cheapest way across the Hub.** `run.start` already carries `mode` and `delivery` per turn (`sdk/packages/core/src/hub/server/handlers/run-handlers.ts`, lines 264–280). Adding one more field needs no new Hub command.
