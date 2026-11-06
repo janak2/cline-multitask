@@ -551,6 +551,14 @@ export function handleCoreSessionEvent(
 		}
 		case "agent_event": {
 			const { sessionId, event: agentEvent } = event.payload;
+			// Teammate output belongs to the teammate's own session, but its usage
+			// still counts toward the lead's live totals.
+			if (
+				event.payload.teamRole === "teammate" &&
+				agentEvent.type !== "usage"
+			) {
+				break;
+			}
 			handleAgentEvent(ctx, sessionId, agentEvent);
 			break;
 		}
@@ -985,6 +993,10 @@ export function handleHubLiveEvent(
 			.get(ctx.activeEnvironmentId ?? LOCAL_ENVIRONMENT_ID)
 			?.sessionManager.hasSessionSubscription(sessionId)
 	) {
+		return;
+	}
+	const agent = event.payload?.agent as { teamRole?: unknown } | undefined;
+	if (agent?.teamRole === "teammate" && event.event !== "usage.updated") {
 		return;
 	}
 
