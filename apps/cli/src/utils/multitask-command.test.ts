@@ -27,9 +27,12 @@ describe("parseMultitaskCommand", () => {
 		expect(parseMultitaskCommand("/multitask stop")).toEqual({ kind: "stop" });
 	});
 
-	it("asks for usage on a bad argument", () => {
-		expect(parseMultitaskCommand("/multitask maybe")).toEqual({
-			kind: "usage",
+	it("treats any other argument as a task", () => {
+		expect(
+			parseMultitaskCommand("/multitask  Add Dark mode\nto settings "),
+		).toEqual({
+			kind: "task",
+			task: "Add Dark mode\nto settings",
 		});
 	});
 

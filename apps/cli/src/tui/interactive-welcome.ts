@@ -140,7 +140,7 @@ export function listInteractiveSlashCommands(
 		},
 		{
 			name: "multitask",
-			instructions: "/multitask [on|off|stop]",
+			instructions: "/multitask [on|off|stop|<task>]",
 			description: "Run big tasks on background teammates",
 		},
 	];
