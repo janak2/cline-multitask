@@ -1192,6 +1192,7 @@ export class HubRuntimeHost implements RuntimeHost {
 						: undefined,
 				delivery: input.delivery,
 				timeoutMs: input.timeoutMs,
+				multitask: input.multitask,
 			},
 			input.sessionId,
 			{ timeoutMs: null },
@@ -1292,10 +1293,18 @@ export class HubRuntimeHost implements RuntimeHost {
 		return usage || aggregateUsage ? { usage, aggregateUsage } : undefined;
 	}
 
-	async abort(sessionId: string, reason?: unknown): Promise<void> {
+	async abort(
+		sessionId: string,
+		reason?: unknown,
+		options?: { scope?: "turn" | "teammates" },
+	): Promise<void> {
 		await this.client.command(
 			"run.abort",
-			{ sessionId, reason: messageFromUnknown(reason) },
+			{
+				sessionId,
+				reason: messageFromUnknown(reason),
+				scope: options?.scope,
+			},
 			sessionId,
 		);
 	}

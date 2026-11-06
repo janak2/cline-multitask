@@ -244,6 +244,39 @@ describe("PendingPromptService", () => {
 		expect(send).not.toHaveBeenCalled();
 	});
 
+	it("passes an entry's multitask flag to send, and none when unset", async () => {
+		const sessionId = "sess-drain-multitask";
+		const session = {
+			sessionId,
+			pendingPrompts: [
+				{ id: "pending-1", prompt: "big task", delivery: "queue" },
+			],
+			aborting: false,
+			drainingPendingPrompts: false,
+			status: "idle",
+			agent: { canStartRun: () => true },
+		} as unknown as ActiveSession;
+		const send = vi.fn().mockResolvedValue(undefined);
+		const controller = new PendingPromptsController({
+			getSession: () => session,
+			emit: () => {},
+			send,
+		});
+
+		controller.enqueue(sessionId, {
+			prompt: "multitask task",
+			multitask: true,
+			delivery: "queue",
+		});
+		await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+
+		expect(send.mock.calls[0]?.[0]).not.toHaveProperty("multitask");
+		expect(send.mock.calls[1]?.[0]).toMatchObject({
+			prompt: "multitask task",
+			multitask: true,
+		});
+	});
+
 	it("requeues a drained prompt when send fails", async () => {
 		const sessionId = "sess-drain-failure";
 		const session = {

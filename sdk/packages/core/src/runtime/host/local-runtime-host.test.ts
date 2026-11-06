@@ -28,6 +28,7 @@ import {
 import simpleGit from "simple-git";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TeamEvent } from "../../extensions/tools/team";
+import { deriveTitleFromPrompt } from "../../services/session-data";
 import { ProviderSettingsManager } from "../../services/storage/provider-settings-manager";
 import { CORE_TELEMETRY_EVENTS } from "../../services/telemetry/core-events";
 import { TelemetryService } from "../../services/telemetry/TelemetryService";
@@ -7931,6 +7932,428 @@ describe("LocalRuntimeHost", () => {
 			"Drafting the provider boundary analysis now.",
 			{ kind: "text" },
 		);
+	});
+
+	describe("multitask mode", () => {
+		function makeRun(
+			id: string,
+			status: TeamRunRecord["status"],
+			text?: string,
+		): TeamRunRecord {
+			return {
+				id,
+				agentId: "ui-dev",
+				status,
+				message: `${id} task`,
+				priority: 0,
+				retryCount: 0,
+				maxRetries: 0,
+				startedAt: new Date(),
+				...(text
+					? {
+							result: {
+								text,
+								iterations: 1,
+								finishReason: "completed",
+								durationMs: 1,
+								usage: { inputTokens: 1, outputTokens: 1 },
+							},
+						}
+					: {}),
+			} as TeamRunRecord;
+		}
+
+		function createMultitaskHost(
+			options: {
+				sessionId?: string;
+				resumeMetadata?: Record<string, unknown>;
+				onBuild?: (onTeamEvent: (event: TeamEvent) => void) => void;
+			} = {},
+		) {
+			const sessionId = options.sessionId ?? "sess-multitask";
+			const manifest = {
+				...createManifest(sessionId),
+				interactive: true,
+				status: "idle" as const,
+				...(options.resumeMetadata ? { metadata: options.resumeMetadata } : {}),
+			};
+			const sessionService = {
+				ensureSessionsDir: vi.fn().mockReturnValue("/tmp/sessions"),
+				createRootSessionWithArtifacts: vi.fn().mockResolvedValue({
+					manifestPath: "/tmp/manifest.json",
+					messagesPath: "/tmp/messages.json",
+					manifest,
+				}),
+				readSessionManifest: vi.fn().mockResolvedValue(manifest),
+				updateSession: vi.fn().mockResolvedValue({ updated: true }),
+				persistSessionMessages: vi.fn(),
+				updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
+				writeSessionManifest: vi.fn(),
+				listSessions: vi.fn().mockResolvedValue([]),
+				deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+			};
+			let onTeamEvent: (event: TeamEvent) => void = () => {};
+			const activeRuns = new Map<string, TeamRunRecord>();
+			const cancelOutstandingWork = vi.fn(() => {
+				for (const run of activeRuns.values()) {
+					onTeamEvent({
+						type: TeamMessageType.RunCancelled,
+						run: { ...run, status: "cancelled" },
+						reason: "stopped_by_user",
+					});
+				}
+			});
+			const runtimeBuilder = {
+				build: vi
+					.fn()
+					.mockImplementation(
+						(input: { onTeamEvent: (event: TeamEvent) => void }) => {
+							onTeamEvent = input.onTeamEvent;
+							options.onBuild?.(onTeamEvent);
+							return {
+								tools: [],
+								completionPolicy: { completionGuard: () => "keep going" },
+								teamRuntime: {
+									getTeamId: vi.fn().mockReturnValue("team_test"),
+									getTeamName: vi.fn().mockReturnValue("test"),
+									exportState: vi.fn().mockReturnValue({
+										teamId: "team_test",
+										teamName: "test",
+										members: [],
+										tasks: [],
+										mailbox: [],
+										missionLog: [],
+										runs: [],
+										outcomes: [],
+										outcomeFragments: [],
+									}),
+									cancelOutstandingWork,
+								},
+								shutdown: vi.fn(),
+							};
+						},
+					),
+			};
+			// Each lead turn runs `respond`; the session is busy until it settles.
+			let busy = false;
+			const prompts: string[] = [];
+			let respond: (prompt: string) => Promise<AgentResult> = async () =>
+				createResult();
+			let rejectTurn: ((error: Error) => void) | undefined;
+			const turn = vi.fn(async (prompt: string) => {
+				busy = true;
+				prompts.push(prompt);
+				try {
+					return await new Promise<AgentResult>((resolve, reject) => {
+						rejectTurn = reject;
+						respond(prompt).then(resolve, reject);
+					});
+				} finally {
+					busy = false;
+				}
+			});
+			let agentConfig: AgentConfig | undefined;
+			const agent = {
+				run: turn,
+				continue: turn,
+				abort: vi.fn((reason?: unknown) =>
+					rejectTurn?.(reason instanceof Error ? reason : new Error("aborted")),
+				),
+				subscribeEvents: vi.fn().mockReturnValue(() => {}),
+				canStartRun: vi.fn(() => !busy),
+				getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+				getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+				shutdown: vi.fn().mockResolvedValue(undefined),
+				getMessages: vi.fn().mockReturnValue([]),
+			};
+			const manager = new RuntimeHostUnderTest({
+				distinctId,
+				sessionService: sessionService as never,
+				runtimeBuilder: runtimeBuilder as never,
+				createAgent: (config) => {
+					agentConfig = config;
+					return agent as never;
+				},
+			});
+			const emit = (event: TeamEvent) => {
+				if (event.type === "run_queued" || event.type === "run_started") {
+					activeRuns.set(event.run.id, event.run);
+				} else if ("run" in event) {
+					activeRuns.delete(event.run.id);
+				}
+				onTeamEvent(event);
+			};
+			const start = () =>
+				manager.startSession(
+					normalizeStartInput({
+						config: createConfig({ sessionId }),
+						interactive: true,
+						...(options.resumeMetadata
+							? { initialMessages: [{ role: "user", content: "earlier" }] }
+							: {}),
+					}),
+				);
+			const session = () =>
+				Reflect.apply(
+					Reflect.get(manager as object, "getSessionOrThrow") as (
+						sessionId: string,
+					) => {
+						status: string;
+						multitask?: boolean;
+						activeTeamRunIds: Set<string>;
+						pendingPrompts: Array<{ prompt: string }>;
+					},
+					manager,
+					[sessionId],
+				);
+			return {
+				sessionId,
+				manager,
+				sessionService,
+				cancelOutstandingWork,
+				agent,
+				turn,
+				prompts,
+				emit,
+				start,
+				session,
+				agentConfig: () => agentConfig,
+				setRespond: (next: typeof respond) => {
+					respond = next;
+				},
+			};
+		}
+
+		function deferred() {
+			let resolve!: () => void;
+			const promise = new Promise<void>((r) => {
+				resolve = r;
+			});
+			return { promise, resolve };
+		}
+
+		it("ends the lead's turn while a teammate runs, and the session goes idle", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			host.setRespond(async () => {
+				host.emit({
+					type: TeamMessageType.RunStarted,
+					run: makeRun("run_1", "running"),
+				});
+				return createResult({ text: "handed to ui-dev" });
+			});
+
+			const result = await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "add dark mode",
+				multitask: true,
+			});
+
+			expect(result?.text).toBe("handed to ui-dev");
+			expect(host.turn).toHaveBeenCalledTimes(1);
+			expect(host.prompts[0]).toContain("<multitask_mode>");
+			expect(host.prompts[0]).toContain("add dark mode");
+			expect(host.session().status).toBe("idle");
+			expect(host.session().activeTeamRunIds.has("run_1")).toBe(true);
+			const createdPrompt =
+				host.sessionService.createRootSessionWithArtifacts.mock.calls[0]?.[0]
+					?.prompt;
+			expect(deriveTitleFromPrompt(createdPrompt)).toBe("add dark mode");
+			await host.manager.dispose();
+		});
+
+		it("delivers a result that finishes while idle as a new turn", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			host.setRespond(async () => {
+				host.emit({
+					type: TeamMessageType.RunStarted,
+					run: makeRun("run_1", "running"),
+				});
+				return createResult();
+			});
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "add dark mode",
+				multitask: true,
+			});
+			host.setRespond(async () => createResult());
+
+			host.emit({
+				type: TeamMessageType.RunCompleted,
+				run: makeRun("run_1", "completed", "Dark mode is in."),
+			});
+
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(2));
+			expect(host.prompts[1]).toContain(
+				"System-delivered teammate async run updates:",
+			);
+			expect(host.prompts[1]).toContain("Dark mode is in.");
+			expect(host.prompts[1]).toContain("<multitask_mode>");
+			await vi.waitFor(() => expect(host.session().status).toBe("idle"));
+			await host.manager.dispose();
+		});
+
+		it("delivers a result that finishes during a turn after that turn", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			host.emit({
+				type: TeamMessageType.RunStarted,
+				run: makeRun("run_1", "running"),
+			});
+			const gate = deferred();
+			host.setRespond(async () => {
+				await gate.promise;
+				return createResult();
+			});
+			const leadTurn = host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "what does parseConfig return?",
+				multitask: true,
+			});
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(1));
+
+			host.emit({
+				type: TeamMessageType.RunCompleted,
+				run: makeRun("run_1", "completed", "done"),
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(host.turn).toHaveBeenCalledTimes(1);
+			expect(host.session().pendingPrompts).toHaveLength(1);
+
+			gate.resolve();
+			await leadTurn;
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(2));
+			expect(host.prompts[1]).toContain("run_1 (ui-dev) -> completed");
+			await host.manager.dispose();
+		});
+
+		it("aborts only the lead's turn and keeps teammates running", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			host.emit({
+				type: TeamMessageType.RunStarted,
+				run: makeRun("run_1", "running"),
+			});
+			host.setRespond(() => new Promise<AgentResult>(() => {}));
+			const leadTurn = host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "keep going",
+				multitask: true,
+			});
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(1));
+
+			await host.manager.abort(host.sessionId, new Error("user cancelled"));
+
+			await expect(leadTurn).resolves.toMatchObject({
+				finishReason: "aborted",
+			});
+			expect(host.agent.abort).toHaveBeenCalledOnce();
+			expect(host.cancelOutstandingWork).not.toHaveBeenCalled();
+			expect(host.session().activeTeamRunIds.has("run_1")).toBe(true);
+			await host.manager.dispose();
+		});
+
+		it("stops all teammates without touching the lead's turn or queued deliveries", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			for (const id of ["run_1", "run_2", "run_3"]) {
+				host.emit({
+					type: TeamMessageType.RunStarted,
+					run: makeRun(id, "running"),
+				});
+			}
+			const gate = deferred();
+			host.setRespond(async () => {
+				await gate.promise;
+				return createResult();
+			});
+			const leadTurn = host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "keep going",
+				multitask: true,
+			});
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(1));
+			host.emit({
+				type: TeamMessageType.RunCompleted,
+				run: makeRun("run_1", "completed", "finished first"),
+			});
+			expect(host.session().pendingPrompts).toHaveLength(1);
+
+			await host.manager.abort(host.sessionId, undefined, {
+				scope: "teammates",
+			});
+
+			expect(host.cancelOutstandingWork).toHaveBeenCalledWith(
+				"stopped_by_user",
+			);
+			expect(host.agent.abort).not.toHaveBeenCalled();
+			expect(host.session().activeTeamRunIds.size).toBe(0);
+			expect(host.session().pendingPrompts).toHaveLength(1);
+
+			gate.resolve();
+			await leadTurn;
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(2));
+			expect(host.prompts[1]).toContain("finished first");
+			expect(host.prompts[1]).not.toContain("run_2");
+			await host.manager.dispose();
+		});
+
+		it("skips the team completion guard only in multitask mode", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			const guard = () =>
+				host.agentConfig()?.completionPolicy?.completionGuard?.();
+			expect(guard()).toBe("keep going");
+
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "hi",
+				multitask: true,
+			});
+			expect(guard()).toBeUndefined();
+
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "hi again",
+				multitask: false,
+			});
+			expect(guard()).toBe("keep going");
+			await host.manager.dispose();
+		});
+
+		it("writes the flag to metadata and keeps it for turns that carry none", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "first",
+				multitask: true,
+			});
+			await host.manager.runTurn({ sessionId: host.sessionId, prompt: "next" });
+
+			expect(host.sessionService.updateSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					metadata: expect.objectContaining({ multitask: true }),
+				}),
+			);
+			expect(host.prompts[1]).toContain("<multitask_mode>");
+			expect(host.session().multitask).toBe(true);
+			await host.manager.dispose();
+		});
+
+		it("restores the flag on resume", async () => {
+			const host = createMultitaskHost({
+				sessionId: "sess-multitask-resume",
+				resumeMetadata: { multitask: true },
+			});
+
+			await host.start();
+
+			expect(host.session().multitask).toBe(true);
+			await host.manager.dispose();
+		});
 	});
 
 	describe("task.completed telemetry anchoring", () => {
