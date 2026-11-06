@@ -3576,6 +3576,7 @@ function ChatThreadPane({
 						fileDiffs={fileDiffs}
 						key={`${environmentId}:${resolvedWorkspaceRoot}`}
 						onClose={toggleFilesPanel}
+						onPickFolder={pickWorkspaceDirectory}
 						workspaceRoot={resolvedWorkspaceRoot}
 					/>
 				) : null}

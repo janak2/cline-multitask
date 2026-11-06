@@ -132,7 +132,10 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
-async function render(onClose = vi.fn()) {
+async function render(
+	onClose = vi.fn(),
+	onPickFolder?: () => Promise<string | null>,
+) {
 	await act(async () => {
 		root.render(
 			<ProjectFilesPanel
@@ -140,6 +143,7 @@ async function render(onClose = vi.fn()) {
 				environmentId="local"
 				fileDiffs={fileDiffs}
 				onClose={onClose}
+				onPickFolder={onPickFolder}
 				workspaceRoot="/repo"
 			/>,
 		);
@@ -739,5 +743,202 @@ describe("ProjectFilesPanel files view", () => {
 		await render(onClose);
 		await click(byLabel("Hide project files", container));
 		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("ProjectFilesPanel file changes", () => {
+	beforeEach(() => window.localStorage.clear());
+
+	async function showFiles() {
+		await click(button(/^Files$/));
+	}
+
+	async function flush() {
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		});
+	}
+
+	async function dispatch(element: Element, event: Event) {
+		await act(async () => {
+			element.dispatchEvent(event);
+			await Promise.resolve();
+		});
+	}
+
+	function menuItem(text: string): HTMLElement {
+		const match = Array.from(
+			document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		).find((item) => item.textContent?.includes(text));
+		if (!match) throw new Error(`No menu item ${text}`);
+		return match;
+	}
+
+	async function openContextMenu(element: Element) {
+		await dispatch(
+			element,
+			new MouseEvent("contextmenu", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+			}),
+		);
+	}
+
+	async function typeName(value: string) {
+		const input = document.querySelector<HTMLInputElement>(
+			'input[aria-label="Name"]',
+		);
+		if (!input) throw new Error("No name input");
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)?.set?.call(input, value);
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+	}
+
+	async function drop(element: Element, dataTransfer: object) {
+		const event = new Event("drop", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+		await dispatch(element, event);
+		await flush();
+	}
+
+	it("creates a folder inside the right-clicked folder", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^src/));
+		await click(menuItem("New folder"));
+		await typeName("docs");
+		await click(button(/^Create$/, document));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"create_project_directory",
+			expect.objectContaining({
+				workspaceRoot: "/repo",
+				path: "/repo/src/docs",
+			}),
+		);
+	});
+
+	it("renames an entry within its folder", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^README\.md/));
+		await click(menuItem("Rename"));
+		await typeName("NOTES.md");
+		await click(button(/^Rename$/, document));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"move_project_entry",
+			expect.objectContaining({
+				path: "/repo/README.md",
+				to: "/repo/NOTES.md",
+			}),
+		);
+	});
+
+	it("deletes only after confirmation", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^README\.md/));
+		await click(menuItem("Delete"));
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"delete_project_entry",
+			expect.anything(),
+		);
+		expect(document.body.textContent).toContain("Delete README.md?");
+		await click(button(/^Delete$/, document));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"delete_project_entry",
+			expect.objectContaining({ path: "/repo/README.md" }),
+		);
+	});
+
+	it("moves a dragged row into the folder it is dropped on", async () => {
+		await render();
+		await showFiles();
+		await drop(button(/^src/), {
+			types: ["application/x-cline-project-path"],
+			getData: () => "/repo/README.md",
+		});
+		expect(invokeMock).toHaveBeenCalledWith(
+			"move_project_entry",
+			expect.objectContaining({
+				path: "/repo/README.md",
+				to: "/repo/src/README.md",
+			}),
+		);
+	});
+
+	it("asks before a file dropped from the system replaces one", async () => {
+		await render();
+		await showFiles();
+		await drop(button(/^README\.md/), {
+			types: ["Files"],
+			getData: () => "",
+			items: [
+				{
+					kind: "file",
+					getAsFile: () => new File(["hi"], "README.md"),
+					webkitGetAsEntry: () => ({ isDirectory: false }),
+				},
+			],
+		});
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"write_project_file",
+			expect.anything(),
+		);
+		expect(document.body.textContent).toContain("Replace README.md?");
+		await click(button(/^Replace$/, document));
+		await flush();
+		expect(invokeMock).toHaveBeenCalledWith(
+			"write_project_file",
+			expect.objectContaining({
+				path: "/repo/README.md",
+				contentBase64: "aGk=",
+				overwrite: true,
+			}),
+		);
+	});
+
+	it("adds, switches to and removes project folders from the dropdown", async () => {
+		const onPickFolder = vi.fn(async () => "/other");
+		await render(vi.fn(), onPickFolder);
+		await showFiles();
+		const trigger = byLabel("Project folder", container);
+		await dispatch(
+			trigger,
+			new MouseEvent("pointerdown", {
+				bubbles: true,
+				cancelable: true,
+				button: 0,
+			}),
+		);
+		await click(menuItem("Add folder"));
+		await flush();
+		expect(invokeMock).toHaveBeenCalledWith(
+			"list_project_entries",
+			expect.objectContaining({ workspaceRoot: "/other", path: "/other" }),
+		);
+		expect(trigger.textContent).toBe("other");
+
+		await dispatch(
+			trigger,
+			new MouseEvent("pointerdown", {
+				bubbles: true,
+				cancelable: true,
+				button: 0,
+			}),
+		);
+		await click(byLabel("Remove other"));
+		expect(document.body.textContent).toContain(
+			"Files on disk are not deleted.",
+		);
+		await click(button(/^Remove$/, document));
+		expect(trigger.textContent).toBe("repo");
+		expect(window.localStorage.getItem("cline.code.project-folders.v1")).toBe(
+			"{}",
+		);
 	});
 });
