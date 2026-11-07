@@ -131,7 +131,12 @@ export interface TaskResult {
 type TeamTaskEndStatus = "completed" | "failed" | "cancelled";
 
 export type TeamEvent =
-	| { type: TeamMessageType.TaskStart; agentId: string; message: string }
+	| {
+			type: TeamMessageType.TaskStart;
+			agentId: string;
+			message: string;
+			continueConversation?: boolean;
+	  }
 	| {
 			type: TeamMessageType.TaskEnd;
 			agentId: string;
@@ -1110,7 +1115,12 @@ export class AgentTeamsRuntime {
 		member.abortReason = undefined;
 		member.runningCount++;
 		member.status = "running";
-		this.emitEvent({ type: TeamMessageType.TaskStart, agentId, message });
+		this.emitEvent({
+			type: TeamMessageType.TaskStart,
+			agentId,
+			message,
+			continueConversation: options?.continueConversation,
+		});
 
 		try {
 			const unreadMail = this.listMailbox(agentId, {

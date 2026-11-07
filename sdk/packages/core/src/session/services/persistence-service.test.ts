@@ -473,6 +473,91 @@ describe("UnifiedSessionPersistenceService", () => {
 	);
 
 	sqliteIt(
+		"reuses continued teammate history after persistence is recreated, but separates fresh runs",
+		async () => {
+			const dbDir = mkdtempSync(join(tmpdir(), "team-continuation-db-"));
+			const sessionsDir = mkdtempSync(join(tmpdir(), "team-continuation-"));
+			tempDirs.push(dbDir, sessionsDir);
+			const store = new SqliteSessionStore({ sessionsDir: dbDir });
+			stores.push(store);
+			const service = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			const root = "continued-team-root";
+			await createRootSession(service, root, "Lead task");
+			await service.onTeamTaskStart(root, "worker", "First task");
+			const first = (await service.listSessions(10)).find(
+				(row) => row.agentId === "worker",
+			);
+			if (!first?.messagesPath) throw new Error("Missing teammate history");
+			const messages = [{ role: "user" as const, content: "First task" }];
+			await service.persistSessionMessages(first.sessionId, messages);
+			await service.onTeamTaskEnd(root, "worker", "completed");
+			const previousFile = readFileSync(first.messagesPath, "utf8");
+
+			const resumed = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			await resumed.onTeamTaskStart(root, "worker", "Follow up", true);
+			const continuedRows = (await resumed.listSessions(10)).filter(
+				(row) => row.agentId === "worker",
+			);
+			expect(continuedRows).toHaveLength(1);
+			expect(continuedRows[0]).toMatchObject({
+				sessionId: first.sessionId,
+				status: "running",
+				endedAt: null,
+				exitCode: null,
+				prompt: "First task",
+				messagesPath: first.messagesPath,
+			});
+			expect(readFileSync(first.messagesPath, "utf8")).toBe(previousFile);
+			expect(resumed.readSessionManifest(first.sessionId)?.status).toBe(
+				"running",
+			);
+			await resumed.onTeamTaskEnd(
+				root,
+				"worker",
+				"completed",
+				undefined,
+				undefined,
+				[...messages, { role: "user", content: "Follow up" }],
+			);
+			expect(readFileSync(first.messagesPath, "utf8")).toContain("Follow up");
+			await resumed.onTeamTaskStart(root, "worker", "Fresh task", false);
+			await resumed.onTeamTaskEnd(root, "worker", "completed");
+			const freshRows = (await resumed.listSessions(10)).filter(
+				(row) => row.agentId === "worker",
+			);
+			expect(freshRows).toHaveLength(2);
+			const fresh = freshRows.find((row) => row.sessionId !== first.sessionId);
+			await resumed.onTeamTaskStart(
+				root,
+				"worker",
+				"Continue fresh task",
+				true,
+			);
+			expect(
+				(await resumed.listSessions(10)).find(
+					(row) => row.sessionId === fresh?.sessionId,
+				)?.status,
+			).toBe("running");
+			await resumed.onTeamTaskEnd(root, "worker", "completed");
+			await resumed.onTeamTaskStart(
+				root,
+				"another-worker",
+				"No previous conversation",
+				true,
+			);
+			expect(
+				(await resumed.listSessions(10)).filter(
+					(row) => row.agentId === "another-worker",
+				),
+			).toHaveLength(1);
+		},
+	);
+
+	sqliteIt(
 		"persists teammate task metadata in the file envelope and usage on messages",
 		async () => {
 			const dbDir = mkdtempSync(join(tmpdir(), "team-task-messages-db-"));

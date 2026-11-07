@@ -8,6 +8,27 @@ import {
 } from "./team-session-coordinator";
 
 describe("dispatchTeamEventToBackend", () => {
+	it("forwards conversation continuation to persistence", async () => {
+		const invokeOptional = vi.fn(async () => {});
+		await dispatchTeamEventToBackend(
+			"root",
+			{
+				type: TeamMessageType.TaskStart,
+				agentId: "worker",
+				message: "Follow up",
+				continueConversation: true,
+			},
+			invokeOptional,
+		);
+		expect(invokeOptional).toHaveBeenCalledWith(
+			"onTeamTaskStart",
+			"root",
+			"worker",
+			"Follow up",
+			true,
+		);
+	});
+
 	it("persists intentionally aborted teammate tasks as cancelled", async () => {
 		const invokeOptional = vi.fn(async () => {});
 		const error = new DOMException("This operation was aborted", "AbortError");

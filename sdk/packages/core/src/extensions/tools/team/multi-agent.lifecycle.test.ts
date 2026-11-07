@@ -128,6 +128,29 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 		);
 	});
 
+	it("marks continued task starts and continues the existing runtime", async () => {
+		const events: TeamEvent[] = [];
+		const continueRun = vi.fn(async () => createAbortedResult());
+		const freshRun = vi.fn(async () => createAbortedResult());
+		mockNextSessionRuntime({ continue: continueRun, run: freshRun });
+		const runtime = new AgentTeamsRuntime({
+			teamName: "continued-team",
+			onTeamEvent: (event) => events.push(event),
+		});
+		spawnTestTeammate(runtime, "worker");
+		await runtime.routeToTeammate("worker", "Follow up", {
+			continueConversation: true,
+		});
+		expect(continueRun).toHaveBeenCalledWith("Follow up");
+		expect(freshRun).not.toHaveBeenCalled();
+		expect(events).toContainEqual({
+			type: TeamMessageType.TaskStart,
+			agentId: "worker",
+			message: "Follow up",
+			continueConversation: true,
+		});
+	});
+
 	it("does not emit task_start when teammate is already busy", async () => {
 		const events: TeamEvent[] = [];
 		// biome-ignore lint/complexity/useArrowFunction: `new SessionRuntime(...)` requires a non-arrow callable.

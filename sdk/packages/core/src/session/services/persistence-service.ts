@@ -385,8 +385,14 @@ export class UnifiedSessionPersistenceService {
 		rootSessionId: string,
 		agentId: string,
 		message: string,
+		continueConversation = false,
 	): Promise<void> {
-		return this.teamChildren.onTeamTaskStart(rootSessionId, agentId, message);
+		return this.teamChildren.onTeamTaskStart(
+			rootSessionId,
+			agentId,
+			message,
+			continueConversation,
+		);
 	}
 
 	onTeamTaskEnd(

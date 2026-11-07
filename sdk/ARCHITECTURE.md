@@ -355,6 +355,13 @@ session host. Omitting the flag returns every row, which is what callers that
 render subagent trees rely on. History keeps a client-side root filter with a
 widening scan only as a fallback for older hubs that ignore the flag.
 
+Team task-start events carry the conversation-continuation flag through to
+persistence. Continued runs reactivate the latest child conversation for the
+same root session and teammate, retaining its ID, title, and message artifact;
+completion updates that conversation with the cumulative runtime history.
+Fresh runs still allocate distinct child conversations. Individual async run
+records remain separate from these conversation entries.
+
 Workspace bootstrap is owned by the runtime that executes the session. Hub
 clients preserve an omitted `cwd` and `workspaceRoot` across the transport so
 the hub-side execution host can place the session in the shared chat

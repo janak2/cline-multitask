@@ -32,6 +32,7 @@ import {
 	deriveSubsessionStatus,
 	makeSubSessionId,
 	makeTeamTaskSubSessionId,
+	parseTeamTaskSubSessionId,
 } from "../models/session-graph";
 import type { SessionRow, UpsertSubagentInput } from "../models/session-row";
 import type { SessionManifestStore } from "../stores/session-manifest-store";
@@ -293,9 +294,53 @@ export class TeamChildSessionManager {
 		rootSessionId: string,
 		agentId: string,
 		message: string,
+		continueConversation = false,
 	): Promise<void> {
 		const root = await this.adapter.getSession(rootSessionId);
 		if (!root) return;
+		if (continueConversation) {
+			// Resolve from durable history, not just an in-memory map, so a
+			// resumed lead can continue the same persisted conversation too.
+			const previous = (
+				await this.adapter.listSessions({
+					parentSessionId: rootSessionId,
+					limit: Number.MAX_SAFE_INTEGER,
+				})
+			)
+				.filter(
+					(row) =>
+						row.agentId === agentId && parseTeamTaskSubSessionId(row.sessionId),
+				)
+				.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+			if (previous) {
+				const updated = await this.adapter.updateSession({
+					sessionId: previous.sessionId,
+					pid: process.pid,
+					status: "running",
+					endedAt: null,
+					exitCode: null,
+					expectedStatusLock: previous.statusLock,
+				});
+				if (!updated.updated)
+					throw new Error(
+						`Could not resume teammate session: ${previous.sessionId}`,
+					);
+				const { path } = this.manifestStore.readManifestFile(
+					previous.sessionId,
+				);
+				const row = await this.adapter.getSession(previous.sessionId);
+				if (row)
+					this.manifestStore.writeSessionManifest(
+						path,
+						buildManifestFromRow(row),
+					);
+				const key = this.teamTaskQueueKey(rootSessionId, agentId);
+				const queue = this.teamTaskSessionsByAgent.get(key) ?? [];
+				queue.push(previous.sessionId);
+				this.teamTaskSessionsByAgent.set(key, queue);
+				return;
+			}
+		}
 		const sessionId = makeTeamTaskSubSessionId(rootSessionId, agentId);
 		const startedAt = nowIso();
 		const { messagesPath } = this.manifestStore.artifacts.subagentArtifactPaths(
