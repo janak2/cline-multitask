@@ -213,6 +213,7 @@ async function renderVoiceComposer({
 	strictMode = false,
 	cloudHandoffAvailable = false,
 	multitaskEnabled,
+	onDisableMultitask,
 	activeTeammateRuns,
 }: {
 	attachments?: Parameters<typeof ChatInputBar>[0]["attachments"];
@@ -232,6 +233,7 @@ async function renderVoiceComposer({
 	strictMode?: boolean;
 	cloudHandoffAvailable?: boolean;
 	multitaskEnabled?: boolean;
+	onDisableMultitask?: () => void;
 	activeTeammateRuns?: number;
 } = {}) {
 	const Wrapper = strictMode ? StrictMode : Fragment;
@@ -252,6 +254,7 @@ async function renderVoiceComposer({
 						hasRunningAgents={hasRunningAgents}
 						mode="act"
 						multitaskEnabled={multitaskEnabled}
+						onDisableMultitask={onDisableMultitask}
 						activeTeammateRuns={activeTeammateRuns}
 						model={model}
 						onAbort={onAbort}
@@ -982,6 +985,57 @@ describe("ChatInputBar", () => {
 
 		await renderVoiceComposer({ multitaskEnabled: true });
 		expect(container.textContent).toContain("Multitask");
+	});
+
+	it("turns off Multitask from its badge without bubbling or submitting the draft", async () => {
+		const onSend = vi.fn();
+		const onParentClick = vi.fn();
+		document.body.addEventListener("click", onParentClick);
+		await renderVoiceComposer({
+			multitaskEnabled: true,
+			prompt: "Keep this draft",
+			onSend,
+		});
+		const badge = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Turn off Multitask mode"]',
+		);
+		expect(badge).not.toBeNull();
+		expect(badge?.type).toBe("button");
+		expect(badge?.title).toBe("Turn off Multitask mode");
+		await act(async () => badge?.click());
+		expect(onSend).toHaveBeenCalledExactlyOnceWith("/multitask off");
+		expect(onParentClick).not.toHaveBeenCalled();
+		expect(container.querySelector("textarea")?.value).toBe("Keep this draft");
+		document.body.removeEventListener("click", onParentClick);
+	});
+
+	it("uses the mode callback instead of the draft submission handler", async () => {
+		const onSend = vi.fn();
+		const onDisableMultitask = vi.fn();
+		await renderVoiceComposer({
+			multitaskEnabled: true,
+			prompt: "Keep this draft",
+			onSend,
+			onDisableMultitask,
+		});
+		const badge = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Turn off Multitask mode"]',
+		);
+		await act(async () => badge?.click());
+		expect(onDisableMultitask).toHaveBeenCalledExactlyOnceWith();
+		expect(onSend).not.toHaveBeenCalled();
+		expect(container.querySelector("textarea")?.value).toBe("Keep this draft");
+	});
+
+	it("does not let a read-only composer disable Multitask", async () => {
+		const onSend = vi.fn();
+		await renderVoiceComposer({ multitaskEnabled: true, readOnly: true, onSend });
+		const badge = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Turn off Multitask mode"]',
+		);
+		expect(badge?.disabled).toBe(true);
+		await act(async () => badge?.click());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("offers Stop teammates only while teammate runs are active", async () => {

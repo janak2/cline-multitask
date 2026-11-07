@@ -3029,6 +3029,9 @@ function ChatThreadPane({
 		(prompt: string) => void handleSend(prompt),
 		[handleSend],
 	);
+	const handleDisableMultitask = useCallback(() => {
+		void sendPrompt("/multitask off");
+	}, [sendPrompt]);
 	const handleOpenHandoffProgressLink = useCallback(() => {
 		if (!handoffUi || !("dashboardUrl" in handoffUi) || !handoffUi.dashboardUrl)
 			return;
@@ -3309,6 +3312,7 @@ function ChatThreadPane({
 			onRemovePromptInQueue={handleRemoveQueuedPrompt}
 			onProviderChange={handleProviderChange}
 			onSend={handleSendPrompt}
+			onDisableMultitask={handleDisableMultitask}
 			gitBranch={gitBranch}
 			cloudBranch={config.branch}
 			executionTarget={isCloudSession ? "cloud" : "local"}

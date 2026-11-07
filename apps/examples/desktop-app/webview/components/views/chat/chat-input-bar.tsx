@@ -335,6 +335,7 @@ type ChatInputBarProps = {
 	modelContextWindow?: number;
 	mode: "act" | "plan";
 	multitaskEnabled?: boolean;
+	onDisableMultitask?: () => void;
 	/** Queued and running teammate runs of this session. */
 	activeTeammateRuns?: number;
 	thinking: ChatSessionConfig["thinking"];
@@ -397,6 +398,7 @@ function ChatInputBarImpl({
 	modelContextWindow,
 	mode,
 	multitaskEnabled = false,
+	onDisableMultitask,
 	activeTeammateRuns = 0,
 	thinking,
 	reasoningEffort,
@@ -1692,12 +1694,20 @@ function ChatInputBarImpl({
 						</button>
 					</div>
 					{multitaskEnabled && (
-						<span
-							className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
-							title="Big tasks run on background teammates"
+						<button
+							aria-label="Turn off Multitask mode"
+							className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-foreground hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							disabled={readOnly}
+							onClick={(event) => {
+								event.stopPropagation();
+								if (onDisableMultitask) onDisableMultitask();
+								else onSend("/multitask off");
+							}}
+							title="Turn off Multitask mode"
+							type="button"
 						>
 							Multitask
-						</span>
+						</button>
 					)}
 					{multitaskEnabled && activeTeammateRuns > 0 && (
 						<button
