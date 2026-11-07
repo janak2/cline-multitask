@@ -2,11 +2,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { PdfViewer } from "./pdf-viewer";
 import {
 	FileViewStateProvider,
 	fileViewStorageKey,
 } from "@/lib/file-view-state";
+import { PdfViewer } from "./pdf-viewer";
 
 const mocks = vi.hoisted(() => {
 	const render = vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() }));
@@ -79,17 +79,15 @@ it("loads authorized bytes, renders pages with local assets and destroys the doc
 		enableXfa: false,
 		wasmUrl: "/pdfjs/test/wasm/",
 	});
-	expect(container.textContent).toContain("Page 1 of 2");
-	const next = Array.from(container.querySelectorAll("button")).find(
-		(button) => button.textContent === "Next page",
-	);
-	await act(async () => next?.click());
-	expect(mocks.getPage).toHaveBeenLastCalledWith(2);
-	expect(container.textContent).toContain("Page 2 of 2");
+	expect(container.textContent).toContain("2 pages");
+	expect(container.querySelectorAll("canvas")).toHaveLength(2);
+	expect(container.querySelectorAll("button")).toHaveLength(0);
+	expect(mocks.getPage).toHaveBeenCalledWith(2);
+
 	await act(async () => root.render(null));
 	expect(mocks.destroy).toHaveBeenCalled();
 });
-it("restores each session's PDF page and clamps a saved page when the document shrinks", async () => {
+it("restores continuous page/offset separately for each session", async () => {
 	const show = async (session: string) => {
 		await act(async () =>
 			root.render(
@@ -107,24 +105,51 @@ it("restores each session's PDF page and clamps a saved page when the document s
 		);
 	};
 	await show("A");
-	await act(async () =>
-		Array.from(container.querySelectorAll("button"))
-			.find((button) => button.textContent === "Next page")
-			?.click(),
-	);
+	const scroller = container.querySelector<HTMLDivElement>(
+		'[aria-label="PDF document pages"]',
+	)!;
+	await act(async () => {
+		scroller.scrollTop = 1200;
+		scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
 	await show("B");
-	expect(container.textContent).toContain("Page 1 of 2");
+	expect(
+		container.querySelector<HTMLDivElement>('[aria-label="PDF document pages"]')
+			?.scrollTop,
+	).toBe(0);
 	await show("A");
-	expect(container.textContent).toContain("Page 2 of 2");
-	await show("B");
-	const key = fileViewStorageKey("local", "A", "/repo", "/repo")!;
-	window.localStorage.setItem(
-		key,
-		JSON.stringify({ "pdfPage:/repo/report.pdf": 999 }),
-	);
-	await show("A");
-	expect(container.textContent).toContain("Page 2 of 2");
-	expect(mocks.getPage).toHaveBeenLastCalledWith(2);
+	expect(
+		container.querySelector<HTMLDivElement>('[aria-label="PDF document pages"]')
+			?.scrollTop,
+	).toBe(1200);
+});
+
+it("bounds canvas count while scrolling large documents and cancels released renders", async () => {
+	const cancel = vi.fn();
+	mocks.render.mockImplementation(() => ({
+		promise: Promise.resolve(),
+		cancel,
+	}));
+	mocks.getDocument.mockImplementationOnce(() => ({
+		promise: Promise.resolve({ numPages: 100, getPage: mocks.getPage }),
+		destroy: mocks.destroy,
+	}));
+	await mount();
+	expect(container.querySelectorAll("canvas").length).toBeLessThanOrEqual(4);
+	const old = container.querySelector("canvas")!;
+	const scroller = container.querySelector<HTMLDivElement>(
+		'[aria-label="PDF document pages"]',
+	)!;
+	await act(async () => {
+		scroller.scrollTop = 20_000;
+		scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
+	expect(container.querySelectorAll("canvas").length).toBeLessThanOrEqual(4);
+	expect(cancel).toHaveBeenCalled();
+	expect(old.width).toBe(0);
+	expect(
+		container.querySelector('[aria-label="Rendered PDF page 18"]'),
+	).not.toBeNull();
 });
 
 it("shows read errors without handing invalid content to PDF.js", async () => {
