@@ -1,6 +1,12 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	type HTMLAttributes,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useFileViewState } from "@/lib/file-view-state";
 import {
 	clampWorkspacePanelWidth,
@@ -17,9 +23,13 @@ import {
 export function WorkspacePanelFrame({
 	id,
 	children,
+	onDragOver,
+	onDrop,
 }: {
 	id: string;
 	children: ReactNode;
+	onDragOver?: HTMLAttributes<HTMLElement>["onDragOver"];
+	onDrop?: HTMLAttributes<HTMLElement>["onDrop"];
 }) {
 	const [savedWidth, setSavedWidth] = useFileViewState<number | null>(
 		"width",
@@ -58,6 +68,8 @@ export function WorkspacePanelFrame({
 
 	return (
 		<aside
+			onDragOver={onDragOver}
+			onDrop={onDrop}
 			className="relative col-start-2 row-span-2 row-start-1 flex min-h-0 border-l border-border bg-background"
 			id={id}
 			style={{ width }}

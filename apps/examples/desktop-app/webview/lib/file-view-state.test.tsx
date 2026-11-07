@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	FileViewScrollArea,
 	FileViewStateProvider,
@@ -110,4 +110,28 @@ it("restores scroll after delayed content but stops restoring after user interac
 	});
 	expect(area.scrollTop).toBe(80);
 	expect(JSON.parse(window.localStorage.getItem(key)!).scroll.top).toBe(80);
+});
+
+it("preserves composed context-menu pointer and keyboard handlers", async () => {
+	const pointer = vi.fn();
+	const key = vi.fn();
+	await act(async () =>
+		root.render(
+			<FileViewScrollArea
+				stateId="tree"
+				onPointerDown={pointer}
+				onKeyDown={key}
+			/>,
+		),
+	);
+	await act(async () => {
+		container.firstElementChild?.dispatchEvent(
+			new Event("pointerdown", { bubbles: true }),
+		);
+		container.firstElementChild?.dispatchEvent(
+			new KeyboardEvent("keydown", { bubbles: true, key: "ContextMenu" }),
+		);
+	});
+	expect(pointer).toHaveBeenCalledOnce();
+	expect(key).toHaveBeenCalledOnce();
 });

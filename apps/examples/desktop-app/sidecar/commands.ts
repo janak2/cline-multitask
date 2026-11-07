@@ -1,4 +1,9 @@
 import { execFile, spawn } from "node:child_process";
+import {
+	copyProjectEntries,
+	openContainingProjectFolder,
+	readCopiedFiles,
+} from "./project-clipboard";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -2251,7 +2256,9 @@ export async function handleCommand(
 		command === "create_project_directory" ||
 		command === "move_project_entry" ||
 		command === "delete_project_entry" ||
-		command === "write_project_file"
+		command === "write_project_file" ||
+		command === "paste_project_entries" ||
+		command === "open_containing_project_folder"
 	) {
 		if (!options?.connection?.data?.canApproveTools) {
 			throw new Error("project files require a trusted desktop connection");
@@ -2262,7 +2269,11 @@ export async function handleCommand(
 		const root = String(args?.workspaceRoot ?? "").trim();
 		const path = String(args?.path ?? "");
 		if (!root || !path) throw new Error("workspaceRoot and path are required");
-		if (command === "create_project_directory") {
+		if (command === "paste_project_entries") {
+			await copyProjectEntries(root, path, await readCopiedFiles());
+		} else if (command === "open_containing_project_folder") {
+			await openContainingProjectFolder(root, path);
+		} else if (command === "create_project_directory") {
 			createLocalProjectDirectory(root, path);
 		} else if (command === "move_project_entry") {
 			moveLocalProjectEntry(root, path, String(args?.to ?? ""));

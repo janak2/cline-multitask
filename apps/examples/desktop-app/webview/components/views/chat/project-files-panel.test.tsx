@@ -1057,6 +1057,125 @@ describe("ProjectFilesPanel file changes", () => {
 		);
 	});
 
+	it("rejects external directories without navigation, root replacement or losing tree interaction", async () => {
+		await renderSession("drop-session");
+		await showFiles();
+		const outer = vi.fn();
+		document.body.addEventListener("drop", outer);
+		const getAsFile = vi.fn(() => {
+			throw new Error("Directory must not be read as a file");
+		});
+		const event = new Event("drop", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "dataTransfer", {
+			value: {
+				types: ["Files", "text/uri-list"],
+				getData: () => "",
+				items: [
+					{
+						kind: "file",
+						webkitGetAsEntry: () => ({ isDirectory: true }),
+						getAsFile,
+					},
+				],
+			},
+		});
+		await dispatch(button(/^src/), event);
+		expect(event.defaultPrevented).toBe(true);
+		expect(outer).not.toHaveBeenCalled();
+		document.body.removeEventListener("drop", outer);
+		expect(getAsFile).not.toHaveBeenCalled();
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"move_project_entry",
+			expect.anything(),
+		);
+		expect(byLabel("Project folder", container).getAttribute("title")).toBe(
+			"/repo",
+		);
+		await click(button(/^src/));
+		expect(
+			container.querySelector('[data-entry-path="/repo/src/app.ts"]'),
+		).not.toBeNull();
+		await renderSession("other");
+		await renderSession("drop-session");
+		expect(byLabel("Project folder", container).getAttribute("title")).toBe(
+			"/repo",
+		);
+	});
+
+	it("claims URI-only directory drops on the tree and panel header to prevent browser navigation", async () => {
+		await render();
+		await showFiles();
+		for (const target of [
+			button(/^src/),
+			container.querySelector("#project-files-panel")!,
+		]) {
+			const event = new Event("drop", { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "dataTransfer", {
+				value: {
+					types: ["text/uri-list"],
+					getData: () => "file:///external/folder",
+					items: [],
+				},
+			});
+			await dispatch(target, event);
+			expect(event.defaultPrevented).toBe(true);
+		}
+		expect(byLabel("Project folder", container).getAttribute("title")).toBe(
+			"/repo",
+		);
+	});
+
+	it("disables native paste/reveal remotely and still prevents external drop navigation", async () => {
+		await renderSession("remote", "/repo", "ssh:host");
+		await showFiles();
+		await openContextMenu(button(/^src/));
+		expect(
+			menuItem("Paste files and folders").getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			menuItem("Open Containing Folder").getAttribute("aria-disabled"),
+		).toBe("true");
+		const event = new Event("drop", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "dataTransfer", {
+			value: { types: ["text/uri-list"], getData: () => "", items: [] },
+		});
+		await dispatch(container.querySelector("#project-files-panel")!, event);
+		expect(event.defaultPrevented).toBe(true);
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"paste_project_entries",
+			expect.anything(),
+		);
+	});
+
+	it("pastes into folder rows, file parents and background; opens containing folders without changing root", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^src/));
+		await click(menuItem("Paste files and folders"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"paste_project_entries",
+			expect.objectContaining({ path: "/repo/src", workspaceRoot: "/repo" }),
+		);
+		await openContextMenu(button(/^README\.md/));
+		await click(menuItem("Paste files and folders"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"paste_project_entries",
+			expect.objectContaining({ path: "/repo" }),
+		);
+		await openContextMenu(button(/^README\.md/));
+		await click(menuItem("Open Containing Folder"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"open_containing_project_folder",
+			expect.objectContaining({ path: "/repo/README.md" }),
+		);
+		await openContextMenu(byLabel("Project folder", container).parentElement!);
+		await click(menuItem("Open Folder in File Manager"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"open_containing_project_folder",
+			expect.objectContaining({ path: "/repo" }),
+		);
+	});
+
 	it("asks before a file dropped from the system replaces one", async () => {
 		await render();
 		await showFiles();

@@ -126,11 +126,13 @@ export function FileViewScrollArea({
 			onWheel={() => {
 				pending.current = false;
 			}}
-			onPointerDown={() => {
+			onPointerDown={(event) => {
 				pending.current = false;
+				props.onPointerDown?.(event);
 			}}
-			onKeyDown={() => {
+			onKeyDown={(event) => {
 				pending.current = false;
+				props.onKeyDown?.(event);
 			}}
 			onScroll={(event) => {
 				const node = event.currentTarget;

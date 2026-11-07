@@ -689,6 +689,13 @@ export function ProjectFilesPanel({
 	);
 	const dropIntoTree = useCallback(
 		(event: React.DragEvent<HTMLElement>) => {
+			if (!canEdit) {
+				toast({
+					title: "Drop unavailable",
+					description: "File drops are supported only in local workspaces.",
+				});
+				return;
+			}
 			const folder = targetFolder(event.target, treeRoot);
 			const from = event.dataTransfer.getData(TREE_DRAG_TYPE);
 			if (from) {
@@ -698,29 +705,43 @@ export function ProjectFilesPanel({
 			// The items are readable only while the drop event runs.
 			const dropped = Array.from(event.dataTransfer.items ?? [])
 				.filter((item) => item.kind === "file")
-				.map((item) => ({
-					file: item.getAsFile(),
-					directory: item.webkitGetAsEntry?.()?.isDirectory ?? false,
-				}));
+				.map((item) => {
+					const directory = item.webkitGetAsEntry?.()?.isDirectory ?? false;
+					return { directory, file: directory ? null : item.getAsFile() };
+				});
 			if (dropped.some((item) => item.directory)) {
 				toast({
 					title: "Folders were skipped",
-					description: "Only files can be dropped into the file tree.",
+					description:
+						"Folder drops are not supported. Use Copy in your file manager, then Paste files and folders here.",
 				});
 			}
 			const files = dropped.flatMap((item) =>
 				item.file && !item.directory ? [item.file] : [],
 			);
-			if (files.length > 0) void uploadFiles(folder, files);
+			if (!dropped.length)
+				toast({
+					title: "Drop unavailable",
+					description:
+						"This drop does not contain readable files. To copy folders, use Copy in your file manager and Paste in the Files context menu.",
+				});
+			if (files.length > 0)
+				void uploadFiles(folder, files).catch((error) => {
+					toast({
+						title: "Drop failed",
+						description: error instanceof Error ? error.message : String(error),
+						variant: "destructive",
+					});
+				});
 		},
-		[moveInto, treeRoot, uploadFiles],
+		[canEdit, moveInto, treeRoot, uploadFiles],
 	);
 	// Tree moves and OS file drops are claimed here so the chat's attachment
 	// drop zone around the panel does not also take them.
 	const isTreeDrag = (event: React.DragEvent) =>
-		canEdit &&
-		(event.dataTransfer.types.includes(TREE_DRAG_TYPE) ||
-			event.dataTransfer.types.includes("Files"));
+		event.dataTransfer.types.includes(TREE_DRAG_TYPE) ||
+		event.dataTransfer.types.includes("Files") ||
+		event.dataTransfer.types.includes("text/uri-list");
 	const handleTreeDragOver = (event: React.DragEvent<HTMLElement>) => {
 		if (!isTreeDrag(event)) return;
 		event.preventDefault();
@@ -1200,7 +1221,24 @@ export function ProjectFilesPanel({
 			: null;
 
 	return (
-		<WorkspacePanelFrame id="project-files-panel">
+		<WorkspacePanelFrame
+			id="project-files-panel"
+			onDragOver={(event) => {
+				if (!isTreeDrag(event)) return;
+				event.preventDefault();
+				event.stopPropagation();
+			}}
+			onDrop={(event) => {
+				if (!isTreeDrag(event)) return;
+				event.preventDefault();
+				event.stopPropagation();
+				toast({
+					title: "Drop unavailable",
+					description:
+						"Drop files onto the file tree. To copy folders, use Copy and Paste files and folders.",
+				});
+			}}
+		>
 			<div
 				className="flex shrink-0 flex-col border-r border-border bg-sidebar/40"
 				style={{ width: COLUMN_WIDTH }}
@@ -1255,7 +1293,7 @@ export function ProjectFilesPanel({
 					/>
 				) : (
 					<ContextMenu>
-						<ContextMenuTrigger asChild disabled={!canEdit}>
+						<ContextMenuTrigger asChild>
 							{/* biome-ignore lint/a11y/noStaticElementInteractions: drops and the context menu augment the tree rows' own buttons. */}
 							<FileViewScrollArea
 								stateId={`treeScroll:${treeRoot}`}
@@ -1288,7 +1326,16 @@ export function ProjectFilesPanel({
 									event.preventDefault();
 									event.stopPropagation();
 									setDropFolder(null);
-									dropIntoTree(event);
+									try {
+										dropIntoTree(event);
+									} catch (error) {
+										toast({
+											title: "Drop failed",
+											description:
+												error instanceof Error ? error.message : String(error),
+											variant: "destructive",
+										});
+									}
 								}}
 							>
 								<DropdownMenu
@@ -1359,6 +1406,38 @@ export function ProjectFilesPanel({
 						</ContextMenuTrigger>
 						<ContextMenuContent className="w-44">
 							<ContextMenuItem
+								disabled={!canEdit}
+								onSelect={() =>
+									void changeFiles(
+										"paste_project_entries",
+										{ path: menuFolder },
+										[menuFolder],
+									)
+								}
+							>
+								Paste files and folders
+							</ContextMenuItem>
+							<ContextMenuItem
+								disabled={!canEdit}
+								onSelect={() =>
+									void changeFiles(
+										"open_containing_project_folder",
+										{ path: menuEntry ?? treeRoot },
+										[],
+									)
+								}
+							>
+								{menuEntry
+									? "Open Containing Folder"
+									: "Open Folder in File Manager"}
+							</ContextMenuItem>
+							{!canEdit ? (
+								<div className="px-2 py-1 text-xs text-muted-foreground">
+									Remote file actions are unavailable
+								</div>
+							) : null}
+							<ContextMenuItem
+								disabled={!canEdit}
 								className="text-xs"
 								onSelect={() =>
 									setNameDialog({
@@ -1372,6 +1451,7 @@ export function ProjectFilesPanel({
 								New file
 							</ContextMenuItem>
 							<ContextMenuItem
+								disabled={!canEdit}
 								className="text-xs"
 								onSelect={() =>
 									setNameDialog({
@@ -1384,7 +1464,7 @@ export function ProjectFilesPanel({
 								<FolderPlus className="size-3.5" />
 								New folder
 							</ContextMenuItem>
-							{menuEntry ? (
+							{menuEntry && canEdit ? (
 								<>
 									<ContextMenuSeparator />
 									<ContextMenuItem
