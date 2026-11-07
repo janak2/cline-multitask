@@ -6,6 +6,7 @@ import {
 	ChevronRight,
 	Copy,
 	ExternalLink,
+	FilePlus,
 	FolderPlus,
 	Loader2,
 	Minus,
@@ -151,7 +152,7 @@ type ProjectFilesPanelProps = {
 };
 
 type NameDialog = {
-	mode: "new-folder" | "rename";
+	mode: "new-file" | "new-folder" | "rename";
 	/** The folder to create in, or the entry to rename. */
 	path: string;
 	value: string;
@@ -567,6 +568,19 @@ export function ProjectFilesPanel({
 		setNameDialog(null);
 		const name = dialog?.value.trim();
 		if (!dialog || !name) return;
+		if (dialog.mode === "new-file") {
+			showFolder(dialog.path);
+			await changeFiles(
+				"write_project_file",
+				{
+					path: joinPath(dialog.path, name),
+					contentBase64: "",
+					overwrite: false,
+				},
+				[dialog.path],
+			);
+			return;
+		}
 		if (dialog.mode === "new-folder") {
 			showFolder(dialog.path);
 			await changeFiles(
@@ -1310,6 +1324,19 @@ export function ProjectFilesPanel({
 								className="text-xs"
 								onSelect={() =>
 									setNameDialog({
+										mode: "new-file",
+										path: menuFolder,
+										value: "",
+									})
+								}
+							>
+								<FilePlus className="size-3.5" />
+								New file
+							</ContextMenuItem>
+							<ContextMenuItem
+								className="text-xs"
+								onSelect={() =>
+									setNameDialog({
 										mode: "new-folder",
 										path: menuFolder,
 										value: "",
@@ -1664,7 +1691,11 @@ export function ProjectFilesPanel({
 					>
 						<DialogHeader>
 							<DialogTitle>
-								{nameDialog?.mode === "rename" ? "Rename" : "New folder"}
+								{nameDialog?.mode === "rename"
+									? "Rename"
+									: nameDialog?.mode === "new-file"
+										? "New file"
+										: "New folder"}
 							</DialogTitle>
 						</DialogHeader>
 						<Input

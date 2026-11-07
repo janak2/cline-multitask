@@ -127,6 +127,17 @@ describe("local project file changes", () => {
 		expect(existsSync(join(root, "src"))).toBe(false);
 	});
 
+	it("creates an empty file without replacing existing contents", () => {
+		const target = join(root, "notes.txt");
+		writeLocalProjectFile(root, target, "", false);
+		expect(readFileSync(target, "utf8")).toBe("");
+		writeFileSync(target, "keep this");
+		expect(() => writeLocalProjectFile(root, target, "", false)).toThrow(
+			/EEXIST/,
+		);
+		expect(readFileSync(target, "utf8")).toBe("keep this");
+	});
+
 	it("writes a dropped file and replaces one only when asked", () => {
 		const target = join(root, "README.md");
 		const contents = Buffer.from("new").toString("base64");

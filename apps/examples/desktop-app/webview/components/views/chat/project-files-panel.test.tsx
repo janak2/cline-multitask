@@ -806,6 +806,41 @@ describe("ProjectFilesPanel file changes", () => {
 		await flush();
 	}
 
+	it("creates an empty file inside the right-clicked folder without overwriting", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^src/));
+		await click(menuItem("New file"));
+		expect(button(/^Create$/, document).disabled).toBe(true);
+		await typeName("notes.txt");
+		invokeMock.mockClear();
+		await click(button(/^Create$/, document));
+		expect(invokeMock).toHaveBeenCalledWith("write_project_file", {
+			environmentId: "local",
+			workspaceRoot: "/repo",
+			path: "/repo/src/notes.txt",
+			contentBase64: "",
+			overwrite: false,
+		});
+		expect(invokeMock).toHaveBeenCalledWith(
+			"list_project_entries",
+			expect.objectContaining({ path: "/repo/src" }),
+		);
+	});
+
+	it("cancels creating a file without writing anything", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^README\.md/));
+		await click(menuItem("New file"));
+		await typeName("notes.txt");
+		await click(button(/^Cancel$/, document));
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"write_project_file",
+			expect.anything(),
+		);
+	});
+
 	it("creates a folder inside the right-clicked folder", async () => {
 		await render();
 		await showFiles();
