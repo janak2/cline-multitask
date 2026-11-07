@@ -34,6 +34,7 @@ import { ArtifactImage } from "./artifact-image";
 import { isSystemSteeringMessage } from "./group-messages";
 import { MessageImageCarousel } from "./image-carousel";
 import { ReasoningBlock } from "./reasoning-block";
+import { isTeammateUpdate, TeammateUpdate } from "./teammate-update";
 
 function MessageImages({
 	images,
@@ -295,7 +296,11 @@ export const MessageBubble = memo(function MessageBubble({
 
 				{displayContent ? (
 					<div className="min-w-0 max-w-full wrap-break-word">
-						{isUser ? (
+						{isUser && isTeammateUpdate(displayContent) ? (
+							<TeammateUpdate content={displayContent}>
+								<UserMessageMarkdown content={displayContent} />
+							</TeammateUpdate>
+						) : isUser ? (
 							<UserMessageMarkdown
 								attachedFiles={message.meta?.attachedFiles}
 								content={displayContent}

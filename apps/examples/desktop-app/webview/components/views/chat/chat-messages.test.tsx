@@ -52,6 +52,90 @@ async function renderMessages(
 	});
 }
 
+describe("ChatMessages teammate updates", () => {
+	it.each([
+		"running",
+		"completed",
+		"failed",
+	])("collapses %s teammate delivery bodies, preserving status and expansion", async (status) => {
+		const content = `System-delivered teammate async run updates:\n- run_1 (tester) -> ${status}\nResult:\nFull teammate report.\n\n1 other teammate run(s) are still in progress. Their results will arrive the same way; do not wait for them.`;
+		const messages: ChatMessage[] = [
+			{
+				id: "teammate-update",
+				sessionId: "session-1",
+				role: "user",
+				content: `<user_input mode="act">${content}</user_input>`,
+				createdAt: Date.now(),
+			},
+		];
+		await renderMessages(messages, { status: "running" });
+		const trigger = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes(`tester: ${status}`),
+		);
+		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+		expect(trigger?.textContent).toContain("1 still running");
+		expect(container.textContent).not.toContain("Full teammate report.");
+		await act(async () => trigger?.click());
+		expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.textContent).toContain("Full teammate report.");
+		await renderMessages(messages, { status: "completed" });
+		expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+		await act(async () => trigger?.click());
+		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+	});
+
+	it("keeps batched completion and failure statuses in the collapsed header", async () => {
+		await renderMessages([
+			{
+				id: "batch",
+				sessionId: "session-1",
+				role: "user",
+				createdAt: 1,
+				content:
+					"System-delivered teammate async run updates:\n- run_1 (builder) -> completed\nResult:\nBuilt the feature.\n\n- run_2 (tester) -> failed error=timeout\n\nNo teammate runs are in progress.",
+			},
+		]);
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'[data-slot="collapsible-trigger"]',
+		);
+		expect(trigger?.textContent).toContain(
+			"builder: completed · tester: failed",
+		);
+		expect(trigger?.textContent).not.toContain("still running");
+		expect(container.textContent).not.toContain("Built the feature.");
+		await act(async () => trigger?.click());
+		expect(container.textContent).toContain("Built the feature.");
+		expect(container.textContent).toContain("error=timeout");
+	});
+
+	it("leaves normal user prompts and assistant text expanded", async () => {
+		await renderMessages([
+			{
+				id: "user",
+				sessionId: "session-1",
+				role: "user",
+				content: "Please review the teammate report.",
+				createdAt: 1,
+			},
+			{
+				id: "assistant",
+				sessionId: "session-1",
+				role: "assistant",
+				content:
+					"System-delivered teammate async run updates:\n- run_1 (tester) -> completed\nResult:\nAssistant answer stays visible.",
+				createdAt: 2,
+			},
+		]);
+		expect(container.textContent).toContain(
+			"Please review the teammate report.",
+		);
+		expect(container.textContent).toContain("Assistant answer stays visible.");
+		expect(
+			container.querySelector('[data-slot="collapsible-trigger"]'),
+		).toBeNull();
+	});
+});
+
 describe("ChatMessages error action", () => {
 	it("keeps the recovery action when the error is already in the transcript", async () => {
 		const onClick = vi.fn();
