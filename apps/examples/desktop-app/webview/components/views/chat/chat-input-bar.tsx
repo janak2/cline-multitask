@@ -1803,7 +1803,14 @@ function ChatInputBarImpl({
 								) : (
 									<WorkspaceSelector
 										currentBranch={gitBranch}
-										disabled
+										branchOnly
+										disabled={
+											readOnly ||
+											isBusy ||
+											hasRunningAgents ||
+											!gitBranch ||
+											gitBranch === "no-git"
+										}
 										onListGitBranches={onListGitBranches}
 										onRefreshWorkspaces={onRefreshWorkspaces}
 										onPickWorkspaceDirectory={onPickWorkspaceDirectory}

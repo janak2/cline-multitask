@@ -413,6 +413,16 @@ describe("ChatInputBar draft navigation", () => {
 });
 
 describe("ChatInputBar", () => {
+	it.each([
+		["idle", false, false],
+		["running", false, true],
+		["idle", true, true],
+	] as const)("gates conversation branch switching for status=%s teammates=%s", async (status, hasRunningAgents, disabled) => {
+		await renderVoiceComposer({ status, hasRunningAgents });
+		expect(
+			container.querySelector<HTMLButtonElement>("#git-branch-btn")?.disabled,
+		).toBe(disabled);
+	});
 	it("highlights /cloud only when handoff is available", async () => {
 		for (const enabled of [false, true, false]) {
 			await renderVoiceComposer({
@@ -1029,7 +1039,11 @@ describe("ChatInputBar", () => {
 
 	it("does not let a read-only composer disable Multitask", async () => {
 		const onSend = vi.fn();
-		await renderVoiceComposer({ multitaskEnabled: true, readOnly: true, onSend });
+		await renderVoiceComposer({
+			multitaskEnabled: true,
+			readOnly: true,
+			onSend,
+		});
 		const badge = container.querySelector<HTMLButtonElement>(
 			'button[aria-label="Turn off Multitask mode"]',
 		);

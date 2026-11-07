@@ -2069,6 +2069,7 @@ function ChatThreadPane({
 					cwd,
 					branch: nextBranch,
 					environmentId,
+					sessionId,
 				});
 				if (payload.environmentId !== environmentId) {
 					return false;
@@ -2076,11 +2077,22 @@ function ChatThreadPane({
 				invalidateGitBranch();
 				await refreshGitBranch();
 				return true;
-			} catch {
+			} catch (error) {
+				toast({
+					title: "Could not switch branch",
+					description: error instanceof Error ? error.message : String(error),
+					variant: "destructive",
+				});
 				return false;
 			}
 		},
-		[environmentId, getWorkspaceCwd, invalidateGitBranch, refreshGitBranch],
+		[
+			environmentId,
+			getWorkspaceCwd,
+			invalidateGitBranch,
+			refreshGitBranch,
+			sessionId,
+		],
 	);
 
 	const listWorkspaces = useCallback(

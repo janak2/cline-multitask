@@ -48,6 +48,7 @@ export function WorkspaceSelector({
 	onPickWorkspaceDirectory,
 	onCreateGitBranch,
 	disabled = false,
+	branchOnly = false,
 }: {
 	/** Branch name, "no-git" for a non-repo folder, null while discovery is pending. */
 	currentBranch: string | null;
@@ -60,12 +61,14 @@ export function WorkspaceSelector({
 	onPickWorkspaceDirectory?: (initialPath?: string) => Promise<string | null>;
 	onCreateGitBranch?: (branchName: string) => Promise<boolean>;
 	disabled?: boolean;
+	branchOnly?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [branches, setBranches] = useState<string[]>([]);
 	const [loadingBranches, setLoadingBranches] = useState(false);
 	const [switching, setSwitching] = useState(false);
+	const [branchError, setBranchError] = useState<string | null>(null);
 	const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
 	const [pickingWorkspace, setPickingWorkspace] = useState(false);
 	const [showWorkspacePathInput, setShowWorkspacePathInput] = useState(false);
@@ -108,6 +111,7 @@ export function WorkspaceSelector({
 			return;
 		}
 		setOpen(true);
+		setBranchError(null);
 		setSearch("");
 		setShowWorkspacePathInput(false);
 		setWorkspacePathInput("");
@@ -118,7 +122,7 @@ export function WorkspaceSelector({
 		try {
 			const [branchPayload] = await Promise.all([
 				onListGitBranches(),
-				onRefreshWorkspaces(),
+				branchOnly ? Promise.resolve() : onRefreshWorkspaces(),
 			]);
 			setBranches(branchPayload.branches);
 		} finally {
@@ -135,11 +139,17 @@ export function WorkspaceSelector({
 			return;
 		}
 		setSwitching(true);
-		const switched = await onSwitchGitBranch(branch);
-		setSwitching(false);
-		if (switched) {
-			setOpen(false);
-			setSearch("");
+		setBranchError(null);
+		try {
+			const switched = await onSwitchGitBranch(branch);
+			if (switched) {
+				setOpen(false);
+				setSearch("");
+			}
+		} catch (error) {
+			setBranchError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setSwitching(false);
 		}
 	};
 
@@ -319,6 +329,11 @@ export function WorkspaceSelector({
 					/>
 					<div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-border bg-popover shadow-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 motion-reduce:animate-none">
 						{/* Search row, styled to match the composer's model picker */}
+						{branchError && (
+							<div role="alert" className="px-3 py-2 text-xs text-destructive">
+								{branchError}
+							</div>
+						)}
 						<div className="flex items-center gap-2 border-b border-border px-3">
 							<Search className="size-3 text-muted-foreground shrink-0" />
 							<Input
@@ -326,7 +341,11 @@ export function WorkspaceSelector({
 								value={search}
 								onChange={(e) => setSearch(e.target.value)}
 								placeholder={
-									hasGit ? "Search workspaces & branches" : "Search workspaces"
+									branchOnly
+										? "Search branches"
+										: hasGit
+											? "Search workspaces & branches"
+											: "Search workspaces"
 								}
 								className="h-8 flex-1 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0 dark:bg-transparent"
 							/>
@@ -339,123 +358,124 @@ export function WorkspaceSelector({
 						) : (
 							<>
 								{/* Workspaces section */}
-								<div className="p-1.5 border-b border-border">
-									<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-										Workspaces
-									</div>
-									{looksLikeFolderPath(search) && (
+								{!branchOnly && (
+									<div className="p-1.5 border-b border-border">
+										<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+											Workspaces
+										</div>
+										{looksLikeFolderPath(search) && (
+											<Button
+												variant="ghost"
+												disabled={switchingWorkspace}
+												onClick={() => {
+													void handleWorkspaceSelect(search);
+												}}
+												className="mb-0.5 flex h-auto w-full items-center justify-start gap-2 rounded-md p-2 text-left"
+											>
+												<FolderCode className="size-3 shrink-0 text-muted-foreground" />
+												<span className="truncate text-xs text-foreground">
+													Open folder “{search.trim()}”
+												</span>
+											</Button>
+										)}
+										<div
+											ref={workspaceListRef}
+											className="flex flex-col gap-0.5 max-h-28 overflow-y-auto"
+										>
+											{filteredWorkspaces.length === 0 ? (
+												<div className="px-2 py-2 text-xs text-muted-foreground">
+													{looksLikeFolderPath(search)
+														? "Press the option above to open this folder"
+														: "No workspaces found — type a full folder path to add one"}
+												</div>
+											) : (
+												filteredWorkspaces.map((wp) => {
+													const isActive =
+														normalizeWorkspacePath(wp) ===
+														normalizedWorkspaceRoot;
+													return (
+														<Button
+															variant="ghost"
+															key={wp}
+															data-current={isActive || undefined}
+															disabled={switchingWorkspace}
+															onClick={() => {
+																void handleWorkspaceSelect(wp);
+															}}
+															className={cn(
+																"flex items-center justify-between h-auto rounded-md p-2 text-left w-full",
+																isActive
+																	? "bg-(--accent-4) hover:bg-(--accent-4)"
+																	: "hover:bg-surface-hover",
+															)}
+														>
+															<div className="flex items-center gap-2 min-w-0 w-full">
+																<FolderCode className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
+																<span className="text-xs text-foreground truncate inline-flex">
+																	{formatWorkspacePath(wp)}
+																</span>
+															</div>
+															{isActive && (
+																<Check className="h-3 w-3 text-foreground shrink-0 ml-2" />
+															)}
+														</Button>
+													);
+												})
+											)}
+										</div>
 										<Button
 											variant="ghost"
-											disabled={switchingWorkspace}
 											onClick={() => {
-												void handleWorkspaceSelect(search);
+												void handleSwitchWorkspacePath();
 											}}
-											className="mb-0.5 flex h-auto w-full items-center justify-start gap-2 rounded-md p-2 text-left"
+											disabled={switchingWorkspace || pickingWorkspace}
+											size="sm"
+											className="justify-start w-full mt-0.5 text-xs text-muted-foreground"
 										>
-											<FolderCode className="size-3 shrink-0 text-muted-foreground" />
-											<span className="truncate text-xs text-foreground">
-												Open folder “{search.trim()}”
-											</span>
+											{pickingWorkspace
+												? "Opening folder picker..."
+												: "Open folder..."}
 										</Button>
-									)}
-									<div
-										ref={workspaceListRef}
-										className="flex flex-col gap-0.5 max-h-28 overflow-y-auto"
-									>
-										{filteredWorkspaces.length === 0 ? (
-											<div className="px-2 py-2 text-xs text-muted-foreground">
-												{looksLikeFolderPath(search)
-													? "Press the option above to open this folder"
-													: "No workspaces found — type a full folder path to add one"}
+										{showWorkspacePathInput ? (
+											<div className="mt-1 flex items-center gap-1">
+												<Input
+													autoFocus
+													value={workspacePathInput}
+													onChange={(event) =>
+														setWorkspacePathInput(event.target.value)
+													}
+													onKeyDown={(event) => {
+														if (event.key === "Enter") {
+															event.preventDefault();
+															handleSubmitWorkspacePath();
+														}
+														if (event.key === "Escape") {
+															event.preventDefault();
+															setShowWorkspacePathInput(false);
+															setWorkspacePathInput("");
+														}
+													}}
+													placeholder="/path/to/workspace"
+													className="h-7 text-xs"
+												/>
+												<Button
+													size="sm"
+													variant="secondary"
+													onClick={handleSubmitWorkspacePath}
+													disabled={switchingWorkspace}
+													className="h-7 px-2 text-xs"
+												>
+													Go
+												</Button>
 											</div>
-										) : (
-											filteredWorkspaces.map((wp) => {
-												const isActive =
-													normalizeWorkspacePath(wp) ===
-													normalizedWorkspaceRoot;
-												return (
-													<Button
-														variant="ghost"
-														key={wp}
-														data-current={isActive || undefined}
-														disabled={switchingWorkspace}
-														onClick={() => {
-															void handleWorkspaceSelect(wp);
-														}}
-														className={cn(
-															"flex items-center justify-between h-auto rounded-md p-2 text-left w-full",
-															isActive
-																? "bg-(--accent-4) hover:bg-(--accent-4)"
-																: "hover:bg-surface-hover",
-														)}
-													>
-														<div className="flex items-center gap-2 min-w-0 w-full">
-															<FolderCode className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-															<span className="text-xs text-foreground truncate inline-flex">
-																{formatWorkspacePath(wp)}
-															</span>
-														</div>
-														{isActive && (
-															<Check className="h-3 w-3 text-foreground shrink-0 ml-2" />
-														)}
-													</Button>
-												);
-											})
+										) : null}
+										{workspaceError && (
+											<div className="mt-1 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+												{workspaceError}
+											</div>
 										)}
 									</div>
-									<Button
-										variant="ghost"
-										onClick={() => {
-											void handleSwitchWorkspacePath();
-										}}
-										disabled={switchingWorkspace || pickingWorkspace}
-										size="sm"
-										className="justify-start w-full mt-0.5 text-xs text-muted-foreground"
-									>
-										{pickingWorkspace
-											? "Opening folder picker..."
-											: "Open folder..."}
-									</Button>
-									{showWorkspacePathInput ? (
-										<div className="mt-1 flex items-center gap-1">
-											<Input
-												autoFocus
-												value={workspacePathInput}
-												onChange={(event) =>
-													setWorkspacePathInput(event.target.value)
-												}
-												onKeyDown={(event) => {
-													if (event.key === "Enter") {
-														event.preventDefault();
-														handleSubmitWorkspacePath();
-													}
-													if (event.key === "Escape") {
-														event.preventDefault();
-														setShowWorkspacePathInput(false);
-														setWorkspacePathInput("");
-													}
-												}}
-												placeholder="/path/to/workspace"
-												className="h-7 text-xs"
-											/>
-											<Button
-												size="sm"
-												variant="secondary"
-												onClick={handleSubmitWorkspacePath}
-												disabled={switchingWorkspace}
-												className="h-7 px-2 text-xs"
-											>
-												Go
-											</Button>
-										</div>
-									) : null}
-									{workspaceError && (
-										<div className="mt-1 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
-											{workspaceError}
-										</div>
-									)}
-								</div>
-
+								)}
 								{/* Branches section (git repos only) */}
 								{hasGit ? (
 									<div className="p-1.5">
@@ -506,7 +526,7 @@ export function WorkspaceSelector({
 								) : null}
 
 								{/* Create branch (git repos only) */}
-								{hasGit ? (
+								{hasGit && !branchOnly ? (
 									<div className="border-t border-border p-1.5">
 										{showCreateBranch ? (
 											<div className="flex flex-col gap-2 p-2">

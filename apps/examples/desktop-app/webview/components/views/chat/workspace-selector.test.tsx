@@ -39,6 +39,36 @@ function buttonWithText(text: string): HTMLButtonElement {
 }
 
 describe("WorkspaceSelector", () => {
+	it("offers branches only for an idle conversation without workspace or create controls", async () => {
+		const refresh = vi.fn(async () => {});
+		const switchWorkspace = vi.fn(async () => true);
+		const switchBranch = vi.fn(async () => true);
+		await act(async () =>
+			root.render(
+				<WorkspaceSelector
+					branchOnly
+					currentBranch="main"
+					workspaceRoot="/repo"
+					workspaces={["/other"]}
+					onListGitBranches={async () => ({
+						current: "main",
+						branches: ["main", "feature"],
+					})}
+					onRefreshWorkspaces={refresh}
+					onSwitchWorkspace={switchWorkspace}
+					onSwitchGitBranch={switchBranch}
+				/>,
+			),
+		);
+		await click(container.querySelector("#git-branch-btn") as Element);
+		expect(container.textContent).not.toContain("Workspaces");
+		expect(container.textContent).not.toContain("Create and checkout");
+		expect(container.textContent).not.toContain("/other");
+		expect(refresh).not.toHaveBeenCalled();
+		await click(buttonWithText("feature"));
+		expect(switchBranch).toHaveBeenCalledWith("feature");
+		expect(switchWorkspace).not.toHaveBeenCalled();
+	});
 	it("shows the current workspace and follows branch changes while disabled", async () => {
 		const onListGitBranches = vi.fn(async () => ({
 			current: "main",
@@ -85,6 +115,34 @@ describe("WorkspaceSelector", () => {
 
 		await render("feature/review");
 		expect(trigger?.textContent).toContain("feature/review");
+	});
+
+	it("shows checkout failures without unlocking workspace changes", async () => {
+		await act(async () =>
+			root.render(
+				<WorkspaceSelector
+					branchOnly
+					currentBranch="main"
+					workspaceRoot="/repo"
+					workspaces={[]}
+					onListGitBranches={async () => ({
+						current: "main",
+						branches: ["feature"],
+					})}
+					onRefreshWorkspaces={async () => {}}
+					onSwitchWorkspace={async () => true}
+					onSwitchGitBranch={async () => {
+						throw new Error("Git refused to overwrite edits");
+					}}
+				/>,
+			),
+		);
+		await click(container.querySelector("#git-branch-btn") as Element);
+		await click(buttonWithText("feature"));
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+			"Git refused to overwrite edits",
+		);
+		expect(container.textContent).not.toContain("Workspaces");
 	});
 
 	it("switches both workspace and branch choices from the opened menu", async () => {

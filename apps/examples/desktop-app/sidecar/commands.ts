@@ -93,6 +93,7 @@ import {
 } from "../session-activity";
 import { CLINE_ACCOUNT_NOT_AUTHENTICATED_RESULT } from "../webview/lib/cline-account-state";
 import { MAX_RECORDED_AUDIO_BYTES } from "../webview/lib/voice-input-limits";
+import { checkoutIdleBranch } from "./branch-checkout";
 import { resolveDesktopTelemetryUser } from "./client-context";
 import {
 	getClineAccountId,
@@ -3915,23 +3916,58 @@ export async function handleCommand(
 		if (!branch) throw new Error("branch is required");
 		const binding = getCommandRuntimeBinding(ctx, args);
 		const targetCwd = cwd?.trim() || binding.workspaceRoot;
-		if (binding.kind === "ssh") {
-			if (!ctx.remoteEnvironments) {
-				throw new Error("Remote environment service is unavailable");
-			}
-			await ctx.remoteEnvironments.run(binding.environmentId, {
-				command: "git",
-				args: ["checkout", branch],
-				cwd: targetCwd,
-			});
-		} else {
-			await execFileAsync("git", ["checkout", branch], {
-				cwd: targetCwd,
-				encoding: "utf8",
-			});
-		}
+		await checkoutIdleBranch({
+			cwd: targetCwd,
+			branch,
+			git: (path, args) => runGitStrict(ctx, binding, path, args),
+			sessions: async () => {
+				const reply = await binding.hubClient.command("session.list", {
+					limit: Number.MAX_SAFE_INTEGER,
+				});
+				if (!reply.ok || !Array.isArray(reply.payload?.sessions))
+					throw new Error(
+						"Could not verify running tasks. Reconnect before switching branches.",
+					);
+				const records = reply.payload.sessions.map((record) => ({
+					sessionId: record.sessionId,
+					status: record.status,
+					cwd: record.cwd,
+					workspaceRoot: record.workspaceRoot,
+				}));
+				const live = getEnvironmentContext(
+					ctx,
+					binding.environmentId,
+				).liveSessions;
+				return [
+					...records,
+					...Array.from(live)
+						.filter(([, session]) => session.config.executionTarget !== "cloud")
+						.map(([sessionId, session]) => ({
+							sessionId,
+							status: session.status,
+							busy: session.busy,
+							cwd: String(
+								session.config.cwd || session.config.workspaceRoot || "",
+							),
+						})),
+				];
+			},
+		});
 		const { refreshWorkspaceMetadata } = await import("./chat-session");
 		if (binding.kind === "local") refreshWorkspaceMetadata(targetCwd);
+		const sessionId =
+			typeof args?.sessionId === "string" ? args.sessionId : undefined;
+		if (sessionId) {
+			const session = await binding.sessionManager.get(sessionId);
+			if (session) {
+				const metadata = { ...(session.metadata ?? {}) };
+				const git =
+					metadata.git && typeof metadata.git === "object" ? metadata.git : {};
+				await binding.sessionManager.update(sessionId, {
+					metadata: { ...metadata, git: { ...git, branch } },
+				});
+			}
+		}
 		return { environmentId: binding.environmentId, branch };
 	}
 	if (command === "create_git_worktree") {
