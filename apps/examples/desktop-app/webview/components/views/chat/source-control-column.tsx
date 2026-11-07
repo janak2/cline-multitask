@@ -11,7 +11,14 @@ import {
 	Plus,
 	Undo2,
 } from "lucide-react";
-import { type ReactNode, useCallback, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { FileViewScrollArea, useFileViewState } from "@/lib/file-view-state";
 import {
 	type CommitFile,
 	type SourceControlAction,
@@ -81,7 +88,8 @@ export function SourceControlColumn({
 	onOpenCommitFile,
 	selectedCommitFile,
 }: SourceControlColumnProps) {
-	const [expandedCommits, setExpandedCommits] = useState<Set<string>>(
+	const [expandedCommits, setExpandedCommits] = useFileViewState<Set<string>>(
+		"expandedCommits",
 		() => new Set(),
 	);
 	const [commitFiles, setCommitFiles] = useState<Map<string, CommitFilesState>>(
@@ -113,11 +121,37 @@ export function SourceControlColumn({
 					),
 			);
 		},
-		[commitFiles, expandedCommits, onLoadCommit],
+		[commitFiles, expandedCommits, onLoadCommit, setExpandedCommits],
 	);
-	const [stagedOpen, setStagedOpen] = useState(true);
-	const [changesOpen, setChangesOpen] = useState(true);
-	const [commitsOpen, setCommitsOpen] = useState(true);
+	const [stagedOpen, setStagedOpen] = useFileViewState("stagedOpen", true);
+	const [changesOpen, setChangesOpen] = useFileViewState("changesOpen", true);
+	const [commitsOpen, setCommitsOpen] = useFileViewState("commitsOpen", true);
+	const restoredCommits = useRef(expandedCommits);
+	useEffect(() => {
+		let cancelled = false;
+		for (const sha of restoredCommits.current) {
+			void onLoadCommit(sha).then(
+				(files) => {
+					if (!cancelled)
+						setCommitFiles((current) =>
+							new Map(current).set(sha, { files, loading: false }),
+						);
+				},
+				(error) => {
+					if (!cancelled)
+						setCommitFiles((current) =>
+							new Map(current).set(sha, {
+								loading: false,
+								error: String(error),
+							}),
+						);
+				},
+			);
+		}
+		return () => {
+			cancelled = true;
+		};
+	}, [onLoadCommit]);
 	const staged = state?.staged ?? [];
 	const changes = [...(state?.unstaged ?? []), ...(state?.untracked ?? [])];
 
@@ -140,7 +174,11 @@ export function SourceControlColumn({
 					<BranchIndicator state={state} />
 				</div>
 			) : null}
-			<div className="min-h-0 flex-1 overflow-auto px-1 py-1">
+			<FileViewScrollArea
+				stateId="gitScroll"
+				ready={!loading}
+				className="min-h-0 flex-1 overflow-auto px-1 py-1"
+			>
 				{error ? (
 					<div className="px-2 py-1 text-[11px] text-destructive">{error}</div>
 				) : null}
@@ -380,7 +418,7 @@ export function SourceControlColumn({
 						</Group>
 					</>
 				) : null}
-			</div>
+			</FileViewScrollArea>
 		</div>
 	);
 }

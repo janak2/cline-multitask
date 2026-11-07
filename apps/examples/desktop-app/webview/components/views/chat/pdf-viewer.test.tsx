@@ -3,6 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PdfViewer } from "./pdf-viewer";
+import {
+	FileViewStateProvider,
+	fileViewStorageKey,
+} from "@/lib/file-view-state";
 
 const mocks = vi.hoisted(() => {
 	const render = vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() }));
@@ -41,6 +45,7 @@ let root: Root;
 beforeEach(() => {
 	Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 	vi.clearAllMocks();
+	window.localStorage.clear();
 	mocks.invoke.mockResolvedValue({ contentBase64: btoa("%PDF-1.7\n\0\xff") });
 	container = document.createElement("div");
 	document.body.append(container);
@@ -84,6 +89,44 @@ it("loads authorized bytes, renders pages with local assets and destroys the doc
 	await act(async () => root.render(null));
 	expect(mocks.destroy).toHaveBeenCalled();
 });
+it("restores each session's PDF page and clamps a saved page when the document shrinks", async () => {
+	const show = async (session: string) => {
+		await act(async () =>
+			root.render(
+				<FileViewStateProvider
+					value={fileViewStorageKey("local", session, "/repo", "/repo")}
+				>
+					<PdfViewer
+						key={session}
+						path="/repo/report.pdf"
+						workspaceRoot="/repo"
+						environmentId="local"
+					/>
+				</FileViewStateProvider>,
+			),
+		);
+	};
+	await show("A");
+	await act(async () =>
+		Array.from(container.querySelectorAll("button"))
+			.find((button) => button.textContent === "Next page")
+			?.click(),
+	);
+	await show("B");
+	expect(container.textContent).toContain("Page 1 of 2");
+	await show("A");
+	expect(container.textContent).toContain("Page 2 of 2");
+	await show("B");
+	const key = fileViewStorageKey("local", "A", "/repo", "/repo")!;
+	window.localStorage.setItem(
+		key,
+		JSON.stringify({ "pdfPage:/repo/report.pdf": 999 }),
+	);
+	await show("A");
+	expect(container.textContent).toContain("Page 2 of 2");
+	expect(mocks.getPage).toHaveBeenLastCalledWith(2);
+});
+
 it("shows read errors without handing invalid content to PDF.js", async () => {
 	mocks.invoke.mockRejectedValue(
 		new Error("PDF preview is currently available only in local workspaces"),

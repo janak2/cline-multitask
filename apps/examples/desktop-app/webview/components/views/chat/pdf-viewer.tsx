@@ -3,6 +3,7 @@
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "react";
 import { desktopClient } from "@/lib/desktop-client";
+import { FileViewScrollArea, useFileViewState } from "@/lib/file-view-state";
 
 export function PdfViewer({
 	path,
@@ -15,7 +16,7 @@ export function PdfViewer({
 }) {
 	const canvas = useRef<HTMLCanvasElement>(null);
 	const [document, setDocument] = useState<PDFDocumentProxy>();
-	const [page, setPage] = useState(1);
+	const [page, setPage] = useFileViewState(`pdfPage:${path}`, 1);
 	const [error, setError] = useState<string>();
 	const [rendering, setRendering] = useState(true);
 
@@ -26,7 +27,6 @@ export function PdfViewer({
 			| undefined;
 		setDocument(undefined);
 		setError(undefined);
-		setPage(1);
 		setRendering(true);
 		void (async () => {
 			const result = await desktopClient.invoke<{ contentBase64: string }>(
@@ -58,7 +58,10 @@ export function PdfViewer({
 				void loading?.destroy();
 			};
 			const pdf = await loading.promise;
-			if (!cancelled) setDocument(pdf);
+			if (!cancelled) {
+				setPage((current) => Math.max(1, Math.min(current, pdf.numPages)));
+				setDocument(pdf);
+			}
 		})().catch((reason) => {
 			if (!cancelled)
 				setError(
@@ -69,7 +72,7 @@ export function PdfViewer({
 			cancelled = true;
 			void loading?.destroy();
 		};
-	}, [environmentId, workspaceRoot, path]);
+	}, [environmentId, workspaceRoot, path, setPage]);
 
 	useEffect(() => {
 		if (!document) return;
@@ -77,7 +80,9 @@ export function PdfViewer({
 		let task: RenderTask | undefined;
 		setRendering(true);
 		void (async () => {
-			const pdfPage = await document.getPage(page);
+			const pdfPage = await document.getPage(
+				Math.max(1, Math.min(page, document.numPages)),
+			);
 			if (cancelled || !canvas.current) return;
 			const viewport = pdfPage.getViewport({ scale: 1.4 });
 			// Bound raster memory, even for unusually large PDF page dimensions.
@@ -136,14 +141,18 @@ export function PdfViewer({
 					</span>
 				)}
 			</div>
-			<div className="min-h-0 flex-1 overflow-auto bg-muted p-3">
+			<FileViewScrollArea
+				stateId={`pdfScroll:${path}:${page}`}
+				ready={!rendering}
+				className="min-h-0 flex-1 overflow-auto bg-muted p-3"
+			>
 				<canvas
 					ref={canvas}
 					aria-label={`PDF page ${page}`}
 					className="mx-auto bg-white"
 					style={{ visibility: rendering ? "hidden" : "visible" }}
 				/>
-			</div>
+			</FileViewScrollArea>
 		</div>
 	);
 }

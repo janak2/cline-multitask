@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useFileViewState } from "@/lib/file-view-state";
 import {
 	clampWorkspacePanelWidth,
 	hasStoredWorkspacePanelWidth,
@@ -20,7 +21,15 @@ export function WorkspacePanelFrame({
 	id: string;
 	children: ReactNode;
 }) {
-	const [width, setWidth] = useState(readWorkspacePanelWidth);
+	const [savedWidth, setSavedWidth] = useFileViewState<number | null>(
+		"width",
+		null,
+	);
+	const [width, setWidth] = useState(() =>
+		savedWidth === null
+			? readWorkspacePanelWidth()
+			: clampWorkspacePanelWidth(savedWidth),
+	);
 	const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
 		null,
 	);
@@ -30,8 +39,8 @@ export function WorkspacePanelFrame({
 	useEffect(() => {
 		const follow = () =>
 			setWidth((current) =>
-				hasStoredWorkspacePanelWidth()
-					? clampWorkspacePanelWidth(current)
+				savedWidth !== null || hasStoredWorkspacePanelWidth()
+					? clampWorkspacePanelWidth(savedWidth ?? current)
 					: readWorkspacePanelWidth(),
 			);
 		window.addEventListener("resize", follow);
@@ -45,7 +54,7 @@ export function WorkspacePanelFrame({
 			window.removeEventListener("resize", follow);
 			observer?.disconnect();
 		};
-	}, []);
+	}, [savedWidth]);
 
 	return (
 		<aside
@@ -70,7 +79,10 @@ export function WorkspacePanelFrame({
 					);
 				}}
 				onPointerUp={() => {
-					if (dragStateRef.current) writeWorkspacePanelWidth(width);
+					if (dragStateRef.current) {
+						writeWorkspacePanelWidth(width);
+						setSavedWidth(width);
+					}
 					dragStateRef.current = null;
 				}}
 			/>

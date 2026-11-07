@@ -63,6 +63,7 @@ import {
 } from "@/hooks/use-source-control";
 import { toast } from "@/hooks/use-toast";
 import { desktopClient } from "@/lib/desktop-client";
+import { FileViewScrollArea, useFileViewState } from "@/lib/file-view-state";
 import { readProjectFolders, writeProjectFolders } from "@/lib/project-folders";
 import type { SessionFileDiff } from "@/lib/session-diff";
 import { cn } from "@/lib/utils";
@@ -218,7 +219,7 @@ export function ProjectFilesPanel({
 	onClose,
 	onPickFolder,
 }: ProjectFilesPanelProps) {
-	const [view, setView] = useState<PanelView>("source-control");
+	const [view, setView] = useFileViewState<PanelView>("view", "source-control");
 	// The sidecar changes files only on this machine; SSH trees stay read-only.
 	const canEdit = environmentId === LOCAL_WORKSPACE_ENVIRONMENT_ID;
 	const [folders, setFolders] = useState(() =>
@@ -229,7 +230,14 @@ export function ProjectFilesPanel({
 		null,
 	);
 	/** The folder the Files tree lists: the workspace or one of `folders`. */
-	const [treeRoot, setTreeRoot] = useState(workspaceRoot);
+	const [savedTreeRoot, setTreeRoot] = useFileViewState(
+		"treeRoot",
+		workspaceRoot,
+	);
+	const treeRoot =
+		savedTreeRoot === workspaceRoot || folders.includes(savedTreeRoot)
+			? savedTreeRoot
+			: workspaceRoot;
 	const [menuFolder, setMenuFolder] = useState(workspaceRoot);
 	const [menuEntry, setMenuEntry] = useState<string | null>(null);
 	const [nameDialog, setNameDialog] = useState<NameDialog | null>(null);
@@ -243,11 +251,15 @@ export function ProjectFilesPanel({
 	const [directories, setDirectories] = useState<Map<string, DirectoryState>>(
 		() => new Map(),
 	);
-	const [expanded, setExpanded] = useState<Set<string>>(
+	const [expanded, setExpanded] = useFileViewState<Set<string>>(
+		"expanded",
 		() => new Set([workspaceRoot]),
 	);
-	const [tabs, setTabs] = useState<Tab[]>([]);
-	const [activeId, setActiveId] = useState<string | null>(null);
+	const [tabs, setTabs] = useFileViewState<Tab[]>("tabs", []);
+	const [activeId, setActiveId] = useFileViewState<string | null>(
+		"activeId",
+		null,
+	);
 	const [files, setFiles] = useState<Map<string, FileState>>(() => new Map());
 	const [gitDiffs, setGitDiffs] = useState<Map<string, GitDiffState>>(
 		() => new Map(),
@@ -456,6 +468,9 @@ export function ProjectFilesPanel({
 	useEffect(() => {
 		void loadDirectory(treeRoot);
 	}, [loadDirectory, treeRoot]);
+	useEffect(() => {
+		for (const path of expanded) void loadDirectory(path, { ifIdle: true });
+	}, [expanded, loadDirectory]);
 
 	// Agent edits may create files in open folders and change open contents.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: diffSignature is the trigger
@@ -489,13 +504,16 @@ export function ProjectFilesPanel({
 				void loadDirectory(path);
 			}
 		},
-		[directories, expanded, loadDirectory],
+		[directories, expanded, loadDirectory, setExpanded],
 	);
 
-	const selectFolder = useCallback((folder: string) => {
-		setTreeRoot(folder);
-		setExpanded((current) => new Set(current).add(folder));
-	}, []);
+	const selectFolder = useCallback(
+		(folder: string) => {
+			setTreeRoot(folder);
+			setExpanded((current) => new Set(current).add(folder));
+		},
+		[setExpanded, setTreeRoot],
+	);
 	const saveFolders = useCallback(
 		(next: string[]) => {
 			setFolders(next);
@@ -561,9 +579,12 @@ export function ProjectFilesPanel({
 		},
 		[environmentId, loadDirectory, treeRoot],
 	);
-	const showFolder = useCallback((folder: string) => {
-		setExpanded((current) => new Set(current).add(folder));
-	}, []);
+	const showFolder = useCallback(
+		(folder: string) => {
+			setExpanded((current) => new Set(current).add(folder));
+		},
+		[setExpanded],
+	);
 	const submitNameDialog = useCallback(async () => {
 		const dialog = nameDialog;
 		setNameDialog(null);
@@ -709,16 +730,19 @@ export function ProjectFilesPanel({
 		setDropFolder(targetFolder(event.target, treeRoot));
 	};
 
-	const openTab = useCallback((tab: Tab) => {
-		setTabs((current) => {
-			const index = current.findIndex((item) => item.id === tab.id);
-			if (index === -1) return [...current, tab];
-			const next = [...current];
-			next[index] = tab;
-			return next;
-		});
-		setActiveId(tab.id);
-	}, []);
+	const openTab = useCallback(
+		(tab: Tab) => {
+			setTabs((current) => {
+				const index = current.findIndex((item) => item.id === tab.id);
+				if (index === -1) return [...current, tab];
+				const next = [...current];
+				next[index] = tab;
+				return next;
+			});
+			setActiveId(tab.id);
+		},
+		[setActiveId, setTabs],
+	);
 	const openFile = useCallback(
 		(path: string) => openTab({ id: path, path, mode: "file", scope: null }),
 		[openTab],
@@ -733,12 +757,12 @@ export function ProjectFilesPanel({
 	// Opening the panel lands on the first change (in list order) instead of
 	// an empty viewer. Once per open, and only while nothing is open yet, so
 	// it never replaces something the user picked.
-	const autoOpenedRef = useRef(false);
+	const [autoOpened, setAutoOpened] = useFileViewState("autoOpened", false);
 	useEffect(() => {
 		const state = sourceControl.state;
-		if (autoOpenedRef.current || !state || view !== "source-control") return;
+		if (autoOpened || !state || view !== "source-control") return;
 		if (tabs.length > 0) {
-			autoOpenedRef.current = true;
+			setAutoOpened(true);
 			return;
 		}
 		const first: [SourceControlFile, DiffScope] | undefined = state.staged[0]
@@ -749,9 +773,16 @@ export function ProjectFilesPanel({
 					? [state.untracked[0], "worktree"]
 					: undefined;
 		if (!first) return;
-		autoOpenedRef.current = true;
+		setAutoOpened(true);
 		openChange(...first);
-	}, [openChange, sourceControl.state, tabs.length, view]);
+	}, [
+		autoOpened,
+		setAutoOpened,
+		openChange,
+		sourceControl.state,
+		tabs.length,
+		view,
+	]);
 	const openCommitFile = useCallback(
 		(commit: SourceControlCommit, file: CommitFile) => {
 			const path = toAbsolute(file.path);
@@ -775,11 +806,14 @@ export function ProjectFilesPanel({
 		},
 		[environmentId, workspaceRoot],
 	);
-	const setTabMode = useCallback((id: string, mode: Tab["mode"]) => {
-		setTabs((current) =>
-			current.map((tab) => (tab.id === id ? { ...tab, mode } : tab)),
-		);
-	}, []);
+	const setTabMode = useCallback(
+		(id: string, mode: Tab["mode"]) => {
+			setTabs((current) =>
+				current.map((tab) => (tab.id === id ? { ...tab, mode } : tab)),
+			);
+		},
+		[setTabs],
+	);
 
 	const closeTab = useCallback(
 		(id: string) => {
@@ -809,7 +843,7 @@ export function ProjectFilesPanel({
 				return next;
 			});
 		},
-		[activeId, invalidateReads, tabs],
+		[activeId, invalidateReads, tabs, setActiveId, setTabs],
 	);
 
 	const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -1222,7 +1256,8 @@ export function ProjectFilesPanel({
 					<ContextMenu>
 						<ContextMenuTrigger asChild disabled={!canEdit}>
 							{/* biome-ignore lint/a11y/noStaticElementInteractions: drops and the context menu augment the tree rows' own buttons. */}
-							<div
+							<FileViewScrollArea
+								stateId={`treeScroll:${treeRoot}`}
 								className={cn(
 									"min-h-0 flex-1 overflow-auto px-1 py-1",
 									dropFolder === treeRoot && "bg-primary/5",
@@ -1319,7 +1354,7 @@ export function ProjectFilesPanel({
 									</DropdownMenuContent>
 								</DropdownMenu>
 								{renderEntries(treeRoot, 0)}
-							</div>
+							</FileViewScrollArea>
 						</ContextMenuTrigger>
 						<ContextMenuContent className="w-44">
 							<ContextMenuItem
@@ -1575,7 +1610,15 @@ export function ProjectFilesPanel({
 								</Button>
 							</span>
 						</div>
-						<div className="cline-chat-selectable min-h-0 flex-1 overflow-auto">
+						<FileViewScrollArea
+							stateId={`fileScroll:${activeId}:${effectiveMode}`}
+							ready={
+								effectiveMode === "diff"
+									? Boolean(activeGitDiff && !activeGitDiff.loading)
+									: Boolean(activeFileState && !activeFileState.loading)
+							}
+							className="cline-chat-selectable min-h-0 flex-1 overflow-auto"
+						>
 							{effectiveMode === "diff" && (activeScope || activeCommit) ? (
 								!activeGitDiff ||
 								(activeGitDiff.loading &&
@@ -1644,7 +1687,7 @@ export function ProjectFilesPanel({
 									) : null}
 								</>
 							)}
-						</div>
+						</FileViewScrollArea>
 					</>
 				) : (
 					<Centered className="p-6 text-center">

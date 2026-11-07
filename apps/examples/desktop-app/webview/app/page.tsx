@@ -1,5 +1,11 @@
 "use client";
 
+import {
+	FileViewStateProvider,
+	fileViewStorageKey,
+	useFileViewState,
+} from "@/lib/file-view-state";
+
 import type { HandoffGitPreview } from "@cline/core/cloud";
 import type { ProviderAuthInfo } from "@cline/shared/browser";
 import { AgentConversationHeader, AttachmentDropZone } from "@cline/ui";
@@ -1623,26 +1629,43 @@ function ChatThreadPane({
 		writeWorkInToWindow(next);
 	}, []);
 	// The Changes pane and the Files + Git panel share the right-hand column.
-	const [workspacePanel, setWorkspacePanel] = useState<
+	const fileViewKey = fileViewStorageKey(
+		environmentId,
+		sessionId ?? historySession?.sessionId ?? null,
+		config.workspaceRoot || config.cwd || "",
+		config.cwd || config.workspaceRoot || "",
+	);
+	const [workspacePanel, setWorkspacePanel] = useFileViewState<
 		"changes" | "files" | null
-	>(null);
-	const [changesScope, setChangesScope] = useState<ChangesScope>("session");
-	const [changesPath, setChangesPath] = useState<string | null>(null);
+	>("panel", null, fileViewKey);
+	const [changesScope, setChangesScope] = useFileViewState<ChangesScope>(
+		"changesScope",
+		"session",
+		fileViewKey,
+	);
+	const [changesPath, setChangesPath] = useFileViewState<string | null>(
+		"changesPath",
+		null,
+		fileViewKey,
+	);
 	const toggleFilesPanel = useCallback(
 		() =>
 			setWorkspacePanel((current) => (current === "files" ? null : "files")),
-		[],
+		[setWorkspacePanel],
 	);
 	const toggleChangesPanel = useCallback(() => {
 		setChangesScope("session");
 		setChangesPath(null);
 		setWorkspacePanel((current) => (current === "changes" ? null : "changes"));
-	}, []);
-	const reviewLastTurn = useCallback((path?: string) => {
-		setChangesScope("last-turn");
-		setChangesPath(path ?? null);
-		setWorkspacePanel("changes");
-	}, []);
+	}, [setChangesPath, setChangesScope, setWorkspacePanel]);
+	const reviewLastTurn = useCallback(
+		(path?: string) => {
+			setChangesScope("last-turn");
+			setChangesPath(path ?? null);
+			setWorkspacePanel("changes");
+		},
+		[setChangesPath, setChangesScope, setWorkspacePanel],
+	);
 	const [deletingSession, setDeletingSession] = useState(false);
 	const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 	const [renamingSession, setRenamingSession] = useState(false);
@@ -3349,7 +3372,8 @@ function ChatThreadPane({
 	// Cloud runs have no reachable workspace, and the welcome state has no
 	// session to browse alongside yet.
 	const canBrowseFiles = mayBrowseFiles;
-	const filesPanelVisible = mayOpenFiles && workspacePanel === "files";
+	const filesPanelVisible =
+		mayOpenFiles && !displayedIsSwitching && workspacePanel === "files";
 	const changesPanelVisible = canBrowseFiles && workspacePanel === "changes";
 
 	return (
@@ -3571,15 +3595,17 @@ function ChatThreadPane({
 					/>
 				) : null}
 				{filesPanelVisible ? (
-					<ProjectFilesPanel
-						cwd={config.cwd || config.workspaceRoot}
-						environmentId={environmentId}
-						fileDiffs={fileDiffs}
-						key={`${environmentId}:${resolvedWorkspaceRoot}`}
-						onClose={toggleFilesPanel}
-						onPickFolder={pickWorkspaceDirectory}
-						workspaceRoot={resolvedWorkspaceRoot}
-					/>
+					<FileViewStateProvider value={fileViewKey}>
+						<ProjectFilesPanel
+							cwd={config.cwd || config.workspaceRoot}
+							environmentId={environmentId}
+							fileDiffs={fileDiffs}
+							key={fileViewKey ?? `${environmentId}:${resolvedWorkspaceRoot}`}
+							onClose={toggleFilesPanel}
+							onPickFolder={pickWorkspaceDirectory}
+							workspaceRoot={resolvedWorkspaceRoot}
+						/>
+					</FileViewStateProvider>
 				) : null}
 			</AttachmentDropZone>
 			{terminalEnabled && terminal?.open ? (

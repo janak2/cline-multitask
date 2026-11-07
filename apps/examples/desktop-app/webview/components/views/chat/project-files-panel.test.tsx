@@ -5,6 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionFileDiff } from "@/lib/session-diff";
 import { ProjectFilesPanel } from "./project-files-panel";
+import {
+	FileViewStateProvider,
+	fileViewStorageKey,
+} from "@/lib/file-view-state";
 
 const { invokeMock, sourceControlState } = vi.hoisted(() => {
 	const sourceControlState = {
@@ -130,6 +134,7 @@ beforeEach(() => {
 	document.body.appendChild(container);
 	root = createRoot(container);
 	invokeMock.mockClear();
+	window.localStorage.clear();
 });
 
 afterEach(async () => {
@@ -158,6 +163,111 @@ async function render(
 		await Promise.resolve();
 	});
 }
+
+async function renderSession(
+	sessionId: string,
+	workspaceRoot = "/repo",
+	environmentId = "local",
+) {
+	const key = fileViewStorageKey(
+		environmentId,
+		sessionId,
+		workspaceRoot,
+		workspaceRoot,
+	);
+	await act(async () => {
+		root.render(
+			<FileViewStateProvider value={key}>
+				<ProjectFilesPanel
+					key={key}
+					cwd={workspaceRoot}
+					environmentId={environmentId}
+					workspaceRoot={workspaceRoot}
+					fileDiffs={fileDiffs}
+					onClose={() => {}}
+				/>
+			</FileViewStateProvider>,
+		);
+	});
+}
+
+it("restores A's file tabs, selection, expanded folders, mode and width after B and remount", async () => {
+	await renderSession("A");
+	await act(async () => button(/^Files$/).click());
+	await act(async () => button(/^src$/).click());
+	await act(async () =>
+		container
+			.querySelector<HTMLButtonElement>('[data-entry-path="/repo/src/app.ts"]')!
+			.click(),
+	);
+	const key = fileViewStorageKey("local", "A", "/repo", "/repo");
+	const saved = JSON.parse(window.localStorage.getItem(key!)!);
+	window.localStorage.setItem(key!, JSON.stringify({ ...saved, width: 510 }));
+	await renderSession("B");
+	expect(container.textContent).not.toContain("// /repo/src/app.ts");
+	await act(async () => root.render(null));
+	await renderSession("A");
+	expect(container.textContent).toContain("// /repo/src/app.ts");
+	expect(
+		container.querySelector('[data-entry-path="/repo/src/app.ts"]'),
+	).not.toBeNull();
+	expect(
+		container.querySelector<HTMLElement>("#project-files-panel")?.style.width,
+	).toBe("510px");
+});
+
+it("does not share saved tabs with a changed workspace or environment", async () => {
+	await renderSession("A");
+	await act(async () => button(/^Files$/).click());
+	await act(async () => button(/^README\.md/).click());
+	await renderSession("A", "/other");
+	expect(container.textContent).not.toContain("// /repo/README.md");
+	await renderSession("A", "/repo", "ssh:other");
+	expect(container.textContent).not.toContain("// /repo/README.md");
+});
+
+it("keeps missing restored files as safe read errors without replacing the selection", async () => {
+	await renderSession("A");
+	await act(async () => button(/^Files$/).click());
+	await act(async () => button(/^README\.md/).click());
+	await renderSession("B");
+	const previous = invokeMock.getMockImplementation()!;
+	invokeMock.mockImplementation(async (command, args) => {
+		if (command === "read_project_file")
+			throw new Error("File no longer exists");
+		return previous(command, args);
+	});
+	await renderSession("A");
+	expect(container.textContent).toContain("File no longer exists");
+	expect(container.textContent).toContain("README.md");
+	invokeMock.mockImplementation(previous);
+});
+
+it("does not auto-open a change again after the user closes all tabs", async () => {
+	await renderSession("A");
+	await act(async () => byLabel("Close app.ts").click());
+	await renderSession("B");
+	await renderSession("A");
+	expect(container.querySelector("[data-tab-id]")).toBeNull();
+});
+
+it("shows a restored missing workspace error and preserves its configured root", async () => {
+	await renderSession("A");
+	await act(async () => button(/^Files$/).click());
+	await renderSession("B");
+	const previous = invokeMock.getMockImplementation()!;
+	invokeMock.mockImplementation(async (command, args) => {
+		if (command === "list_project_entries")
+			throw new Error("Workspace no longer exists");
+		return previous(command, args);
+	});
+	try {
+		await renderSession("A");
+		expect(container.textContent).toContain("Workspace no longer exists");
+	} finally {
+		invokeMock.mockImplementation(previous);
+	}
+});
 
 function button(
 	name: RegExp,
