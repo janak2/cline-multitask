@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PdfViewer } from "./pdf-viewer";
+import { MarkdownFileViewer } from "./markdown-file-viewer";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -1674,6 +1675,16 @@ export function ProjectFilesPanel({
 								<ErrorText>{activeFileState.error}</ErrorText>
 							) : activeFileState.content === null ? (
 								<Centered>Binary file</Centered>
+							) : /\.(md|markdown)$/i.test(activePath) ? (
+								<MarkdownFileViewer
+									key={`${environmentId}:${activePath}`}
+									content={activeFileState.content ?? ""}
+									path={activePath}
+									workspaceRoot={rootFor(activePath)}
+									environmentId={environmentId}
+									truncated={activeFileState.truncated}
+									onOpenFile={openFile}
+								/>
 							) : (
 								<>
 									<CodeFile

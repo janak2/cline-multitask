@@ -180,6 +180,7 @@ import {
 	sharedSessionDataDir,
 } from "./paths";
 import { listPluginCommands } from "./plugin-commands";
+import { readLocalProjectImage } from "./project-image";
 import {
 	createLocalProjectDirectory,
 	deleteLocalProjectEntry,
@@ -2214,7 +2215,8 @@ export async function handleCommand(
 	if (
 		command === "list_project_entries" ||
 		command === "read_project_file" ||
-		command === "read_project_pdf"
+		command === "read_project_pdf" ||
+		command === "read_project_image"
 	) {
 		if (!options?.connection?.data?.canApproveTools) {
 			throw new Error("project files require a trusted desktop connection");
@@ -2223,6 +2225,13 @@ export async function handleCommand(
 		const root = String(args?.workspaceRoot ?? "").trim();
 		if (!root) throw new Error("workspaceRoot is required");
 		const path = String(args?.path ?? "") || root;
+		if (command === "read_project_image") {
+			if (binding.kind !== "local")
+				throw new Error(
+					"Image preview is currently available only in local workspaces",
+				);
+			return readLocalProjectImage(root, path);
+		}
 		if (command === "read_project_pdf") {
 			if (binding.kind !== "local") {
 				throw new Error(

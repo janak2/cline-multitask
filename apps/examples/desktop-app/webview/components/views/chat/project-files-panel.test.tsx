@@ -95,7 +95,8 @@ vi.mock("./pdf-viewer", () => ({
 
 // Plain rendering keeps shiki out of jsdom; highlighted-code.test.tsx covers
 // the highlighter wiring.
-vi.mock("@cline/ui/components/markdown", () => ({
+vi.mock("@cline/ui/components/markdown", async (original) => ({
+	...(await original<typeof import("@cline/ui/components/markdown")>()),
 	markdownCodeHighlighter: {
 		supportsLanguage: () => false,
 		getThemes: () => ["github-light", "github-dark"],
@@ -367,7 +368,8 @@ describe("ProjectFilesPanel source control view", () => {
 		// The File toggle still shows the working copy.
 		await click(button(/^file$/i));
 		expect(
-			container.querySelector('[data-testid="file-contents"]')?.textContent,
+			container.querySelector('[data-testid="markdown-file-viewer"]')
+				?.textContent,
 		).toContain("/repo/README.md");
 	});
 
@@ -771,8 +773,22 @@ describe("ProjectFilesPanel files view", () => {
 			expect.objectContaining({ path: "/repo/README.md" }),
 		);
 		expect(
-			container.querySelector('[data-testid="file-contents"]')?.textContent,
+			container.querySelector('[data-testid="markdown-file-viewer"]')
+				?.textContent,
 		).toContain("/repo/README.md");
+		const reads = invokeMock.mock.calls.filter(
+			([command]) => command === "read_project_file",
+		).length;
+		await click(button(/^Source$/));
+		expect(
+			container.querySelector('[data-testid="file-contents"]'),
+		).not.toBeNull();
+		await click(button(/^Preview$/));
+		expect(
+			invokeMock.mock.calls.filter(
+				([command]) => command === "read_project_file",
+			),
+		).toHaveLength(reads);
 		// README.md is modified in the worktree, so Diff is available.
 		await click(button(/^diff$/i));
 		expect(
@@ -830,7 +846,8 @@ describe("ProjectFilesPanel files view", () => {
 		await click(button(/^README\.md/));
 		expect(container.textContent).not.toContain("stale contents");
 		expect(
-			container.querySelector('[data-testid="file-contents"]')?.textContent,
+			container.querySelector('[data-testid="markdown-file-viewer"]')
+				?.textContent,
 		).toContain("/repo/README.md");
 	});
 
@@ -864,7 +881,8 @@ describe("ProjectFilesPanel files view", () => {
 			// The late response is kept, then one follow-up read refreshes it.
 			expect(reads()).toBe(2);
 			expect(
-				container.querySelector('[data-testid="file-contents"]')?.textContent,
+				container.querySelector('[data-testid="markdown-file-viewer"]')
+					?.textContent,
 			).toContain("/repo/README.md");
 		} finally {
 			vi.useRealTimers();

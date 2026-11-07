@@ -16,6 +16,7 @@ import type {
 import { isValidElement, memo, useMemo, useRef, useState } from "react";
 import {
 	type Components,
+	defaultRehypePlugins,
 	defaultRemarkPlugins,
 	type ExtraProps,
 	type LinkSafetyModalProps,
@@ -160,7 +161,7 @@ function isDeceptiveLink(children: ReactNode, url: string): boolean {
 	);
 }
 
-function SafeMarkdownLink({
+export function SafeMarkdownLink({
 	children,
 	className,
 	href,
@@ -382,18 +383,57 @@ const chipTokenComponents = {
 } as Components;
 const chipTokenAllowedTags = { [CHIP_TOKEN_TAG]: [] };
 
+function preserveDocumentReferences() {
+	return (tree: { children?: unknown[] }) => {
+		const visit = (node: {
+			tagName?: string;
+			properties?: Record<string, unknown>;
+			children?: unknown[];
+		}) => {
+			if (node.properties) {
+				delete node.properties["data-document-reference"];
+				delete node.properties.dataDocumentReference;
+			}
+			const property =
+				node.tagName === "a" ? "href" : node.tagName === "img" ? "src" : null;
+			if (property && typeof node.properties?.[property] === "string") {
+				node.properties["data-document-reference"] = node.properties[property];
+			}
+			for (const child of node.children ?? [])
+				if (child && typeof child === "object") visit(child);
+		};
+		visit(tree);
+	};
+}
+
+// Preserve sanitized document-relative references before harden normalizes them.
+const documentRehypePlugins: ComponentProps<
+	typeof Streamdown
+>["rehypePlugins"] = [
+	defaultRehypePlugins.raw,
+	defaultRehypePlugins.sanitize,
+	preserveDocumentReferences,
+	defaultRehypePlugins.harden,
+];
+
 export const MemoizedMarkdown = memo(
 	({
 		content,
 		classNames,
 		streaming = false,
 		chipTokens,
+		documentComponents,
 	}: {
 		content: string;
 		streaming?: boolean;
 		classNames?: string;
 		/** Exact `/command` and `@path` tokens to render as composer chips. */
 		chipTokens?: ReadonlySet<string>;
+		/** Document-only overrides; chat keeps its existing URL and image policy. */
+		documentComponents?: Pick<
+			Components,
+			"a" | "img" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+		>;
 	}) => {
 		const {
 			captureDiagramLink,
@@ -401,7 +441,9 @@ export const MemoizedMarkdown = memo(
 			recordDiagramLinkPress,
 			setPendingUrl,
 		} = useDiagramLinkTarget();
-		const remarkPlugins = useMemo(
+		const remarkPlugins = useMemo<
+			ComponentProps<typeof Streamdown>["remarkPlugins"]
+		>(
 			() =>
 				chipTokens?.size
 					? [
@@ -410,6 +452,13 @@ export const MemoizedMarkdown = memo(
 						]
 					: undefined,
 			[chipTokens],
+		);
+		const components = useMemo(
+			() => ({
+				...(remarkPlugins ? chipTokenComponents : markdownComponents),
+				...documentComponents,
+			}),
+			[remarkPlugins, documentComponents],
 		);
 
 		return (
@@ -425,7 +474,7 @@ export const MemoizedMarkdown = memo(
 				<Streamdown
 					allowedTags={remarkPlugins ? chipTokenAllowedTags : undefined}
 					className={cn("cline-markdown", classNames)}
-					components={remarkPlugins ? chipTokenComponents : markdownComponents}
+					components={components}
 					controls={agentMarkdownControls}
 					dir="auto"
 					isAnimating={streaming}
@@ -435,6 +484,7 @@ export const MemoizedMarkdown = memo(
 					parseIncompleteMarkdown={streaming}
 					plugins={streamdownPlugins}
 					remarkPlugins={remarkPlugins}
+					rehypePlugins={documentComponents ? documentRehypePlugins : undefined}
 				>
 					{content}
 				</Streamdown>
