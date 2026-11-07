@@ -95,3 +95,4 @@ apps/examples/desktop-app/webview/.next
 apps/examples/desktop-app/webview/next-env.d.ts
 apps/examples/desktop-app/.cursor/settings.json
 /justfile
+/AGENTS.md
