@@ -6,8 +6,6 @@ import {
 	MessageScrollerButton,
 	MessageScrollerContent,
 	MessageScrollerItem,
-	MessageScrollerProvider,
-	MessageScrollerViewport,
 } from "@cline/ui/components/message-scroller";
 import { Loader2 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
@@ -32,6 +30,7 @@ import { formatRunError } from "@/lib/run-error";
 import type { SessionChangeSet } from "@/lib/session-changes";
 import type { SessionImportTool } from "@/lib/session-import";
 import { cn } from "@/lib/utils";
+import { ChatScrollProvider, ChatScrollViewport } from "./chat-scroll";
 import { ImportedSessionNotice } from "./imported-session-notice";
 import { STREAMING_TITLE_CLASS } from "./messages/constants";
 import {
@@ -567,14 +566,12 @@ function ChatMessagesImpl({
 	);
 
 	return (
-		<MessageScrollerProvider
-			key={sessionId ?? "new-chat"}
-			autoScroll
-			defaultScrollPosition="end"
-			scrollMargin={24}
-		>
+		<ChatScrollProvider key={sessionId ?? "new-chat"} sessionId={sessionId}>
 			<MessageScroller className="isolate h-full min-h-0 min-w-0">
-				<MessageScrollerViewport
+				<ChatScrollViewport
+					sessionId={sessionId}
+					messages={messages}
+					ready={!isSessionSwitching && !isHistoryPreview}
 					aria-label="Agent conversation"
 					className="h-full min-h-0 min-w-0"
 				>
@@ -876,7 +873,7 @@ function ChatMessagesImpl({
 							</MessageScrollerItem>
 						) : null}
 					</MessageScrollerContent>
-				</MessageScrollerViewport>
+				</ChatScrollViewport>
 				<MessageScrollerButton />
 				<TranscriptOutline messages={messages} />
 				{visibleExpandedImage ? (
@@ -961,7 +958,7 @@ function ChatMessagesImpl({
 					</AlertDialogContent>
 				</AlertDialog>
 			</MessageScroller>
-		</MessageScrollerProvider>
+		</ChatScrollProvider>
 	);
 }
 

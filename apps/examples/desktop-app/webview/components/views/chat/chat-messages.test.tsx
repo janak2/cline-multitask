@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@/lib/chat-schema";
 import { MAX_LIVE_COMMAND_OUTPUT_CHARS } from "@/lib/command-output";
 import { ChatMessages } from "./chat-messages";
+import { chatScrollPositions } from "./chat-scroll";
 
 // @pierre/diffs' custom element adopts constructable stylesheets, which jsdom
 // does not implement; without this the suite exits nonzero on an unhandled
@@ -16,6 +17,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+	chatScrollPositions.clear();
 	Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 	HTMLElement.prototype.scrollTo = vi.fn();
 	container = document.createElement("div");
