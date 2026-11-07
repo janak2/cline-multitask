@@ -79,6 +79,26 @@ afterEach(async () => {
 });
 
 describe("useSessionAgents", () => {
+	it("keys saved rows by sessionId and keeps the latest continued status", async () => {
+		const original = agentRow("a", "one");
+		invokeMock.mockResolvedValue([
+			original,
+			{ ...original, status: "running", lastAction: "Latest step" },
+			{ ...original, sessionId: "historical", status: "failed" },
+		]);
+		await render({ sessionId: "a" });
+		expect(current.agents).toHaveLength(2);
+		expect(current.agents[0]).toMatchObject({
+			status: "running",
+			lastAction: "Latest step",
+		});
+		expect(current.agents[1]).toMatchObject({
+			sessionId: "historical",
+			agentId: "one",
+			status: "failed",
+		});
+	});
+
 	it("loads the roster for the active session", async () => {
 		invokeMock.mockResolvedValue([agentRow("a", "one")]);
 		await render({ sessionId: "a" });

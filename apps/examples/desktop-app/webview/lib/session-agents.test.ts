@@ -6,8 +6,8 @@ import {
 	describeAgentActivity,
 	EMPTY_AGENT_ACTIVITY,
 	isAgentRunToolName,
-	mergeAgentActivity,
 	type SessionAgentEntry,
+	savedAgentConversations,
 	summarizeAgentEntries,
 } from "@/lib/session-agents";
 
@@ -452,61 +452,52 @@ describe("summarizeAgentEntries", () => {
 	});
 });
 
-describe("mergeAgentActivity", () => {
-	it("falls back to the derived tally when the roster is empty", () => {
-		const derived = { ...EMPTY_AGENT_ACTIVITY, total: 2, running: 2 };
-		expect(mergeAgentActivity([], derived, ACTIVE)).toBe(derived);
-	});
-
-	it("prefers the roster once it has caught up", () => {
-		// The roster knows one run actually failed; the tool tally only saw it end.
-		const merged = mergeAgentActivity(
-			[
-				agentEntry({ agentId: "a", status: "completed" }),
-				agentEntry({ agentId: "b", status: "failed" }),
-			],
-			{ ...EMPTY_AGENT_ACTIVITY, total: 2, completed: 2 },
-			ACTIVE,
-		);
-		expect(merged).toEqual({
+describe("saved conversation accounting", () => {
+	it("keeps separate historical conversations for the same agent", () => {
+		const entries = [
+			agentEntry({
+				agentId: "reviewer",
+				sessionId: "old",
+				status: "completed",
+			}),
+			agentEntry({ agentId: "reviewer", sessionId: "new", status: "running" }),
+		];
+		expect(summarizeAgentEntries(entries)).toMatchObject({
 			total: 2,
-			running: 0,
 			completed: 1,
-			failed: 1,
-			cancelled: 0,
-			unresolved: 0,
+			running: 1,
 		});
 	});
 
-	it("counts spawns the roster has not recorded yet as running", () => {
-		const merged = mergeAgentActivity(
-			[agentEntry({ agentId: "a", status: "running" })],
-			{ ...EMPTY_AGENT_ACTIVITY, total: 3, running: 3 },
-			ACTIVE,
-		);
-		expect(merged).toMatchObject({ total: 3, running: 3 });
-	});
-
-	it("does not report unrecorded spawns as running in an idle session", () => {
-		const merged = mergeAgentActivity(
-			[agentEntry({ agentId: "a", status: "completed" })],
-			{ ...EMPTY_AGENT_ACTIVITY, total: 2, unresolved: 2 },
-			{ sessionActive: false },
-		);
-		expect(merged).toMatchObject({
-			total: 2,
-			completed: 1,
-			running: 0,
-			unresolved: 1,
+	it.each([
+		"running",
+		"completed",
+		"failed",
+		"cancelled",
+		"idle",
+	])("uses the latest %s row for a continued conversation", (status) => {
+		const entries = [
+			agentEntry({ agentId: "reviewer", status: "completed" }),
+			agentEntry({ agentId: "reviewer", status: "running" }),
+			agentEntry({ agentId: "reviewer", status, lastAction: "Latest step" }),
+		];
+		expect(savedAgentConversations(entries)).toEqual([entries[2]]);
+		expect(summarizeAgentEntries(entries)).toEqual({
+			...EMPTY_AGENT_ACTIVITY,
+			total: 1,
+			[agentEntryState(status)]: 1,
 		});
 	});
 
-	it("never lets the roster shrink the total below what was observed", () => {
-		const merged = mergeAgentActivity(
-			[agentEntry({ agentId: "a", status: "completed" })],
-			{ ...EMPTY_AGENT_ACTIVITY, total: 4, completed: 4 },
-			ACTIVE,
-		);
-		expect(merged.total).toBe(4);
+	it("counts only saved rows during roster lag and reconciliation", () => {
+		expect(summarizeAgentEntries([])).toEqual(EMPTY_AGENT_ACTIVITY);
+		const row = agentEntry({ agentId: "reviewer", status: "running" });
+		expect(summarizeAgentEntries([row])).toMatchObject({
+			total: 1,
+			running: 1,
+		});
+		expect(
+			summarizeAgentEntries([{ ...row, status: "completed" }]),
+		).toMatchObject({ total: 1, running: 0, completed: 1, unresolved: 0 });
 	});
 });

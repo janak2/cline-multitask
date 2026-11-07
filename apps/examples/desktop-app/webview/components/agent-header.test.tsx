@@ -464,10 +464,9 @@ describe("AgentHeader agent roster popover", () => {
 		expect(onAgentsOpenChange).toHaveBeenCalledWith(true);
 	});
 
-	it("shows a loading state while the roster is still being fetched", async () => {
+	it("does not invent agents while the saved roster is loading", async () => {
 		await renderHeader({ agents: [], agentsLoading: true });
-		const panel = await openPanel();
-		expect(panel?.textContent).toContain("Loading agents...");
+		expect(container.querySelector("#agent-activity")).toBeNull();
 	});
 
 	it("says the list is stale when a refresh failed but agents remain", async () => {
@@ -486,10 +485,39 @@ describe("AgentHeader agent roster popover", () => {
 		expect(panel?.querySelector("#agent-roster-stale")).toBeNull();
 	});
 
-	it("explains an empty roster while agents are still starting up", async () => {
-		await renderHeader({ agents: [], agentsLoading: false });
-		const panel = await openPanel();
-		expect(panel?.textContent).toContain("Waiting for the first agent");
+	it("does not retain a run-derived total after roster reconciliation", async () => {
+		await renderHeader({ agents: [] });
+		expect(container.querySelector("#agent-activity")).toBeNull();
+	});
+
+	it("keeps header and dropdown consistent across continued runs and outcomes", async () => {
+		for (const status of [
+			"running",
+			"completed",
+			"failed",
+			"cancelled",
+			"idle",
+		]) {
+			const latest = { ...AGENTS[0]!, status, lastAction: "Latest action" };
+			await renderHeader({
+				agentActivity: { ...ACTIVITY, total: 25, running: 24 },
+				agents: [
+					AGENTS[0]!,
+					latest,
+					{ ...AGENTS[0]!, sessionId: "historical" },
+				],
+			});
+			const trigger =
+				container.querySelector<HTMLButtonElement>("#agent-activity");
+			expect(trigger?.getAttribute("aria-label")).toMatch(/^2 agents:/);
+			const panel = await openPanel();
+			expect(panel?.querySelectorAll("li")).toHaveLength(2);
+			expect(panel?.textContent).toContain("Latest action");
+			expect(panel?.textContent).toContain(trigger?.getAttribute("aria-label"));
+			if (status === "idle")
+				expect(panel?.textContent).toContain("no recorded outcome");
+			await act(async () => trigger?.click());
+		}
 	});
 });
 

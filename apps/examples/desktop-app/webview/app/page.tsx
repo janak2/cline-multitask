@@ -156,10 +156,7 @@ import type {
 	RemoteEnvironmentListResult,
 	RemoteEnvironmentProfile,
 } from "@/lib/remote-environments";
-import {
-	buildSessionAgentActivity,
-	mergeAgentActivity,
-} from "@/lib/session-agents";
+import { summarizeAgentEntries } from "@/lib/session-agents";
 import {
 	type ChangesScope,
 	sumChanges,
@@ -3106,20 +3103,6 @@ function ChatThreadPane({
 		displayedStatus === "stopping";
 	// Teammates keep running after the lead goes idle.
 	const agentsActive = isSessionActive || activeTeammateRuns > 0;
-	const derivedAgentActivity = useMemo(
-		() =>
-			buildSessionAgentActivity(
-				showingHistoryPreview ? [] : displayedMessages,
-				{
-					sessionActive: agentsActive,
-				},
-			),
-		[displayedMessages, agentsActive, showingHistoryPreview],
-	);
-	// The roster is read for every displayed session, not gated on the tally
-	// above: that tally only sees the newest messages, so gating on it would hide
-	// the agents of exactly the long sessions this is most useful for. Opening the
-	// panel re-reads; polling is what the active check gates.
 	const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 	const {
 		agents,
@@ -3131,13 +3114,7 @@ function ChatThreadPane({
 		panelOpen: agentPanelOpen,
 		sessionActive: agentsActive,
 	});
-	const agentActivity = useMemo(
-		() =>
-			mergeAgentActivity(agents, derivedAgentActivity, {
-				sessionActive: agentsActive,
-			}),
-		[agents, derivedAgentActivity, agentsActive],
-	);
+	const agentActivity = useMemo(() => summarizeAgentEntries(agents), [agents]);
 	// A child agent has its own session row, so opening it goes through the same
 	// path as any other session — it is just never listed in the sidebar.
 	const onOpenAgentSession = useCallback(

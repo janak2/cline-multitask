@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopClient } from "@/lib/desktop-client";
-import { agentEntryState, type SessionAgentEntry } from "@/lib/session-agents";
+import {
+	agentEntryState,
+	type SessionAgentEntry,
+	savedAgentConversations,
+} from "@/lib/session-agents";
 
 /** While a turn runs, child agents come and go faster than a one-shot fetch sees. */
 const ACTIVE_POLL_INTERVAL_MS = 2500;
@@ -68,20 +72,9 @@ function parseAgentEntries(value: unknown): SessionAgentEntry[] {
 			hasMessages: record.hasMessages === true,
 		});
 	}
-	return out;
+	return savedAgentConversations(out);
 }
 
-/**
- * Roster of the child agents a session started.
- *
- * Read once per displayed session and then polled while that session or one of
- * its children is active. Deliberately *not* gated on whether the header shows
- * any agents: that tally is derived from the newest messages only, so gating on
- * it would deadlock — a session whose spawn calls have aged out of the message
- * window would report zero agents, never query the database that still
- * remembers them, and so never have anything to display. Polling is the only
- * part worth gating, since it is the only part that costs anything repeatedly.
- */
 export function useSessionAgents({
 	environmentId,
 	sessionId,
@@ -172,8 +165,7 @@ export function useSessionAgents({
 	// A roster is only ever read back for the session it was fetched for, so
 	// switching sessions cannot surface the previous one's agents — there is no
 	// reset to forget and no window where stale rows are clickable. That matters
-	// because mergeAgentActivity prefers a non-empty roster over the
-	// message-derived tally, so a leaked one would render as phantom agents
+	// because the header counts this roster, so a leaked one would show agents
 	// belonging to the new session.
 	const isCurrent =
 		sessionId !== null &&

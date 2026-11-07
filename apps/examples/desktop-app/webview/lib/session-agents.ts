@@ -1,16 +1,5 @@
 import type { ChatMessage } from "@/lib/chat-schema";
 
-/**
- * Header-level accounting of the child agents a session has started.
- *
- * There is no dedicated subagent event on the wire: the sidecar forwards
- * subagent activity into the parent session's stream without an agentId
- * (see sidecar/context.ts), so the only per-agent signal the webview can see
- * is the spawning tool call itself. Every counting rule below is therefore
- * derived from tool messages, which stay correct for live turns, for turns
- * materialized from a run result, and for hydrated history alike.
- */
-
 export type SessionAgentRunState =
 	| "running"
 	| "completed"
@@ -296,15 +285,6 @@ export function hasAgentActivity(activity: SessionAgentActivity): boolean {
 	return activity.total > 0;
 }
 
-/**
- * One child agent as recorded by the backend, from `list_session_agents`.
- *
- * The roster is authoritative where it exists: it carries each agent's real
- * persisted status and its own session id, which is what makes peeking at a
- * transcript possible. It lags the live stream though — a row appears only once
- * the runtime has persisted the spawn — so counts still fall back to the
- * message-derived tally while a turn is in flight.
- */
 export type SessionAgentEntry = {
 	sessionId: string;
 	agentId: string;
@@ -342,49 +322,26 @@ export function agentEntryState(status: string): SessionAgentRunState {
 	}
 }
 
+export function savedAgentConversations(
+	entries: SessionAgentEntry[],
+): SessionAgentEntry[] {
+	return [
+		...new Map(entries.map((entry) => [entry.sessionId, entry])).values(),
+	];
+}
+
 export function summarizeAgentEntries(
 	entries: SessionAgentEntry[],
 ): SessionAgentActivity {
+	const conversations = savedAgentConversations(entries);
 	const activity: SessionAgentActivity = {
 		...EMPTY_AGENT_ACTIVITY,
-		total: entries.length,
+		total: conversations.length,
 	};
-	for (const entry of entries) {
+	for (const entry of conversations) {
 		activity[agentEntryState(entry.status)] += 1;
 	}
 	return activity;
-}
-
-/**
- * Reconcile the persisted roster with the live tool-derived tally.
- *
- * Neither source is complete on its own: the roster knows each agent's identity
- * and true status but only after persistence, while the tally sees a spawn the
- * moment its tool call starts but can never name the agent. Taking the larger
- * total keeps a just-started agent visible without double counting one that
- * both sources already agree on.
- */
-export function mergeAgentActivity(
-	entries: SessionAgentEntry[],
-	derived: SessionAgentActivity,
-	options?: { sessionActive?: boolean },
-): SessionAgentActivity {
-	if (entries.length === 0) {
-		return derived;
-	}
-	const roster = summarizeAgentEntries(entries);
-	if (derived.total <= roster.total) {
-		return roster;
-	}
-	// Extra spawns the roster has not caught up with are still in flight.
-	const pending = derived.total - roster.total;
-	const sessionActive = options?.sessionActive ?? false;
-	return {
-		...roster,
-		total: derived.total,
-		running: roster.running + (sessionActive ? pending : 0),
-		unresolved: roster.unresolved + (sessionActive ? 0 : pending),
-	};
 }
 
 /** Screen-reader / tooltip text: "3 agents: 1 running, 2 completed". */

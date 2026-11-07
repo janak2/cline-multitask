@@ -24,6 +24,8 @@ import {
 	type SessionAgentActivity,
 	type SessionAgentEntry,
 	type SessionAgentRunState,
+	savedAgentConversations,
+	summarizeAgentEntries,
 } from "@/lib/session-agents";
 import { sessionStatusColor, sessionStatusTone } from "@/lib/session-status";
 import { cn } from "@/lib/utils";
@@ -408,6 +410,8 @@ function AgentActivityStatus({
 	// Controlled so selecting an agent can dismiss the popover as the session view
 	// takes over; an uncontrolled one would linger over the newly opened session.
 	const [open, setOpen] = useState(false);
+	agents = agents ? savedAgentConversations(agents) : undefined;
+	activity = agents ? summarizeAgentEntries(agents) : activity;
 
 	if (!activity || activity.total === 0) {
 		return null;
@@ -625,7 +629,7 @@ function AgentRosterRow({
 							{lastAction ||
 								(isRunning
 									? "Starting up..."
-									: `No activity recorded (${state})`)}
+									: `No activity recorded (${state === "unresolved" ? "no recorded outcome" : state})`)}
 						</span>
 					</span>
 				</span>
