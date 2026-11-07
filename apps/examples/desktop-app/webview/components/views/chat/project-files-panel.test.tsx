@@ -1105,6 +1105,9 @@ describe("ProjectFilesPanel file changes", () => {
 	it("claims URI-only directory drops on the tree and panel header to prevent browser navigation", async () => {
 		await render();
 		await showFiles();
+		invokeMock.mockImplementationOnce(
+			async () => ({ files: [], skippedDirectories: true }) as never,
+		);
 		for (const target of [
 			button(/^src/),
 			container.querySelector("#project-files-panel")!,
@@ -1123,6 +1126,119 @@ describe("ProjectFilesPanel file changes", () => {
 		expect(byLabel("Project folder", container).getAttribute("title")).toBe(
 			"/repo",
 		);
+	});
+
+	it("imports Linux URI-list files through the trusted reader and preserves source-copy semantics", async () => {
+		await render();
+		await showFiles();
+		const previous = invokeMock.getMockImplementation()!;
+		invokeMock.mockImplementation(async (command, args) =>
+			command === "read_dropped_project_files"
+				? ({
+						files: [{ name: "external.txt", contentBase64: "aGk=" }],
+						skippedDirectories: false,
+					} as never)
+				: previous(command, args),
+		);
+		try {
+			const transfer = {
+				types: ["text/uri-list"],
+				getData: (type: string) =>
+					type === "text/uri-list" ? "file:///external/external.txt" : "",
+				items: [],
+				dropEffect: "none",
+			};
+			const over = new Event("dragover", { bubbles: true, cancelable: true });
+			Object.defineProperty(over, "dataTransfer", { value: transfer });
+			await dispatch(button(/^src/), over);
+			expect(transfer.dropEffect).toBe("copy");
+			await drop(button(/^src/), transfer);
+			await flush();
+			expect(invokeMock).toHaveBeenCalledWith(
+				"read_dropped_project_files",
+				expect.objectContaining({ uriList: "file:///external/external.txt" }),
+			);
+			expect(invokeMock).toHaveBeenCalledWith(
+				"write_project_file",
+				expect.objectContaining({
+					path: "/repo/src/external.txt",
+					contentBase64: "aGk=",
+					overwrite: false,
+				}),
+			);
+		} finally {
+			invokeMock.mockImplementation(previous);
+		}
+	});
+
+	it("imports FileList-only external files when WebKit exposes no DataTransfer items", async () => {
+		await render();
+		await showFiles();
+		await drop(button(/^src/), {
+			types: ["Files"],
+			getData: () => "",
+			items: [],
+			files: [new File(["hi"], "external.txt")],
+		});
+		await flush();
+		expect(invokeMock).toHaveBeenCalledWith(
+			"write_project_file",
+			expect.objectContaining({
+				path: "/repo/src/external.txt",
+				contentBase64: "aGk=",
+				overwrite: false,
+			}),
+		);
+	});
+
+	it("confirms URI-list name conflicts before importing and ignores results after switching sessions", async () => {
+		await renderSession("A");
+		await showFiles();
+		const previous = invokeMock.getMockImplementation()!;
+		let finish: ((result: unknown) => void) | undefined;
+		invokeMock.mockImplementation(async (command, args) =>
+			command === "read_dropped_project_files"
+				? ((await new Promise((resolve) => {
+						finish = resolve;
+					})) as never)
+				: previous(command, args),
+		);
+		const transfer = {
+			types: ["text/uri-list"],
+			getData: (type: string) =>
+				type === "text/uri-list" ? "file:///external/README.md" : "",
+			items: [],
+		};
+		try {
+			await drop(button(/^README\.md/), transfer);
+			await act(async () =>
+				finish?.({
+					files: [{ name: "README.md", contentBase64: "aGk=" }],
+					skippedDirectories: false,
+				}),
+			);
+			expect(document.body.textContent).toContain("Replace README.md?");
+			expect(invokeMock).not.toHaveBeenCalledWith(
+				"write_project_file",
+				expect.anything(),
+			);
+			await click(button(/^Cancel$/, document));
+			await drop(button(/^README\.md/), transfer);
+			await renderSession("B");
+			await act(async () =>
+				finish?.({
+					files: [{ name: "README.md", contentBase64: "aGk=" }],
+					skippedDirectories: false,
+				}),
+			);
+			expect(document.body.textContent).not.toContain("Replace README.md?");
+			expect(invokeMock).not.toHaveBeenCalledWith(
+				"write_project_file",
+				expect.anything(),
+			);
+		} finally {
+			invokeMock.mockImplementation(previous);
+		}
 	});
 
 	it("disables native paste/reveal remotely and still prevents external drop navigation", async () => {

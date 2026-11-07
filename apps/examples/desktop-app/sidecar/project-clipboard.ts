@@ -4,6 +4,7 @@ import {
 	copyFile,
 	lstat,
 	mkdir,
+	open,
 	readdir,
 	realpath,
 	rm,
@@ -13,6 +14,56 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
+
+export async function readDroppedFiles(uriList: string) {
+	const files: { name: string; contentBase64: string }[] = [];
+	let skippedDirectories = false;
+	let total = 0;
+	const paths = parseCopiedFiles(uriList);
+	if (paths.length > 100) throw new Error("Drop at most 100 files at once");
+	for (const path of paths) {
+		const stat = await lstat(path);
+		if (stat.isDirectory()) {
+			skippedDirectories = true;
+			continue;
+		}
+		if (!stat.isFile() || stat.isSymbolicLink())
+			throw new Error("Only regular local files can be dropped");
+		const file = await open(
+			path,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+		try {
+			const current = await file.stat();
+			if (!current.isFile())
+				throw new Error("Only regular local files can be dropped");
+			total += current.size;
+			if (total > 20 * 1024 * 1024)
+				throw new Error("File drops are limited to 20 MB in total");
+			const buffer = Buffer.alloc(current.size + 1);
+			let length = 0;
+			while (length < buffer.length) {
+				const result = await file.read(
+					buffer,
+					length,
+					buffer.length - length,
+					null,
+				);
+				if (!result.bytesRead) break;
+				length += result.bytesRead;
+			}
+			if (length > current.size)
+				throw new Error("Dropped file changed while reading. Try again.");
+			files.push({
+				name: basename(path),
+				contentBase64: buffer.subarray(0, length).toString("base64"),
+			});
+		} finally {
+			await file.close();
+		}
+	}
+	return { files, skippedDirectories };
+}
 
 export function parseCopiedFiles(raw: string): string[] {
 	const lines = raw

@@ -88,6 +88,7 @@ it("requires a trusted local connection before reading the clipboard or opening 
 	};
 	for (const command of [
 		"paste_project_entries",
+		"read_dropped_project_files",
 		"open_containing_project_folder",
 	]) {
 		await expect(handleCommand(context, command, args)).rejects.toThrow(

@@ -687,6 +687,15 @@ export function ProjectFilesPanel({
 		},
 		[environmentId, treeRoot, writeFiles],
 	);
+	const dropContextRef = useRef({ environmentId, treeRoot });
+	dropContextRef.current = { environmentId, treeRoot };
+	const mountedDropRef = useRef(true);
+	useEffect(() => {
+		mountedDropRef.current = true;
+		return () => {
+			mountedDropRef.current = false;
+		};
+	}, []);
 	const dropIntoTree = useCallback(
 		(event: React.DragEvent<HTMLElement>) => {
 			if (!canEdit) {
@@ -720,6 +729,56 @@ export function ProjectFilesPanel({
 				item.file && !item.directory ? [item.file] : [],
 			);
 			if (!dropped.length)
+				files.push(...Array.from(event.dataTransfer.files ?? []));
+			const uriList = event.dataTransfer.getData("text/uri-list");
+			if (!files.length && !dropped.some((item) => item.directory) && uriList) {
+				void desktopClient
+					.invoke<{
+						files: { name: string; contentBase64: string }[];
+						skippedDirectories: boolean;
+					}>("read_dropped_project_files", {
+						environmentId,
+						workspaceRoot: treeRoot,
+						path: folder,
+						uriList,
+					})
+					.then(async (result) => {
+						if (
+							!mountedDropRef.current ||
+							dropContextRef.current.environmentId !== environmentId ||
+							dropContextRef.current.treeRoot !== treeRoot
+						)
+							return;
+						if (result.skippedDirectories)
+							toast({
+								title: "Folders were skipped",
+								description:
+									"Use Copy in your file manager, then Paste files and folders here.",
+							});
+						const imported = result.files.map(
+							(file) =>
+								new File(
+									[
+										Uint8Array.from(atob(file.contentBase64), (char) =>
+											char.charCodeAt(0),
+										),
+									],
+									file.name,
+								),
+						);
+						if (imported.length) await uploadFiles(folder, imported);
+					})
+					.catch((error) =>
+						toast({
+							title: "Drop failed",
+							description:
+								error instanceof Error ? error.message : String(error),
+							variant: "destructive",
+						}),
+					);
+				return;
+			}
+			if (!dropped.length && !files.length)
 				toast({
 					title: "Drop unavailable",
 					description:
@@ -734,7 +793,7 @@ export function ProjectFilesPanel({
 					});
 				});
 		},
-		[canEdit, moveInto, treeRoot, uploadFiles],
+		[canEdit, environmentId, moveInto, treeRoot, uploadFiles],
 	);
 	// Tree moves and OS file drops are claimed here so the chat's attachment
 	// drop zone around the panel does not also take them.
@@ -746,9 +805,11 @@ export function ProjectFilesPanel({
 		if (!isTreeDrag(event)) return;
 		event.preventDefault();
 		event.stopPropagation();
-		event.dataTransfer.dropEffect = event.dataTransfer.types.includes("Files")
-			? "copy"
-			: "move";
+		event.dataTransfer.dropEffect = event.dataTransfer.types.includes(
+			TREE_DRAG_TYPE,
+		)
+			? "move"
+			: "copy";
 		setDropFolder(targetFolder(event.target, treeRoot));
 	};
 

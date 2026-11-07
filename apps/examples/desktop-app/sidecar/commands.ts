@@ -3,6 +3,7 @@ import {
 	copyProjectEntries,
 	openContainingProjectFolder,
 	readCopiedFiles,
+	readDroppedFiles,
 } from "./project-clipboard";
 import { randomUUID } from "node:crypto";
 import {
@@ -2258,6 +2259,7 @@ export async function handleCommand(
 		command === "delete_project_entry" ||
 		command === "write_project_file" ||
 		command === "paste_project_entries" ||
+		command === "read_dropped_project_files" ||
 		command === "open_containing_project_folder"
 	) {
 		if (!options?.connection?.data?.canApproveTools) {
@@ -2269,7 +2271,9 @@ export async function handleCommand(
 		const root = String(args?.workspaceRoot ?? "").trim();
 		const path = String(args?.path ?? "");
 		if (!root || !path) throw new Error("workspaceRoot and path are required");
-		if (command === "paste_project_entries") {
+		if (command === "read_dropped_project_files") {
+			return await readDroppedFiles(String(args?.uriList ?? ""));
+		} else if (command === "paste_project_entries") {
 			await copyProjectEntries(root, path, await readCopiedFiles());
 		} else if (command === "open_containing_project_folder") {
 			await openContainingProjectFolder(root, path);

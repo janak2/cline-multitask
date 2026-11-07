@@ -14,6 +14,7 @@ import {
 	copyProjectEntries,
 	parseCopiedFiles,
 	projectDirectory,
+	readDroppedFiles,
 } from "./project-clipboard";
 
 let fixture: string;
@@ -27,6 +28,28 @@ beforeEach(async () => {
 	await mkdir(source);
 });
 afterEach(async () => rm(fixture, { recursive: true, force: true }));
+
+it("reads dropped URI-list file bytes without moving the source, skips directories and bounds reads", async () => {
+	const path = join(source, "a b.bin");
+	const bytes = Buffer.from([0, 255, 42]);
+	await writeFile(path, bytes);
+	const result = await readDroppedFiles(
+		`${pathToFileURL(path).href}\r\n${pathToFileURL(root).href}`,
+	);
+	expect(result).toEqual({
+		files: [{ name: "a b.bin", contentBase64: bytes.toString("base64") }],
+		skippedDirectories: true,
+	});
+	expect(await readFile(path)).toEqual(bytes);
+	await symlink(path, join(source, "link"));
+	await expect(
+		readDroppedFiles(pathToFileURL(join(source, "link")).href),
+	).rejects.toThrow("regular");
+	await writeFile(path, Buffer.alloc(20 * 1024 * 1024 + 1));
+	await expect(readDroppedFiles(pathToFileURL(path).href)).rejects.toThrow(
+		"20 MB",
+	);
+});
 
 it("parses GNOME copied files and URI lists, not text paths, remote URLs or cuts", () => {
 	const url = pathToFileURL(join(source, "a b.txt")).href;
