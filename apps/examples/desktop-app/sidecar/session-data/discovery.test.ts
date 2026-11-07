@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 vi.mock("@cline/core", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@cline/core")>()),
 	SqliteSessionStore: class {
@@ -12,8 +13,47 @@ vi.mock("../paths", () => ({
 	readSessionManifest: () => undefined,
 }));
 vi.mock("./messages", () => ({ readPersistedChatMessages: () => [] }));
-import { discoverChatSessions } from "./discovery";
+
+import { discoverChatSessions, mergeDiscoveredSessionLists } from "./discovery";
+
 describe("desktop session discovery", () => {
+	it("keeps a resumed live chat in the limited page by its activity", () => {
+		const row = {
+			busy: true,
+			status: "running",
+			config: {},
+			prompt: "Hello",
+			messages: [],
+		};
+		const result = discoverChatSessions(
+			{
+				liveSessions: new Map([
+					["resumed", { ...row, startedAt: 1000, lastActivityAt: 3000 }],
+					["idle", { ...row, startedAt: 2000 }],
+				]),
+			},
+			1,
+		);
+		expect(result).toMatchObject([
+			{ sessionId: "resumed", lastActivityAt: "3000", startedAt: "1000" },
+		]);
+	});
+	it("limits by real activity, not metadata update time, with deterministic ties", () => {
+		const old = {
+			sessionId: "old",
+			startedAt: "2026-07-20T10:00:00Z",
+			updatedAt: "2026-07-25T10:00:00Z",
+		};
+		const active = {
+			sessionId: "active",
+			startedAt: old.startedAt,
+			lastActivityAt: "2026-07-24T10:00:00Z",
+		};
+		const idle = { sessionId: "idle", startedAt: "2026-07-23T10:00:00Z" };
+		expect(mergeDiscoveredSessionLists([old, active], [idle], 2)).toMatchObject(
+			[active, idle],
+		);
+	});
 	it.each([
 		"idle",
 		"running",
@@ -85,6 +125,7 @@ describe("desktop session discovery", () => {
 
 // These are the same prompt derivation rules used by restore and fork.
 import { derivePromptFromMessages } from "./common";
+
 describe("restored session prompts", () => {
 	it.each([
 		"recovery_notice",

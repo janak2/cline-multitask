@@ -1,14 +1,10 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { SqliteSessionStore } from "@cline/core";
+import { compareSessionsByActivityDesc } from "../../session-activity";
 import { readSessionManifest, sharedSessionDataDir } from "../paths";
 import type { JsonRecord } from "../types";
-import {
-	compareSessionRecordsByStartedAtDesc,
-	derivePromptFromMessages,
-	parseTimestamp,
-	resolveSessionListTitle,
-} from "./common";
+import { derivePromptFromMessages, resolveSessionListTitle } from "./common";
 import { readPersistedChatMessages } from "./messages";
 
 /**
@@ -26,6 +22,7 @@ export type DiscoveryChatContext = {
 			status: string;
 			config: JsonRecord;
 			startedAt: number;
+			lastActivityAt?: number;
 			endedAt?: number;
 		}
 	>;
@@ -74,6 +71,10 @@ export function discoverChatSessions(
 			workspaceRoot: session.config.workspaceRoot ?? "",
 			prompt,
 			startedAt: String(session.startedAt),
+			lastActivityAt:
+				session.lastActivityAt === undefined
+					? undefined
+					: String(session.lastActivityAt),
 			endedAt: session.endedAt ? String(session.endedAt) : undefined,
 			metadata: {
 				...(persistedMetadata ?? {}),
@@ -158,7 +159,12 @@ export function discoverChatSessions(
 		}
 	}
 
-	out.sort(compareSessionRecordsByStartedAtDesc);
+	out.sort((a, b) =>
+		compareSessionsByActivityDesc(
+			{ ...a, sessionId: String(a.sessionId) },
+			{ ...b, sessionId: String(b.sessionId) },
+		),
+	);
 	return out.slice(0, Math.max(1, limit));
 }
 
@@ -196,20 +202,12 @@ export function mergeDiscoveredSessionLists(
 				"",
 		});
 	}
-	const activityTime = (record: JsonRecord) =>
-		Math.max(
-			...[
-				record.lastActivityAt,
-				record.updatedAt,
-				record.endedAt,
-				record.startedAt,
-			].map((value) => parseTimestamp(value as string | number | undefined)),
-		);
 	return Array.from(merged.values())
-		.sort(
-			(left, right) =>
-				activityTime(right) - activityTime(left) ||
-				compareSessionRecordsByStartedAtDesc(left, right),
+		.sort((a, b) =>
+			compareSessionsByActivityDesc(
+				{ ...a, sessionId: String(a.sessionId) },
+				{ ...b, sessionId: String(b.sessionId) },
+			),
 		)
 		.slice(0, limit);
 }

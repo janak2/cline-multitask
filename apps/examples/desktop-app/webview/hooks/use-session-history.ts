@@ -2,6 +2,18 @@
 
 import { isChatWorkspacePath } from "@cline/shared/browser";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	compareSessionsByActivityDesc,
+	isSessionActivityStream,
+	parseTimestamp,
+	sessionActivityTimestamp,
+} from "../../session-activity";
+
+export {
+	parseTimestamp,
+	sessionActivityTimestamp,
+} from "../../session-activity";
+
 import { normalizeTitle } from "@/components/utils";
 import { toast } from "@/hooks/use-toast";
 import { humanizeCloudSessionError } from "@/lib/cloud-session-error";
@@ -107,6 +119,7 @@ type SidecarChatEvent = {
 	environmentId?: string;
 	sessionId?: string;
 	stream?: string;
+	ts?: number;
 };
 
 export type SessionPendingAction = {
@@ -143,42 +156,6 @@ const MIN_EVENT_HISTORY_REFRESH_INTERVAL_MS = 2_000;
 const HISTORY_EVENT_REFRESH_DELAY_MS = 1_000;
 const HISTORY_FAST_REFRESH_DELAY_MS = 50;
 const HISTORY_TERMINAL_REFRESH_DELAY_MS = 250;
-
-export function parseTimestamp(value?: string): number {
-	if (!value) return Number.NEGATIVE_INFINITY;
-	const trimmed = value.trim();
-	const maybeEpoch = Number(trimmed);
-	if (Number.isFinite(maybeEpoch)) {
-		if (/^\d{10}$/.test(trimmed)) {
-			return maybeEpoch * 1000;
-		}
-		return maybeEpoch;
-	}
-	const parsed = new Date(trimmed).getTime();
-	return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
-}
-
-export function sessionActivityTimestamp(session: SessionHistoryItem): number {
-	const lastActivityAt = parseTimestamp(session.lastActivityAt);
-	const endedAt = parseTimestamp(session.endedAt);
-	const startedAt = parseTimestamp(session.startedAt);
-	return Math.max(lastActivityAt, endedAt, startedAt);
-}
-
-// Order by last activity, not by start time: a long-running session that was
-// resumed today must outrank one that started later but has been idle for
-// days. This is also the timestamp both the sidebar and the sessions view
-// render, so the list order matches the "1d"/"3d" labels next to each row.
-function compareSessionsByActivityDesc(
-	a: SessionHistoryItem,
-	b: SessionHistoryItem,
-): number {
-	const timeDelta = sessionActivityTimestamp(b) - sessionActivityTimestamp(a);
-	if (timeDelta !== 0) {
-		return timeDelta;
-	}
-	return b.sessionId.localeCompare(a.sessionId);
-}
 
 export function normalizeDiscoveredStatus(
 	status?: string,
@@ -315,7 +292,9 @@ function toThread(session: SessionHistoryItem): SessionThread {
 		codebase: basenamePath(workspacePath),
 		workspacePath,
 		time: formatRelativeTime(
-			session.lastActivityAt || session.endedAt || session.startedAt,
+			Number.isFinite(sessionActivityTimestamp(session))
+				? String(sessionActivityTimestamp(session))
+				: undefined,
 		),
 		provider: session.provider || "",
 		model: session.model || "",
@@ -557,33 +536,43 @@ function mergeDiscoveredSessions(
 			getSessionMetadataTitle(session.metadata),
 		]),
 	);
-	return discovered.map((session) => {
-		const existing = currentById.get(sessionKey(session));
-		if (!existing) {
-			return session;
-		}
-		const existingTitle = getSessionMetadataTitle(existing.metadata);
-		if (!existingTitle) {
-			return session;
-		}
-		const incomingTitle = getSessionMetadataTitle(session.metadata);
-		// Cloud refreshes may include web renames; retain cached titles for other runtimes.
-		if (
-			incomingTitle === existingTitle ||
-			(session.origin === "cloud" &&
-				incomingTitle &&
-				existingTitle === titlesBeforeRefresh.get(sessionKey(session)))
-		) {
-			return session;
-		}
-		return {
-			...session,
-			metadata: {
-				...(session.metadata ?? {}),
-				title: existingTitle,
-			},
-		};
-	});
+	return discovered
+		.map((session) => {
+			const existing = currentById.get(sessionKey(session));
+			if (!existing) {
+				return session;
+			}
+			if (
+				sessionActivityTimestamp(existing) > sessionActivityTimestamp(session)
+			) {
+				session = {
+					...session,
+					lastActivityAt: String(sessionActivityTimestamp(existing)),
+				};
+			}
+			const existingTitle = getSessionMetadataTitle(existing.metadata);
+			if (!existingTitle) {
+				return session;
+			}
+			const incomingTitle = getSessionMetadataTitle(session.metadata);
+			// Cloud refreshes may include web renames; retain cached titles for other runtimes.
+			if (
+				incomingTitle === existingTitle ||
+				(session.origin === "cloud" &&
+					incomingTitle &&
+					existingTitle === titlesBeforeRefresh.get(sessionKey(session)))
+			) {
+				return session;
+			}
+			return {
+				...session,
+				metadata: {
+					...(session.metadata ?? {}),
+					title: existingTitle,
+				},
+			};
+		})
+		.sort(compareSessionsByActivityDesc);
 }
 
 export function useSessionHistory({
@@ -842,6 +831,7 @@ export function useSessionHistory({
 					topLevelSessions,
 					sessionsBeforeRefresh,
 				);
+				sessionsRef.current = mergedSessions;
 
 				setSessions((current) =>
 					areSessionsEquivalent(current, mergedSessions)
@@ -1371,6 +1361,33 @@ export function useSessionHistory({
 					return;
 				}
 				const record = payload as SidecarChatEvent;
+				if (
+					isSessionActivityStream(record.stream) &&
+					Number.isFinite(record.ts)
+				) {
+					const id = sessionKey({
+						sessionId: record.sessionId ?? "",
+						environmentId: record.environmentId,
+					});
+					const next = updateSessionById(sessionsRef.current, id, (session) =>
+						(record.ts ?? 0) > sessionActivityTimestamp(session)
+							? { ...session, lastActivityAt: String(record.ts) }
+							: session,
+					)
+						.slice()
+						.sort(compareSessionsByActivityDesc);
+					sessionsRef.current = next;
+					setSessions(next);
+					setThreads((current) => {
+						const byId = new Map(current.map((thread) => [thread.id, thread]));
+						return next.flatMap((session) => {
+							const thread = byId.get(sessionKey(session));
+							return thread
+								? [{ ...thread, time: toThread(session).time }]
+								: [];
+						});
+					});
+				}
 				const sessionId = record.sessionId?.trim()
 					? sessionKey({
 							sessionId: record.sessionId,

@@ -131,6 +131,59 @@ describe("desktop settings commands", () => {
 		expect(result.models.map((model) => model.id)).toEqual(["stt"]);
 	});
 
+	it("uses the same activity order before limiting history and retains live activity during a list failure", async () => {
+		const { ctx } = createContext();
+		const row = {
+			status: "completed",
+			provider: "cline",
+			model: "test",
+			prompt: "Hello",
+			cwd: "/workspace",
+			workspaceRoot: "/workspace",
+		};
+		const active = {
+			...row,
+			sessionId: "active",
+			startedAt: "2026-07-20T10:00:00.000Z",
+		};
+		const idle = {
+			...row,
+			sessionId: "idle",
+			startedAt: "2026-07-21T10:00:00Z",
+			updatedAt: "2026-07-25T10:00:00Z",
+		};
+		const list = vi.fn().mockResolvedValue([active, idle]);
+		ctx.runtimeBindings.set("local", {
+			environmentId: "local",
+			kind: "local",
+			sessionManager: { list },
+		} as unknown as SessionRuntimeBinding);
+		ctx.liveSessions.set("active", {
+			config: row,
+			prompt: "Hello",
+			messages: [],
+			promptsInQueue: [],
+			busy: true,
+			status: "running",
+			startedAt: Date.parse(active.startedAt),
+			lastActivityAt: Date.parse("2026-07-22T10:00:00Z"),
+		});
+		for (const fails of [false, true, false]) {
+			if (fails) list.mockRejectedValue(new Error("temporary list failure"));
+			else list.mockResolvedValue([active, idle]);
+			const result = await handleCommand(ctx, "list_discovered_sessions", {
+				limit: 1,
+			});
+			expect(result).toMatchObject([
+				{
+					sessionId: "active",
+					startedAt: active.startedAt,
+					lastActivityAt: "2026-07-22T10:00:00.000Z",
+				},
+			]);
+		}
+	});
+
 	it.each([
 		"list_chat_sessions",
 		"list_discovered_sessions",

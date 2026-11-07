@@ -509,7 +509,8 @@ function createLiveSession(
 		messages: overrides?.messages ?? [],
 		promptsInQueue: overrides?.promptsInQueue ?? [],
 		busy: false,
-		startedAt: nowMs(),
+		startedAt: overrides?.startedAt ?? nowMs(),
+		lastActivityAt: overrides?.lastActivityAt,
 		status: overrides?.status ?? "idle",
 		prompt: overrides?.prompt,
 		title: overrides?.title,
@@ -1254,6 +1255,8 @@ async function handleAttach(
 				(typeof metadata?.title === "string" ? metadata.title : undefined) ||
 				existing?.title,
 			endedAt: isoTimestampToMs(session.endedAt),
+			startedAt: isoTimestampToMs(session.startedAt) ?? existing?.startedAt,
+			lastActivityAt: existing?.lastActivityAt,
 			attachedViaHub: true,
 			multitask: metadata?.multitask === true,
 			// Preserve tracked attachment files so re-attach (called on every

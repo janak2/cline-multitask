@@ -259,7 +259,6 @@ describe("Cloud sessions sidecar wiring", () => {
 
 	it.each([
 		"lastActivityAt",
-		"updatedAt",
 		"endedAt",
 	])("keeps recently active sessions in limited discovery using %s", (activityField) => {
 		const active = {

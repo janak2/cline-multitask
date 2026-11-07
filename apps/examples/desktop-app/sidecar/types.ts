@@ -72,6 +72,7 @@ export type LiveSession = {
 	promptsInQueue: PromptInQueue[];
 	busy: boolean;
 	startedAt: number;
+	lastActivityAt?: number;
 	endedAt?: number;
 	status: string;
 	transitioningProvider?: boolean;

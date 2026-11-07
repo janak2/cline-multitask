@@ -27,6 +27,7 @@ import {
 	WORKSPACE_METADATA_PREWARM_TTL_MS,
 } from "./chat-session";
 import {
+	broadcastChunk,
 	getEnvironmentContext,
 	handleCoreSessionEvent,
 	requestSidecarAskQuestion,
@@ -1433,7 +1434,17 @@ describe("first-send connection updates", () => {
 		}
 	});
 
-	it("preserves tracked attachments across re-attach", async () => {
+	it("tracks chat activity but not diagnostic output", () => {
+		const { ctx, sessionId } = createContext();
+		broadcastChunk(ctx, sessionId, "chat_core_log", "diagnostic");
+		expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toBeUndefined();
+		broadcastChunk(ctx, sessionId, "chat_text", "answer");
+		expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toEqual(
+			expect.any(Number),
+		);
+	});
+
+	it("preserves tracked attachments and original activity across re-attach", async () => {
 		const { ctx, sessionId } = createContext();
 		const previousSessionDataDir = process.env.CLINE_SESSION_DATA_DIR;
 		const testSessionDataDir = join(
@@ -1450,7 +1461,9 @@ describe("first-send connection updates", () => {
 			if (!session) throw new Error("missing session");
 			const queuedMap = new Map([["pending_1", [queuedFile]]]);
 			session.queuedAttachmentFiles = queuedMap;
+			session.lastActivityAt = Date.parse("2026-07-22T10:00:00Z");
 			(localSessionManager(ctx) as { get?: unknown }).get = vi.fn(async () => ({
+				startedAt: "2026-07-20T10:00:00Z",
 				status: "idle",
 				provider: "cline",
 				model: "anthropic/claude-sonnet-4.6",
@@ -1464,6 +1477,12 @@ describe("first-send connection updates", () => {
 			});
 
 			expect(existsSync(queuedFile)).toBe(true);
+			expect(ctx.liveSessions.get(sessionId)?.startedAt).toBe(
+				Date.parse("2026-07-20T10:00:00Z"),
+			);
+			expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toBe(
+				Date.parse("2026-07-22T10:00:00Z"),
+			);
 			expect(
 				ctx.liveSessions
 					.get(sessionId)

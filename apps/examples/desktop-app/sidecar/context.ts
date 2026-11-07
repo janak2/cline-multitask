@@ -20,6 +20,7 @@ import {
 	HUB_CLIENT_TOOL_APPROVAL_CAPABILITY,
 	isGeneratedMedia,
 } from "@cline/shared";
+import { isSessionActivityStream } from "../session-activity";
 import {
 	discardAllTrackedAttachments,
 	flushConsumedAttachments,
@@ -254,6 +255,10 @@ function emitChunk(
 	chunk: string,
 ): void {
 	const ts = nowMs();
+	const session = ctx.liveSessions.get(sessionId);
+	if (session && isSessionActivityStream(stream)) {
+		session.lastActivityAt = Math.max(session.lastActivityAt ?? 0, ts);
+	}
 	if (ctx.activeEnvironmentId === LOCAL_ENVIRONMENT_ID)
 		appendSessionChunk(sessionId, stream, chunk, ts);
 	const nextIndex = (ctx.streamIndices.get(sessionId) ?? 0) + 1;

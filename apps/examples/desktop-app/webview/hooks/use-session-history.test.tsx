@@ -110,6 +110,75 @@ afterEach(async () => {
 });
 
 describe("useSessionHistory session mapping", () => {
+	it("keeps live activity through stale polls without changing grouping metadata or pagination", async () => {
+		const active = {
+			...sessionRow("old-active"),
+			endedAt: undefined,
+			status: "running",
+			metadata: { pinned: true },
+		};
+		const idle = {
+			...sessionRow("new-idle"),
+			startedAt: "2026-07-21T10:00:00Z",
+			endedAt: "2026-07-21T11:00:00Z",
+			workspaceRoot: "/other",
+		};
+		await act(async () => root.render(<HookHarness />));
+		await flush();
+		await act(async () => pendingLists[0].resolve([active, idle]));
+		expect(current.sessions.map((s) => s.sessionId)).toEqual([
+			"new-idle",
+			"old-active",
+		]);
+		await flush(12_000);
+		await act(async () =>
+			subscribers.get("chat_event")?.({
+				sessionId: "old-active",
+				stream: "chat_text",
+				ts: Date.parse("2026-07-22T10:00:00Z"),
+			}),
+		);
+		expect(current.sessions.map((s) => s.sessionId)).toEqual([
+			"old-active",
+			"new-idle",
+		]);
+		for (let i = 1; i <= 2; i++) {
+			if (i > 1) await flush(12_000);
+			await act(async () => pendingLists[i].resolve([idle, active]));
+			expect(current.sessions.map((s) => s.sessionId)).toEqual([
+				"old-active",
+				"new-idle",
+			]);
+			expect(current.threads.map((s) => s.id)).toEqual(
+				[active, idle].map(sessionKey),
+			);
+			expect(current.threads[0].pinned).toBe(true);
+			expect(current.threads[1].workspacePath).toBe("/other");
+			expect(current.mayHaveMoreSessions).toBe(false);
+		}
+	});
+
+	it("ignores metadata updates and preserves newer discovered activity through older responses", async () => {
+		const old = { ...sessionRow("old"), updatedAt: "2026-07-25T10:00:00Z" };
+		const recent = {
+			...sessionRow("recent"),
+			lastActivityAt: "2026-07-22T10:00:00Z",
+		};
+		await act(async () => root.render(<HookHarness />));
+		await flush();
+		await act(async () => pendingLists[0].resolve([old, recent]));
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[recent, old].map(sessionKey),
+		);
+		await flush(12_000);
+		await act(async () =>
+			pendingLists[1].resolve([old, { ...recent, lastActivityAt: undefined }]),
+		);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[recent, old].map(sessionKey),
+		);
+	});
+
 	it("accepts refreshed titles without reverting a rename during the refresh", async () => {
 		const row = (title: string) => ({
 			...sessionRow("ses-cloud"),

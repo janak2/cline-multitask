@@ -87,6 +87,10 @@ import { readFileSyncStrippingUtf8Bom } from "@cline/shared/node";
 import { resolveClineDir, resolveMcpSettingsPath } from "@cline/shared/storage";
 import { z } from "zod";
 import packageJson from "../package.json";
+import {
+	compareSessionsByActivityDesc,
+	sessionActivityTimestamp,
+} from "../session-activity";
 import { CLINE_ACCOUNT_NOT_AUTHENTICATED_RESULT } from "../webview/lib/cline-account-state";
 import { MAX_RECORDED_AUDIO_BYTES } from "../webview/lib/voice-input-limits";
 import { resolveDesktopTelemetryUser } from "./client-context";
@@ -809,6 +813,14 @@ async function listSessionsFromSidecarManager(
 				prompt,
 				startedAt:
 					existing?.startedAt ?? new Date(session.startedAt).toISOString(),
+				lastActivityAt: Number.isFinite(sessionActivityTimestamp(session))
+					? new Date(
+							Math.max(
+								sessionActivityTimestamp(session),
+								sessionActivityTimestamp(existing ?? {}),
+							),
+						).toISOString()
+					: existing?.lastActivityAt,
 				endedAt:
 					session.endedAt !== undefined
 						? new Date(session.endedAt).toISOString()
@@ -823,18 +835,12 @@ async function listSessionsFromSidecarManager(
 		}
 	}
 	return Array.from(byId.values())
-		.sort((left, right) => {
-			const leftTime = Date.parse(
-				String(left.updatedAt ?? left.startedAt ?? ""),
-			);
-			const rightTime = Date.parse(
-				String(right.updatedAt ?? right.startedAt ?? ""),
-			);
-			return (
-				(Number.isNaN(rightTime) ? 0 : rightTime) -
-				(Number.isNaN(leftTime) ? 0 : leftTime)
-			);
-		})
+		.sort((left, right) =>
+			compareSessionsByActivityDesc(
+				{ ...left, sessionId: String(left.sessionId) },
+				{ ...right, sessionId: String(right.sessionId) },
+			),
+		)
 		.slice(0, max);
 }
 
