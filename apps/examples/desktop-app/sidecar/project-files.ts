@@ -1,5 +1,6 @@
 import {
 	closeSync,
+	fstatSync,
 	existsSync,
 	mkdirSync,
 	openSync,
@@ -20,6 +21,7 @@ import type { SessionRuntimeBinding, SidecarContext } from "./types";
 
 export const PROJECT_ENTRY_LIMIT = 1_000;
 export const PROJECT_FILE_READ_LIMIT_BYTES = 1024 * 1024;
+export const PROJECT_PDF_LIMIT_BYTES = 20 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8 * 1024;
 const HIDDEN_ENTRIES = new Set([".git"]);
 
@@ -72,6 +74,37 @@ function assertInsideRoot(root: string, path: string, isPosix: boolean): void {
 
 function looksBinary(buffer: Buffer): boolean {
 	return buffer.subarray(0, BINARY_SNIFF_BYTES).includes(0);
+}
+
+export function readLocalProjectPdf(root: string, path: string) {
+	assertInsideRoot(root, path, false);
+	const fd = openSync(path, "r");
+	try {
+		const stat = fstatSync(fd);
+		if (!stat.isFile()) throw new Error("Not a PDF file");
+		if (stat.size > PROJECT_PDF_LIMIT_BYTES) {
+			throw new Error("PDF preview is limited to 20 MB");
+		}
+		// Read one extra byte to detect growth without ever truncating a PDF.
+		const buffer = Buffer.alloc(
+			Math.min(stat.size + 1, PROJECT_PDF_LIMIT_BYTES + 1),
+		);
+		let length = 0;
+		while (length < buffer.length) {
+			const count = readSync(fd, buffer, length, buffer.length - length, null);
+			if (!count) break;
+			length += count;
+		}
+		if (length !== stat.size)
+			throw new Error("PDF changed while reading; reopen it");
+		const bytes = buffer.subarray(0, length);
+		if (!bytes.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+			throw new Error("File does not have a PDF header");
+		}
+		return { path, contentBase64: bytes.toString("base64") };
+	} finally {
+		closeSync(fd);
+	}
 }
 
 export function listLocalProjectEntries(

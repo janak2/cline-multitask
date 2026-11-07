@@ -1,5 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { preparePdfAssets } from "../scripts/pdf-assets.mjs";
+
+preparePdfAssets();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.join(__dirname, "../../../..");

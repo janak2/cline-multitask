@@ -20,6 +20,8 @@ import {
 	parseRemoteListing,
 	REMOTE_LIST_SCRIPT,
 	readLocalProjectFile,
+	readLocalProjectPdf,
+	PROJECT_PDF_LIMIT_BYTES,
 	writeLocalProjectFile,
 } from "./project-files";
 
@@ -91,6 +93,34 @@ describe("readLocalProjectFile", () => {
 		const result = readLocalProjectFile(root, big);
 		expect(result.truncated).toBe(true);
 		expect(result.content?.length).toBe(PROJECT_FILE_READ_LIMIT_BYTES);
+	});
+});
+
+describe("readLocalProjectPdf", () => {
+	it("preserves PDF bytes without UTF-8 conversion or the text read limit", () => {
+		const bytes = Buffer.concat([
+			Buffer.from("%PDF-1.7\n"),
+			Buffer.alloc(PROJECT_FILE_READ_LIMIT_BYTES + 3, 0xff),
+			Buffer.from([0, 128]),
+		]);
+		const path = join(root, "report.PDF");
+		writeFileSync(path, bytes);
+		expect(
+			Buffer.from(readLocalProjectPdf(root, path).contentBase64, "base64"),
+		).toEqual(bytes);
+	});
+
+	it("rejects oversized, invalid, directory and outside-root reads", () => {
+		const path = join(root, "large.pdf");
+		writeFileSync(path, Buffer.alloc(PROJECT_PDF_LIMIT_BYTES + 1));
+		expect(() => readLocalProjectPdf(root, path)).toThrow(/20 MB/);
+		expect(() => readLocalProjectPdf(root, join(root, "README.md"))).toThrow(
+			/PDF header/,
+		);
+		expect(() => readLocalProjectPdf(root, root)).toThrow(/Not a PDF file/);
+		expect(() => readLocalProjectPdf(root, tmpdir())).toThrow(
+			/outside the workspace/,
+		);
 	});
 });
 

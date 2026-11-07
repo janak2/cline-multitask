@@ -83,6 +83,12 @@ vi.mock("@/lib/desktop-client", () => ({
 	desktopClient: { invoke: invokeMock },
 }));
 
+vi.mock("./pdf-viewer", () => ({
+	PdfViewer: ({ path }: { path: string }) => (
+		<div data-testid="pdf-preview">{path}</div>
+	),
+}));
+
 // Plain rendering keeps shiki out of jsdom; highlighted-code.test.tsx covers
 // the highlighter wiring.
 vi.mock("@cline/ui/components/markdown", () => ({
@@ -611,6 +617,23 @@ describe("ProjectFilesPanel files view", () => {
 	async function showFiles() {
 		await click(button(/^Files$/));
 	}
+
+	it("routes PDFs to the document viewer without reading them as text", async () => {
+		await render();
+		invokeMock.mockImplementationOnce(async () => ({
+			entries: [{ name: "report.PDF", path: "/repo/report.PDF", kind: "file" }],
+			truncated: false,
+		}));
+		await showFiles();
+		await click(button(/^report\.PDF/));
+		expect(
+			container.querySelector('[data-testid="pdf-preview"]')?.textContent,
+		).toBe("/repo/report.PDF");
+		expect(invokeMock).not.toHaveBeenCalledWith(
+			"read_project_file",
+			expect.objectContaining({ path: "/repo/report.PDF" }),
+		);
+	});
 
 	it("lists the workspace root and expands folders on demand", async () => {
 		await render();

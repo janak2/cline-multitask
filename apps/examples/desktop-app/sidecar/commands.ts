@@ -185,6 +185,7 @@ import {
 	listProjectEntries,
 	moveLocalProjectEntry,
 	readLocalProjectFile,
+	readLocalProjectPdf,
 	readProjectFile,
 	writeLocalProjectFile,
 } from "./project-files";
@@ -2209,7 +2210,11 @@ export async function handleCommand(
 	// same connection that selects workspaces via validate/pick), so the root
 	// is a coherence check for the tree rather than a sandbox; raw file access
 	// is limited to that trusted connection, like agenda task execution.
-	if (command === "list_project_entries" || command === "read_project_file") {
+	if (
+		command === "list_project_entries" ||
+		command === "read_project_file" ||
+		command === "read_project_pdf"
+	) {
 		if (!options?.connection?.data?.canApproveTools) {
 			throw new Error("project files require a trusted desktop connection");
 		}
@@ -2217,6 +2222,17 @@ export async function handleCommand(
 		const root = String(args?.workspaceRoot ?? "").trim();
 		if (!root) throw new Error("workspaceRoot is required");
 		const path = String(args?.path ?? "") || root;
+		if (command === "read_project_pdf") {
+			if (binding.kind !== "local") {
+				throw new Error(
+					"PDF preview is currently available only in local workspaces",
+				);
+			}
+			return {
+				environmentId: binding.environmentId,
+				...readLocalProjectPdf(root, path),
+			};
+		}
 		return command === "list_project_entries"
 			? await listProjectEntries(ctx, binding, root, path)
 			: await readProjectFile(ctx, binding, root, path);

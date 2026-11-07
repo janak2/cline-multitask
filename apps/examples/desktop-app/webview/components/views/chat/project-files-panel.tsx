@@ -17,6 +17,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PdfViewer } from "./pdf-viewer";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -847,6 +848,7 @@ export function ProjectFilesPanel({
 
 	useEffect(() => {
 		if (!activePath || effectiveMode !== "file") return;
+		if (/\.pdf$/i.test(activePath)) return;
 		const existing = files.get(activePath);
 		// A read already in flight is left to finish; if a snapshot marked it
 		// stale meanwhile, it stays stale on completion and re-reads then.
@@ -1614,6 +1616,13 @@ export function ProjectFilesPanel({
 										);
 									})}
 								</div>
+							) : /\.pdf$/i.test(activePath) ? (
+								<PdfViewer
+									key={`${environmentId}:${activePath}`}
+									path={activePath}
+									environmentId={environmentId}
+									workspaceRoot={rootFor(activePath)}
+								/>
 							) : !activeFileState ||
 								(activeFileState.loading &&
 									activeFileState.content === undefined) ? (
