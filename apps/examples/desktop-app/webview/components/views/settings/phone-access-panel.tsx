@@ -93,6 +93,10 @@ export function PhoneAccessPanel() {
 	const step =
 		status?.state === "setup-needed" ? SETUP_STEPS[status.missing] : undefined;
 	const link = step?.link;
+	const phoneUrl =
+		status?.state !== "off" && status?.state !== "setup-needed"
+			? status?.url
+			: undefined;
 
 	return (
 		<div className="mt-4 rounded-lg border p-4">
@@ -113,14 +117,14 @@ export function PhoneAccessPanel() {
 					}
 				/>
 			</div>
-			{status?.state === "running" ? (
+			{phoneUrl ? (
 				<div className="mt-4 flex gap-4 max-[720px]:flex-col">
 					{/* biome-ignore lint/performance/noImgElement: In-memory data URLs cannot use Next's optimizer. */}
 					<img
 						alt="QR code for the phone address"
 						className="size-[200px] shrink-0 rounded-md bg-white"
 						src={`data:image/svg+xml;utf8,${encodeURIComponent(
-							renderSVG(status.url, {
+								renderSVG(phoneUrl, {
 								border: 2,
 								whiteColor: "#ffffff",
 								blackColor: "#000000",
@@ -128,14 +132,14 @@ export function PhoneAccessPanel() {
 						)}`}
 					/>
 					<div className="flex min-w-0 flex-col gap-2 text-sm">
-						<p className="break-all font-mono text-xs">{status.url}</p>
+						<p className="break-all font-mono text-xs">{phoneUrl}</p>
 						<div>
 							<Button
 								variant="outline"
 								size="sm"
 								onClick={() =>
 									void navigator.clipboard
-										.writeText(status.url)
+										.writeText(phoneUrl)
 										.then(() => setCopied(true))
 								}
 							>
@@ -144,8 +148,9 @@ export function PhoneAccessPanel() {
 							</Button>
 						</div>
 						<p className="text-muted-foreground">
-							Tailscale connected
-							{status.elsewhere ? ". Running from another Cline app." : ""}
+							{status?.state === "running"
+								? `Tailscale connected${status.elsewhere ? ". Running from another Cline app." : ""}`
+								: "Dashboard unavailable. This address will work when it is running again."}
 						</p>
 						<p className="text-muted-foreground">
 							Any device in your Tailscale network can open this and control

@@ -75,6 +75,7 @@ type Dashboard = {
 export class PhoneAccess {
 	status: PhoneAccessStatus = { state: "starting" };
 	private dashboard?: Dashboard;
+	private phoneUrl?: string;
 	private queue: Promise<void> = Promise.resolve();
 	private timer?: ReturnType<typeof setInterval>;
 	private disposed = false;
@@ -117,6 +118,13 @@ export class PhoneAccess {
 			await work().catch((error) => {
 				this.status = { state: "error", message: errorMessage(error) };
 			});
+			if (
+				this.phoneUrl &&
+				this.status.state !== "off" &&
+				this.status.state !== "setup-needed"
+			) {
+				this.status = { ...this.status, url: this.phoneUrl };
+			}
 			if (JSON.stringify(this.status) !== previous)
 				this.options.logger?.log("Phone access status", {
 					status: this.status,
@@ -154,6 +162,7 @@ export class PhoneAccess {
 		);
 		if ("missing" in setup) return this.setupNeeded(setup.missing);
 		const url = `http://${setup.name}`;
+		this.phoneUrl = url;
 		const port80 = await readServePort80(tailscale);
 		const ours = port80.kind === "proxy" && port80.target === state.serveTarget;
 		if (ours && this.dashboard && state.ownerPid === process.pid) {
@@ -162,12 +171,19 @@ export class PhoneAccess {
 		}
 		if (
 			ours &&
-			state.ownerPid !== process.pid &&
+			!this.dashboard &&
 			isAlive(state.ownerPid) &&
 			(await answers(state.serveTarget))
 		) {
-			await this.stop();
-			this.status = { state: "running", url, elsewhere: true };
+			// Multiple sidecar contexts can exist in the same process. A live
+			// owner is not a crash leftover just because this controller did not
+			// spawn its child; otherwise their refresh timers kill each other's
+			// dashboards indefinitely.
+			this.status = {
+				state: "running",
+				url,
+				elsewhere: state.ownerPid !== process.pid,
+			};
 			return;
 		}
 		// A leftover from a crash: the old dashboard may still hold the target.
@@ -227,9 +243,15 @@ export class PhoneAccess {
 		dashboard.child.stdout?.on("data", record);
 		dashboard.child.stderr?.on("data", record);
 		let exited = false;
-		const onExit = () => {
+		const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
 			if (exited) return;
 			exited = true;
+			this.options.logger?.log("Phone dashboard exited", {
+				pid: dashboard.child.pid,
+				code,
+				signal,
+				stopping: dashboard.stopping,
+			});
 			if (this.dashboard === dashboard) this.dashboard = undefined;
 			if (!dashboard.stopping)
 				void this.enqueue(() => this.dashboardExited(dashboard));
@@ -237,10 +259,10 @@ export class PhoneAccess {
 		dashboard.child.once("exit", onExit);
 		dashboard.child.once("error", (error) => {
 			record(error.message);
-			onExit();
+			onExit(null, null);
 		});
 		this.dashboard = dashboard;
-		this.status = { state: "starting" };
+		this.status = { state: "starting", url };
 		const deadline = Date.now() + (this.options.readyTimeoutMs ?? 15_000);
 		while (this.dashboard === dashboard && !this.disposed) {
 			if (await answers(`http://127.0.0.1:${port}`)) return dashboard;
@@ -262,7 +284,7 @@ export class PhoneAccess {
 
 	private async dashboardExited(dashboard: Dashboard): Promise<void> {
 		if (this.dashboard || this.disposed) return;
-		await this.stop();
+		await this.stop(dashboard.child.pid);
 		this.status = {
 			state: "error",
 			message: withOutput("The phone dashboard stopped.", dashboard),
@@ -270,9 +292,14 @@ export class PhoneAccess {
 	}
 
 	/** Turns our Serve setting off, then stops the dashboard. */
-	private async stop(): Promise<void> {
+	private async stop(ownedDashboardPid = this.dashboard?.child.pid): Promise<void> {
 		const state = readState(this.statePath);
-		if (state.ownerPid === process.pid && state.serveTarget) {
+		if (
+			state.ownerPid === process.pid &&
+			state.serveTarget &&
+			ownedDashboardPid !== undefined &&
+			ownedDashboardPid === state.dashboardPid
+		) {
 			const tailscale = this.findTailscale();
 			try {
 				const port80 = tailscale ? await readServePort80(tailscale) : undefined;

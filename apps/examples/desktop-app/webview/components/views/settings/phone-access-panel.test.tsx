@@ -89,6 +89,21 @@ it("names the missing setup step and checks again", async () => {
 	expect(invoke).toHaveBeenCalledWith("get_phone_access", { refresh: true });
 });
 
+it("shows the known address and QR even when opened while starting or stopped", async () => {
+	for (const status of [
+		{ state: "starting", url: URL },
+		{ state: "error", url: URL, message: "The phone dashboard stopped." },
+	] satisfies PhoneAccessStatus[]) {
+		await render(status);
+		expect(container.querySelector("img")?.getAttribute("src")).toMatch(
+			/^data:image\/svg\+xml;utf8,/,
+		);
+		expect(container.textContent).toContain(URL);
+		expect(container.textContent).toContain("Dashboard unavailable");
+	}
+	expect(container.textContent).toContain("The phone dashboard stopped.");
+});
+
 it("opens the admin console link", async () => {
 	await render({ state: "setup-needed", missing: "magicdns" });
 	await click("Open DNS settings");

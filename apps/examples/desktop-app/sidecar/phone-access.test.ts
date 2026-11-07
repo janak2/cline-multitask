@@ -222,6 +222,31 @@ describe("PhoneAccess", () => {
 		expect(children).toHaveLength(1);
 	});
 
+	it("shares a live dashboard between controllers in the same process", async () => {
+		const owner = create();
+		await owner.refresh();
+		const child = children[0];
+		const observer = create();
+		try {
+			for (let i = 0; i < 3; i++) {
+				expect(await observer.refresh()).toEqual({
+					state: "running",
+					url: URL,
+					elsewhere: false,
+				});
+				await owner.refresh();
+			}
+			expect(children).toHaveLength(1);
+			expect(child?.signalCode).toBeNull();
+			await observer.dispose();
+			expect(serveCalls()).toHaveLength(1);
+			expect(child?.signalCode).toBeNull();
+		} finally {
+			await observer.dispose();
+			await owner.dispose();
+		}
+	});
+
 	it("stops when Tailscale is turned off", async () => {
 		const access = create();
 		await access.refresh();
@@ -271,6 +296,7 @@ describe("PhoneAccess", () => {
 		await vi.waitFor(() => expect(access.status.state).toBe("error"));
 		expect(access.status).toMatchObject({
 			message: expect.stringContaining("The phone dashboard stopped."),
+			url: URL,
 		});
 		expect(serveCalls().at(-1)).toEqual(SERVE_OFF_ARGS);
 	});
