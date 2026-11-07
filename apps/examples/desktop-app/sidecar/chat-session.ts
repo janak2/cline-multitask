@@ -1796,6 +1796,14 @@ async function handleSendOnce(
 			request.config &&
 			hasProviderChanged(session.config, request.config),
 	);
+	const modeChanged = Boolean(
+		session &&
+			nextConfig &&
+			resolveDesktopSessionMode(session.config) !==
+				resolveDesktopSessionMode(nextConfig),
+	);
+	if (modeChanged && session?.busy)
+		throw new Error("Cannot switch modes while a turn is running");
 	if (providerChanged && session?.busy) {
 		throw new Error("Cannot switch providers while a turn is running");
 	}
@@ -1808,13 +1816,13 @@ async function handleSendOnce(
 			session.busy = true;
 			session.status = "running";
 		}
-		if (providerChanged) {
+		if (providerChanged || modeChanged) {
 			session.transitioningProvider = true;
 		}
 	}
 	try {
 		if ((request.config || binding.kind === "ssh") && nextConfig) {
-			if (providerChanged && session) {
+			if ((providerChanged || modeChanged) && session) {
 				await rebuildSessionForProviderChange(
 					ctx,
 					binding,
@@ -1855,7 +1863,7 @@ async function handleSendOnce(
 			}
 			if (session) {
 				session.config = nextConfig;
-				if (providerChanged) {
+				if (providerChanged || modeChanged) {
 					session.attachedViaHub = false;
 				}
 			}
@@ -2043,7 +2051,7 @@ async function handleSendOnce(
 			if (ownsBusyState) {
 				session.busy = false;
 			}
-			if (providerChanged) {
+			if (providerChanged || modeChanged) {
 				session.transitioningProvider = false;
 			}
 		}

@@ -1565,6 +1565,51 @@ describe("first-send connection updates", () => {
 		);
 	});
 
+	it.each([
+		["act", "plan"],
+		["plan", "act"],
+	])("rebuilds %s to %s with history before sending an existing chat", async (previousMode, nextMode) => {
+		const { ctx, sessionId, start, send, stop, readMessages } = createContext({
+			config: { ...baseConfig, mode: previousMode },
+		});
+		await handleChatSessionCommand(ctx, {
+			action: "send",
+			sessionId,
+			prompt: "Continue",
+			config: { ...baseConfig, mode: nextMode },
+		});
+		expect(readMessages).toHaveBeenCalledWith(sessionId);
+		expect(stop).toHaveBeenCalledWith(sessionId);
+		expect(start).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: expect.objectContaining({ sessionId, mode: nextMode }),
+				initialMessages: [
+					{ role: "user", content: "first prompt" },
+					{ role: "assistant", content: "first response" },
+				],
+			}),
+		);
+		expect(start.mock.invocationCallOrder[0]).toBeLessThan(
+			send.mock.invocationCallOrder[0],
+		);
+		expect(ctx.liveSessions.get(sessionId)?.transitioningProvider).toBe(false);
+	});
+	it("does not change mode during a running turn", async () => {
+		const { ctx, sessionId, start } = createContext({
+			config: { ...baseConfig, mode: "act" },
+		});
+		ctx.liveSessions.get(sessionId)!.busy = true;
+		await expect(
+			handleChatSessionCommand(ctx, {
+				action: "send",
+				sessionId,
+				prompt: "Plan",
+				config: { ...baseConfig, mode: "plan" },
+			}),
+		).rejects.toThrow("Cannot switch modes while a turn is running");
+		expect(start).not.toHaveBeenCalled();
+	});
+
 	it("blocks a concurrent send throughout provider-switch preparation", async () => {
 		let resolveMessages:
 			| ((messages: Array<{ role: string; content: string }>) => void)

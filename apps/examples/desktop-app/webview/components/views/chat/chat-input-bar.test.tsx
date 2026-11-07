@@ -215,6 +215,8 @@ async function renderVoiceComposer({
 	multitaskEnabled,
 	onDisableMultitask,
 	activeTeammateRuns,
+	mode = "act",
+	onModeToggle = vi.fn(),
 }: {
 	attachments?: Parameters<typeof ChatInputBar>[0]["attachments"];
 	model?: string;
@@ -235,6 +237,8 @@ async function renderVoiceComposer({
 	multitaskEnabled?: boolean;
 	onDisableMultitask?: () => void;
 	activeTeammateRuns?: number;
+	mode?: "act" | "plan";
+	onModeToggle?: () => void;
 } = {}) {
 	const Wrapper = strictMode ? StrictMode : Fragment;
 	await act(async () => {
@@ -252,7 +256,7 @@ async function renderVoiceComposer({
 						attachments={attachments}
 						gitBranch="main"
 						hasRunningAgents={hasRunningAgents}
-						mode="act"
+						mode={mode}
 						multitaskEnabled={multitaskEnabled}
 						onDisableMultitask={onDisableMultitask}
 						activeTeammateRuns={activeTeammateRuns}
@@ -264,7 +268,7 @@ async function renderVoiceComposer({
 							current: "main",
 							branches: ["main"],
 						}))}
-						onModeToggle={vi.fn()}
+						onModeToggle={onModeToggle}
 						onModelChange={vi.fn()}
 						onPromptInputChange={onPromptInputChange}
 						onProviderChange={vi.fn()}
@@ -413,6 +417,45 @@ describe("ChatInputBar draft navigation", () => {
 });
 
 describe("ChatInputBar", () => {
+	it("shows Plan/Act selection and toggles only a different mode", async () => {
+		const toggle = vi.fn();
+		await renderVoiceComposer({ onModeToggle: toggle });
+		const group = container.querySelector('[aria-label="Conversation mode"]');
+		expect(group?.className).toContain("flex");
+		expect(group?.className).not.toContain("hidden");
+		const [plan, actButton] = [...group!.querySelectorAll("button")];
+		expect(actButton.getAttribute("aria-pressed")).toBe("true");
+		await act(async () => actButton.click());
+		expect(toggle).not.toHaveBeenCalled();
+		await act(async () => plan.click());
+		expect(toggle).toHaveBeenCalledTimes(1);
+		await renderVoiceComposer({ mode: "plan", onModeToggle: toggle });
+		expect(
+			container
+				.querySelector('[aria-label="Conversation mode"] button')
+				?.getAttribute("aria-pressed"),
+		).toBe("true");
+	});
+	it.each([
+		{ status: "running" as const },
+		{ hasRunningAgents: true },
+		{ readOnly: true },
+	])("disables mode changes while unavailable (%j)", async (options) => {
+		await renderVoiceComposer(options);
+		expect(
+			[
+				...container.querySelectorAll<HTMLButtonElement>(
+					'[aria-label="Conversation mode"] button',
+				),
+			].every((button) => button.disabled),
+		).toBe(true);
+	});
+	it("keeps cloud mode controls hidden", async () => {
+		await renderVoiceComposer({ executionTarget: "cloud" });
+		expect(
+			container.querySelector('[aria-label="Conversation mode"]'),
+		).toBeNull();
+	});
 	it.each([
 		["idle", false, false],
 		["running", false, true],

@@ -1666,38 +1666,45 @@ function ChatInputBarImpl({
 						ref={fileInputRef}
 						type="file"
 					/>
-					<div className="hidden shrink-0 items-center rounded-md bg-muted p-0.5">
-						<button
-							aria-pressed={mode === "plan"}
-							className={cn(
-								"rounded px-2 py-1 ",
-								mode === "plan"
-									? "bg-background text-foreground shadow-xs"
-									: "hover:text-foreground",
-							)}
-							onClick={() => {
-								if (mode !== "plan") onModeToggle();
-							}}
-							type="button"
+					{executionTarget !== "cloud" && (
+						<fieldset
+							aria-label="Conversation mode"
+							className="flex shrink-0 items-center rounded-md bg-muted p-0.5 text-xs"
 						>
-							Plan
-						</button>
-						<button
-							aria-pressed={mode === "act"}
-							className={cn(
-								"rounded px-2 py-1 ",
-								mode === "act"
-									? "bg-background text-foreground shadow-xs"
-									: "hover:text-foreground",
-							)}
-							onClick={() => {
-								if (mode !== "act") onModeToggle();
-							}}
-							type="button"
-						>
-							Act
-						</button>
-					</div>
+							<button
+								disabled={readOnly || isBusy || hasRunningAgents}
+								aria-pressed={mode === "plan"}
+								className={cn(
+									"rounded px-2 py-1 ",
+									mode === "plan"
+										? "bg-background text-foreground shadow-xs"
+										: "hover:text-foreground",
+								)}
+								onClick={() => {
+									if (mode !== "plan") onModeToggle();
+								}}
+								type="button"
+							>
+								Plan
+							</button>
+							<button
+								disabled={readOnly || isBusy || hasRunningAgents}
+								aria-pressed={mode === "act"}
+								className={cn(
+									"rounded px-2 py-1 ",
+									mode === "act"
+										? "bg-background text-foreground shadow-xs"
+										: "hover:text-foreground",
+								)}
+								onClick={() => {
+									if (mode !== "act") onModeToggle();
+								}}
+								type="button"
+							>
+								Act
+							</button>
+						</fieldset>
+					)}
 					{multitaskEnabled && (
 						<button
 							aria-label="Turn off Multitask mode"

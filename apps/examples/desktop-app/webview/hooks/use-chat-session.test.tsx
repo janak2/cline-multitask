@@ -434,6 +434,66 @@ afterEach(async () => {
 });
 
 describe("useChatSession", () => {
+	it("sends selected Plan mode for a new chat and Act after switching an existing chat", async () => {
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (command !== "chat_session_command") return [];
+				const request = args?.request as {
+					action?: string;
+					config?: { sessionId?: string };
+				};
+				if (request.action === "start")
+					return {
+						sessionId: request.config?.sessionId,
+						cwd: "/workspace/cline",
+						workspaceRoot: "/workspace/cline",
+					};
+				if (request.action === "send")
+					return {
+						ok: true,
+						result: { text: "mocked response", finishReason: "completed" },
+					};
+				return [];
+			},
+		);
+		await act(async () =>
+			current.setConfig((previous) => ({ ...previous, mode: "plan" })),
+		);
+		await act(async () => current.sendPrompt("Plan only"));
+		expect(invokeMock).toHaveBeenCalledWith("chat_session_command", {
+			request: expect.objectContaining({
+				action: "start",
+				config: expect.objectContaining({ mode: "plan" }),
+			}),
+		});
+		expect(invokeMock).toHaveBeenCalledWith(
+			"chat_session_command",
+			{
+				request: expect.objectContaining({
+					action: "send",
+					config: expect.objectContaining({ mode: "plan" }),
+				}),
+			},
+			{ timeoutMs: null },
+		);
+		const sessionId = current.sessionId;
+		await act(async () =>
+			current.setConfig((previous) => ({ ...previous, mode: "act" })),
+		);
+		await act(async () => current.sendPrompt("Now act"));
+		expect(current.sessionId).toBe(sessionId);
+		expect(invokeMock).toHaveBeenCalledWith(
+			"chat_session_command",
+			{
+				request: expect.objectContaining({
+					action: "send",
+					sessionId,
+					config: expect.objectContaining({ mode: "act" }),
+				}),
+			},
+			{ timeoutMs: null },
+		);
+	});
 	describe("cloud history preview", () => {
 		const session: Parameters<ChatSessionHook["hydrateSession"]>[0] = {
 			sessionId: "preview-cloud",
