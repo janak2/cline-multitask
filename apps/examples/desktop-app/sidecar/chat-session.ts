@@ -328,10 +328,13 @@ async function runMultitaskCommand(
 	if (!session) throw new Error(`Session ${sessionId} not found`);
 	const task = prompt.slice("/multitask".length).trim();
 	const arg = task.toLowerCase();
-	let text: string;
 	if (arg === "stop") {
 		await manager.abort(sessionId, "stopped_by_user", { scope: "teammates" });
-		text = "Stopped all background teammates.";
+		sendEvent(ctx, "chat_command_output", {
+			sessionId,
+			command: "multitask",
+			text: "Stopped all background teammates.",
+		});
 	} else {
 		const enabled = arg !== "off";
 		if (enabled) assertDesktopTeamsAvailable(availability);
@@ -342,13 +345,7 @@ async function runMultitaskCommand(
 		});
 		session.multitask = enabled;
 		sendEvent(ctx, "multitask_state", { sessionId, enabled });
-		text = enabled ? "Multitask mode is on." : "Multitask mode is off.";
 	}
-	sendEvent(ctx, "chat_command_output", {
-		sessionId,
-		command: "multitask",
-		text,
-	});
 	if (!["", "on", "off", "stop"].includes(arg)) return { task };
 	return {
 		sessionId,

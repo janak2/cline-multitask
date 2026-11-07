@@ -3448,11 +3448,14 @@ describe("/multitask", () => {
 		}
 	});
 
-	it("turns the mode on without a model call and sends it with later turns", async () => {
+	it.each([
+		"/multitask",
+		"/multitask on",
+	])("%s silently turns the mode on and sends it with later turns", async (command) => {
 		const { ctx, send, sessionId, events, sendPrompt } =
 			createMultitaskContext();
 
-		await expect(sendPrompt("/multitask")).resolves.toMatchObject({
+		await expect(sendPrompt(command)).resolves.toMatchObject({
 			ok: true,
 			commandHandled: true,
 			multitask: true,
@@ -3461,15 +3464,39 @@ describe("/multitask", () => {
 		expect(events("multitask_state")).toEqual([
 			expect.objectContaining({ sessionId, enabled: true }),
 		]);
-		expect(events("chat_command_output")).toEqual([
-			expect.objectContaining({ text: "Multitask mode is on." }),
-		]);
+		expect(events("chat_command_output")).toEqual([]);
 
 		const session = ctx.liveSessions.get(sessionId);
 		if (session) session.busy = false;
 		await sendPrompt("add dark mode");
 		expect(send).toHaveBeenCalledWith(
 			expect.objectContaining({ prompt: "add dark mode", multitask: true }),
+		);
+	});
+
+	it("silently turns the mode off and sends it with later turns", async () => {
+		const { ctx, send, sessionId, events, sendPrompt } =
+			createMultitaskContext();
+		await sendPrompt("/multitask on");
+
+		await expect(sendPrompt("/multitask off")).resolves.toMatchObject({
+			ok: true,
+			commandHandled: true,
+			multitask: false,
+		});
+		expect(send).not.toHaveBeenCalled();
+		expect(ctx.liveSessions.get(sessionId)?.multitask).toBe(false);
+		expect(events("multitask_state")).toEqual([
+			expect.objectContaining({ sessionId, enabled: true }),
+			expect.objectContaining({ sessionId, enabled: false }),
+		]);
+		expect(events("chat_command_output")).toEqual([]);
+
+		const session = ctx.liveSessions.get(sessionId);
+		if (session) session.busy = false;
+		await sendPrompt("add dark mode");
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "add dark mode", multitask: false }),
 		);
 	});
 
@@ -3489,6 +3516,7 @@ describe("/multitask", () => {
 			expect.objectContaining({ sessionId, enabled: true }),
 		]);
 		expect(session?.prompt).toBe("/multitask Add dark mode");
+		expect(events("chat_command_output")).toEqual([]);
 	});
 
 	it("is refused when the Teams tool is disabled", async () => {
