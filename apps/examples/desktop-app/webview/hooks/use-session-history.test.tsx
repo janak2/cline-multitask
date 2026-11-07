@@ -67,8 +67,8 @@ let root: Root;
 let current: SessionHistoryHook;
 let pendingLists: PendingList[];
 
-function HookHarness() {
-	current = useSessionHistory({});
+function HookHarness({ activeSessionId }: { activeSessionId?: string } = {}) {
+	current = useSessionHistory({ activeSessionId });
 	return null;
 }
 
@@ -107,6 +107,185 @@ afterEach(async () => {
 	container.remove();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+});
+
+describe("useSessionHistory unread output", () => {
+	const id = sessionKey({ sessionId: "chat" });
+	async function mount() {
+		await act(async () => root.render(<HookHarness />));
+		await flush();
+		await act(async () => pendingLists[0].resolve([sessionRow("chat")]));
+	}
+	async function emit(
+		stream: string,
+		chunk = "{}",
+		index?: number,
+		boot = "boot-1",
+	) {
+		await act(async () =>
+			subscribers.get("chat_event")?.({
+				sessionId: "chat",
+				stream,
+				chunk,
+				index,
+				boot,
+			}),
+		);
+	}
+	it.each([
+		["chat_usage", '{"inputTokens":1,"totalCost":2}'],
+		["chat_core_log", '{"level":"error","message":"internal diagnostic"}'],
+		[
+			"chat_core_log",
+			'{"message":"Reconnecting","metadata":{"hubReconnect":"started"}}',
+		],
+		["chat_command_output", '{"message":"mode changed"}'],
+		["chat_done", '{"reason":"completed"}'],
+		["chat_done", '{"reason":"aborted"}'],
+		["chat_queued_prompt_start", '{"prompt":"old prompt"}'],
+		["chat_text", "  "],
+		["chat_media", "{}"],
+		["chat_reasoning", '{"text":42}'],
+		[
+			"chat_tool_call_end",
+			'{"toolCallId":"unmatched","output":"stale result"}',
+		],
+		[
+			"chat_tool_call_update",
+			'{"toolCallId":"unmatched","update":{"stream":"stderr","chunk":"stale"}}',
+		],
+		[
+			"chat_tool_call_update",
+			'{"toolCallId":"tool","update":{"heartbeat":true}}',
+		],
+	])("does not mark %s bookkeeping or empty output unread", async (stream, chunk) => {
+		await mount();
+		await emit(stream, chunk);
+		expect(current.unreadSessionIds.size).toBe(0);
+	});
+	it.each([
+		["chat_text", "New answer, including a visible teammate result"],
+		[
+			"chat_media",
+			'{"id":"generated-1","modality":"image","mediaType":"image/webp","source":{"type":"base64","data":"aGVsbG8="}}',
+		],
+		["chat_reasoning", '{"text":"Considering the next step"}'],
+		["chat_tool_call_start", '{"toolCallId":"tool","toolName":"run_commands"}'],
+		[
+			"chat_tool_call_update",
+			'{"toolCallId":"tool","update":{"stream":"stdout","chunk":"result"}}',
+		],
+		["chat_tool_call_end", '{"toolCallId":"tool","output":"result"}'],
+		["chat_done", '{"reason":"error"}'],
+		[
+			"chat_core_log",
+			'{"message":"Plugin failed","metadata":{"pluginIssue":true}}',
+		],
+	])("marks visible %s output unread, then viewing clears it", async (stream, chunk) => {
+		await mount();
+		if (stream === "chat_tool_call_update" || stream === "chat_tool_call_end") {
+			await act(async () => root.render(<HookHarness activeSessionId={id} />));
+			await emit(
+				"chat_tool_call_start",
+				'{"toolCallId":"tool","toolName":"run_commands"}',
+				0,
+			);
+			await act(async () => root.render(<HookHarness />));
+		}
+		await emit(stream, chunk, 1);
+		expect(current.unreadSessionIds.has(id)).toBe(true);
+		await act(async () => root.render(<HookHarness activeSessionId={id} />));
+		expect(current.unreadSessionIds.size).toBe(0);
+		await emit(stream, chunk, 2);
+		expect(current.unreadSessionIds.size).toBe(0);
+	});
+	it("keeps viewed output read through switching, duplicate replay, and late bookkeeping", async () => {
+		await mount();
+		await emit("chat_text", "answer", 10);
+		await act(async () => current.openThread(id));
+		expect(current.unreadSessionIds.size).toBe(0);
+		await emit("chat_text", "answer continued while opening", 11);
+		expect(current.unreadSessionIds.size).toBe(0);
+		await act(async () => root.render(<HookHarness activeSessionId={id} />));
+		await act(async () => root.render(<HookHarness />));
+		await emit("chat_text", "replayed answer", 11);
+		await emit("chat_text", "out of order answer", 9);
+		await emit("chat_usage", '{"inputTokens":1}', 12);
+		await act(async () => {
+			subscribers.get("chat_session_status")?.({
+				sessionId: "chat",
+				status: "completed",
+			});
+			subscribers.get("chat_session_ended")?.({ sessionId: "chat" });
+		});
+		expect(current.unreadSessionIds.size).toBe(0);
+		await emit("chat_text", "new output", 13);
+		expect(current.unreadSessionIds.has(id)).toBe(true);
+		await act(async () => current.openThread(id));
+		await act(async () => root.render(<HookHarness activeSessionId={id} />));
+		await act(async () => root.render(<HookHarness />));
+		await emit("chat_text", "new process output", 1, "boot-2");
+		expect(current.unreadSessionIds.has(id)).toBe(true);
+	});
+	it("does not mark hydration or status-only activity unread", async () => {
+		await mount();
+		await act(async () => {
+			subscribers.get("chat_session_status")?.({
+				sessionId: "chat",
+				status: "running",
+			});
+			subscribers.get("chat_session_ended")?.({ sessionId: "chat" });
+		});
+		await flush(12_000);
+		await act(async () =>
+			pendingLists[1].resolve([
+				{ ...sessionRow("chat"), lastActivityAt: "2026-07-22T10:00:00Z" },
+			]),
+		);
+		expect(current.unreadSessionIds.size).toBe(0);
+	});
+	it("separates replay counters and unread state by environment", async () => {
+		await mount();
+		await act(async () => root.render(<HookHarness activeSessionId={id} />));
+		await emit("chat_text", "viewed local output", 50);
+		await act(async () =>
+			subscribers.get("chat_event")?.({
+				sessionId: "chat",
+				environmentId: "remote",
+				stream: "chat_text",
+				chunk: "new remote output",
+				index: 1,
+				boot: "boot-1",
+			}),
+		);
+		expect(current.unreadSessionIds.has(id)).toBe(false);
+		expect(
+			current.unreadSessionIds.has(
+				sessionKey({ sessionId: "chat", environmentId: "remote" }),
+			),
+		).toBe(true);
+	});
+	it("preserves visible failure-only messages without relighting on duplicate failure notifications", async () => {
+		await mount();
+		await act(async () =>
+			subscribers.get("chat_session_ended")?.({
+				sessionId: "chat",
+				reason: "failed",
+			}),
+		);
+		expect(current.unreadSessionIds.has(id)).toBe(true);
+		await act(async () => current.openThread(id));
+		await act(async () => root.render(<HookHarness activeSessionId={id} />));
+		await act(async () => root.render(<HookHarness />));
+		await emit("chat_done", '{"reason":"error"}', 1);
+		await act(async () =>
+			subscribers.get("chat_session_ended")?.({
+				sessionId: "chat",
+				reason: "failed",
+			}),
+		);
+		expect(current.unreadSessionIds.size).toBe(0);
+	});
 });
 
 describe("useSessionHistory session mapping", () => {

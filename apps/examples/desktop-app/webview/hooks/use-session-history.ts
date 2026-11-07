@@ -16,6 +16,7 @@ export {
 
 import { normalizeTitle } from "@/components/utils";
 import { toast } from "@/hooks/use-toast";
+import { isVisibleChatOutput, readOutputToolCallId } from "@/lib/chat-output";
 import { humanizeCloudSessionError } from "@/lib/cloud-session-error";
 import { desktopClient } from "@/lib/desktop-client";
 import type {
@@ -113,12 +114,16 @@ type SidecarSessionStateEvent = {
 	environmentId?: string;
 	sessionId?: string;
 	status?: string;
+	reason?: string;
 };
 
 type SidecarChatEvent = {
 	environmentId?: string;
 	sessionId?: string;
 	stream?: string;
+	chunk?: string;
+	index?: number;
+	boot?: string;
 	ts?: number;
 };
 
@@ -595,6 +600,10 @@ export function useSessionHistory({
 	const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
+	const viewedSessionRef = useRef(activeSessionId);
+	const streamIndicesRef = useRef(new Map<string, number>());
+	const liveOutputToolsRef = useRef(new Map<string, Set<string>>());
+	const reportedFailuresRef = useRef(new Set<string>());
 	// Rows a view currently has on screen beyond the default window (the
 	// sessions view reports its visible page and clears it on unmount). Each
 	// call replaces the previous set rather than adding to it, so the set is
@@ -662,6 +671,7 @@ export function useSessionHistory({
 	}, [threads]);
 
 	useEffect(() => {
+		viewedSessionRef.current = activeSessionId;
 		if (!activeSessionId) {
 			return;
 		}
@@ -1286,13 +1296,6 @@ export function useSessionHistory({
 						force: true,
 					});
 				}
-				if (sessionId !== activeSessionId) {
-					setUnreadSessionIds((current) => {
-						const next = new Set(current);
-						next.add(sessionId);
-						return next;
-					});
-				}
 			},
 		);
 		// Account/org switches must refresh the sidebar without waiting for polling.
@@ -1323,20 +1326,21 @@ export function useSessionHistory({
 				}
 				const record = payload as SidecarSessionStateEvent;
 				if (record.sessionId?.trim()) {
+					const id = sessionKey({
+						sessionId: record.sessionId,
+						environmentId: record.environmentId,
+					});
+					if (
+						(record.reason === "error" || record.reason === "failed") &&
+						!reportedFailuresRef.current.has(id)
+					) {
+						reportedFailuresRef.current.add(id);
+						if (id !== viewedSessionRef.current)
+							setUnreadSessionIds((current) => new Set([...current, id]));
+					}
 					scheduleRefresh(HISTORY_TERMINAL_REFRESH_DELAY_MS, {
 						force: true,
 					});
-					const sessionId = sessionKey({
-						sessionId: record.sessionId.trim(),
-						environmentId: record.environmentId,
-					});
-					if (sessionId !== activeSessionId) {
-						setUnreadSessionIds((current) => {
-							const next = new Set(current);
-							next.add(sessionId);
-							return next;
-						});
-					}
 				}
 			},
 		);
@@ -1361,6 +1365,44 @@ export function useSessionHistory({
 					return;
 				}
 				const record = payload as SidecarChatEvent;
+				if (!record.sessionId?.trim()) return;
+				const streamKey = JSON.stringify([
+					sessionKey({
+						sessionId: record.sessionId,
+						environmentId: record.environmentId,
+					}),
+					record.boot ?? "",
+				]);
+				if (typeof record.index === "number" && Number.isFinite(record.index)) {
+					const previous = streamIndicesRef.current.get(streamKey);
+					if (previous !== undefined && record.index <= previous) return;
+					streamIndicesRef.current.set(streamKey, record.index);
+				}
+				const toolId = readOutputToolCallId(record.chunk);
+				let visibleOutput = isVisibleChatOutput(record.stream, record.chunk);
+				if (
+					record.stream === "chat_tool_call_start" &&
+					toolId &&
+					visibleOutput
+				) {
+					const tools =
+						liveOutputToolsRef.current.get(streamKey) ?? new Set<string>();
+					tools.add(toolId);
+					liveOutputToolsRef.current.set(streamKey, tools);
+				} else if (
+					record.stream === "chat_tool_call_update" ||
+					record.stream === "chat_tool_call_end"
+				) {
+					visibleOutput =
+						visibleOutput &&
+						Boolean(
+							toolId && liveOutputToolsRef.current.get(streamKey)?.has(toolId),
+						);
+					if (record.stream === "chat_tool_call_end" && toolId)
+						liveOutputToolsRef.current.get(streamKey)?.delete(toolId);
+				} else if (record.stream === "chat_done") {
+					liveOutputToolsRef.current.delete(streamKey);
+				}
 				if (
 					isSessionActivityStream(record.stream) &&
 					Number.isFinite(record.ts)
@@ -1397,13 +1439,19 @@ export function useSessionHistory({
 				if (!sessionId) {
 					return;
 				}
+				if (visibleOutput && record.stream !== "chat_done")
+					reportedFailuresRef.current.delete(sessionId);
+				if (record.stream === "chat_done" && visibleOutput) {
+					visibleOutput = !reportedFailuresRef.current.has(sessionId);
+					reportedFailuresRef.current.add(sessionId);
+				}
 				const known = sessionsRef.current.some(
 					(session) => sessionKey(session) === sessionId,
 				);
 				if (!known) {
 					scheduleRefresh(HISTORY_EVENT_REFRESH_DELAY_MS);
 				}
-				if (sessionId !== activeSessionId) {
+				if (sessionId !== viewedSessionRef.current && visibleOutput) {
 					setUnreadSessionIds((current) => {
 						const next = new Set(current);
 						next.add(sessionId);
@@ -1428,7 +1476,7 @@ export function useSessionHistory({
 			unsubscribeTransportImport();
 			unsubscribeTransportChatEvent();
 		};
-	}, [activeSessionId, scheduleRefresh]);
+	}, [scheduleRefresh]);
 
 	useEffect(() => {
 		const recent = sessions
@@ -1532,6 +1580,7 @@ export function useSessionHistory({
 		(threadId: string) => {
 			const session = getSessionByThreadId(threadId);
 			if (session) {
+				viewedSessionRef.current = threadId;
 				setUnreadSessionIds((current) => {
 					if (!current.has(threadId)) {
 						return current;

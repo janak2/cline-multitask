@@ -53,6 +53,7 @@ import type {
 	ToolCallUpdateEvent,
 } from "@/hooks/chat-session/types";
 import { toast } from "@/hooks/use-toast";
+import { readPluginIssueWarning } from "@/lib/chat-output";
 import {
 	type ChatMessage,
 	ChatMessageImageSchema,
@@ -156,23 +157,6 @@ function makePluginIssueMessage(
 		createdAt: Date.now(),
 		meta: { messageKind: "plugin_issue" },
 	};
-}
-
-/** The notice text when a core log chunk reports a plugin issue. */
-function readPluginIssueWarning(chunk: string): string | undefined {
-	try {
-		const parsed = JSON.parse(chunk) as {
-			message?: unknown;
-			metadata?: { pluginIssue?: unknown };
-		};
-		return parsed.metadata?.pluginIssue &&
-			typeof parsed.message === "string" &&
-			parsed.message.trim()
-			? parsed.message.trim()
-			: undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 function makeErrorChatMessage(
