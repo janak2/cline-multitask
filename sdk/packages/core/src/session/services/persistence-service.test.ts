@@ -499,6 +499,9 @@ describe("UnifiedSessionPersistenceService", () => {
 				sessionArtifactsDir: sessionsDir,
 			});
 			await resumed.onTeamTaskStart(root, "worker", "Follow up", true);
+			expect(resumed.activeTeamTaskSessionId(root, "worker")).toBe(
+				first.sessionId,
+			);
 			const continuedRows = (await resumed.listSessions(10)).filter(
 				(row) => row.agentId === "worker",
 			);
@@ -524,6 +527,7 @@ describe("UnifiedSessionPersistenceService", () => {
 				[...messages, { role: "user", content: "Follow up" }],
 			);
 			expect(readFileSync(first.messagesPath, "utf8")).toContain("Follow up");
+			expect(resumed.activeTeamTaskSessionId(root, "worker")).toBeUndefined();
 			await resumed.onTeamTaskStart(root, "worker", "Fresh task", false);
 			await resumed.onTeamTaskEnd(root, "worker", "completed");
 			const freshRows = (await resumed.listSessions(10)).filter(

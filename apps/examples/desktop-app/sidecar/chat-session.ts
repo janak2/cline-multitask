@@ -1227,6 +1227,7 @@ async function handleAttach(
 	const existing = ctx.liveSessions.get(sessionId);
 	await binding.hubClient.command("session.attach", { sessionId }, sessionId);
 	const baseAttachedConfig: JsonRecord = {
+		parentSessionId: session.parentSessionId,
 		...(existing?.config ?? {}),
 		...(request.config ?? {}),
 		...(readSessionReasoning(metadata) ?? {}),

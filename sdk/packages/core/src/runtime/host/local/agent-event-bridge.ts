@@ -13,6 +13,7 @@ import {
 	handleAgentEvent,
 } from "../../../services/agent-events";
 import { captureAgentCreated } from "../../../services/telemetry/core-events";
+import { makeSubSessionId } from "../../../session/models/session-graph";
 import {
 	dispatchTeamEventToBackend,
 	emitTeamProgress,
@@ -35,10 +36,15 @@ export interface AgentEventBridgeDeps {
 		entry: { prompt: string; delivery: "queue" | "steer" },
 	): void;
 	invokeBackendOptional(method: string, ...args: unknown[]): Promise<void>;
+	activeTeamTaskSessionId?(
+		rootSessionId: string,
+		agentId: string,
+	): Promise<string | undefined>;
 }
 
 export class AgentEventBridge {
 	constructor(private readonly deps: AgentEventBridgeDeps) {}
+	private readonly teamEventQueues = new Map<string, Promise<void>>();
 
 	/**
 	 * Last agent identity stamped on each session's events while the session
@@ -99,6 +105,20 @@ export class AgentEventBridge {
 			...(liveSession ? {} : this.lastKnownIdentityBySession.get(sessionId)),
 			isPrimaryAgentEvent: false,
 		});
+		if (
+			liveSession &&
+			eventMetadata.agentId &&
+			eventMetadata.parentAgentId &&
+			event.type !== "error"
+		) {
+			this.deps.emit({
+				type: "agent_event",
+				payload: {
+					sessionId: makeSubSessionId(sessionId, eventMetadata.agentId),
+					event,
+				},
+			});
+		}
 	}
 
 	private rememberSessionIdentity(
@@ -120,13 +140,28 @@ export class AgentEventBridge {
 		}
 	}
 
-	async handleTeamEvent(
+	handleTeamEvent(rootSessionId: string, event: TeamEvent): Promise<void> {
+		const session = this.deps.getSession(rootSessionId);
+		if (session) trackTeamRunState(session, event);
+		const pending = (
+			this.teamEventQueues.get(rootSessionId) ?? Promise.resolve()
+		).then(() => this.processTeamEvent(rootSessionId, event));
+		const settled = pending
+			.catch(() => {})
+			.finally(() => {
+				if (this.teamEventQueues.get(rootSessionId) === settled)
+					this.teamEventQueues.delete(rootSessionId);
+			});
+		this.teamEventQueues.set(rootSessionId, settled);
+		return pending;
+	}
+
+	private async processTeamEvent(
 		rootSessionId: string,
 		event: TeamEvent,
 	): Promise<void> {
 		const session = this.deps.getSession(rootSessionId);
 		if (session) {
-			trackTeamRunState(session, event);
 			if (event.type === "agent_event") {
 				const ctx: AgentEventContext = {
 					sessionId: rootSessionId,
@@ -143,6 +178,20 @@ export class AgentEventBridge {
 					teamAgentId: event.agentId,
 					isPrimaryAgentEvent: false,
 				});
+				const childSessionId = await this.deps.activeTeamTaskSessionId?.(
+					rootSessionId,
+					event.agentId,
+				);
+				if (
+					childSessionId &&
+					event.event.type !== "done" &&
+					event.event.type !== "error"
+				) {
+					this.deps.emit({
+						type: "agent_event",
+						payload: { sessionId: childSessionId, event: event.event },
+					});
+				}
 			}
 			if (event.type === "teammate_spawned") {
 				const agentIdentity = buildTelemetryAgentIdentity({
@@ -166,11 +215,49 @@ export class AgentEventBridge {
 			}
 		}
 
+		const endingChild =
+			event.type === "task_end"
+				? await this.deps.activeTeamTaskSessionId?.(
+						rootSessionId,
+						event.agentId,
+					)
+				: undefined;
 		await dispatchTeamEventToBackend(
 			rootSessionId,
 			event,
 			this.deps.invokeBackendOptional,
 		);
+		if (event.type === "task_start") {
+			const childSessionId = await this.deps.activeTeamTaskSessionId?.(
+				rootSessionId,
+				event.agentId,
+			);
+			if (childSessionId)
+				this.deps.emit({
+					type: "status",
+					payload: { sessionId: childSessionId, status: "running" },
+				});
+		}
+		if (endingChild && event.type === "task_end") {
+			this.deps.emit({
+				type: "agent_event",
+				payload: {
+					sessionId: endingChild,
+					event: {
+						type: "done",
+						parentAgentId: session ? readAgentId(session.agent) : "lead",
+						reason:
+							event.status === "failed" || event.error
+								? "error"
+								: event.status === "cancelled"
+									? "aborted"
+									: (event.result?.finishReason ?? "completed"),
+						text: event.result?.text ?? "",
+						iterations: event.result?.iterations ?? 0,
+					},
+				},
+			});
+		}
 
 		if (session) {
 			emitTeamProgress(session, rootSessionId, event, this.deps.emit);

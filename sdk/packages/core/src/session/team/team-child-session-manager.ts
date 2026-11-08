@@ -65,14 +65,14 @@ export class TeamChildSessionManager {
 		return `${rootSessionId}::${agentId}`;
 	}
 
-	private activeTeamTaskSessionId(
+	activeTeamTaskSessionId(
 		rootSessionId: string,
 		parentAgentId: string,
 	): string | undefined {
 		const queue = this.teamTaskSessionsByAgent.get(
 			this.teamTaskQueueKey(rootSessionId, parentAgentId),
 		);
-		return queue?.at(-1);
+		return queue?.[0];
 	}
 
 	private buildSubsessionRow(

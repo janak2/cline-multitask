@@ -435,6 +435,99 @@ afterEach(async () => {
 });
 
 describe("useChatSession", () => {
+	it("shows incremental selected child output before completion and ignores stale child events after switching", async () => {
+		vi.useFakeTimers();
+		try {
+			let completed = false;
+			const history = (
+				sessionId: string,
+			): Parameters<ChatSessionHook["hydrateSession"]>[0] => ({
+				sessionId,
+				environmentId: "local",
+				status: "running",
+				provider: "cline",
+				model: "test-model",
+				cwd: "/workspace/cline",
+				workspaceRoot: "/workspace/cline",
+				startedAt: "2026-01-01T00:00:00Z",
+			});
+			invokeMock.mockImplementation(
+				async (command: string, args?: Record<string, unknown>) => {
+					if (
+						command === "read_session_messages" &&
+						completed &&
+						args?.sessionId === "saved-child"
+					)
+						return [
+							{
+								id: "canonical",
+								sessionId: "saved-child",
+								role: "assistant",
+								content: "first second",
+								createdAt: 1,
+							},
+						];
+					if (command === "chat_session_command") {
+						const request = args?.request as { sessionId: string };
+						return history(request.sessionId);
+					}
+					return [];
+				},
+			);
+			await act(async () => current.hydrateSession(history("saved-child")));
+			const stream = handlerFor("chat_event");
+			const emit = (sessionId: string, text: string, index: number) =>
+				stream({
+					environmentId: "local",
+					sessionId,
+					stream: "chat_text",
+					chunk: text,
+					index,
+				});
+			await act(async () => {
+				emit("saved-child", "first ", 1);
+				await vi.advanceTimersByTimeAsync(50);
+			});
+			expect(
+				current.messages.some((message) => message.content === "first "),
+			).toBe(true);
+			await act(async () => {
+				emit("saved-child", "second", 2);
+				await vi.advanceTimersByTimeAsync(50);
+			});
+			expect(
+				current.messages
+					.filter((message) => message.role === "assistant")
+					.map((message) => message.content),
+			).toEqual(["first second"]);
+			expect(current.status).toBe("running");
+			await act(async () => {
+				completed = true;
+				handlerFor("chat_session_ended")({
+					environmentId: "local",
+					sessionId: "saved-child",
+					reason: "completed",
+				});
+				await vi.advanceTimersByTimeAsync(500);
+			});
+			expect(
+				current.messages
+					.filter((message) => message.role === "assistant")
+					.map((message) => message.content),
+			).toEqual(["first second"]);
+			await act(async () => current.hydrateSession(history("other-child")));
+			await act(async () => {
+				emit("saved-child", "stale", 3);
+				emit("other-child", "fresh", 1);
+				await vi.advanceTimersByTimeAsync(50);
+			});
+			expect(current.messages.map((message) => message.content)).toEqual([
+				"fresh",
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("persists independent chat efforts, restores them after switching/reload, and sends the selected effort", async () => {
 		const saved = new Map<string, Record<string, unknown>>([
 			["A", { reasoning: { thinking: true, reasoningEffort: "low" } }],

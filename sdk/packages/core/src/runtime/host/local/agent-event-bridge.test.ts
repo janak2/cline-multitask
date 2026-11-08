@@ -1,6 +1,7 @@
-import type { AgentEvent } from "@cline/shared";
+import { type AgentEvent, TeamMessageType } from "@cline/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreSessionConfig } from "../../../types/config";
+import type { CoreSessionEvent } from "../../../types/events";
 import type { ActiveSession } from "../../../types/session";
 import {
 	AgentEventBridge,
@@ -29,7 +30,143 @@ function createBridge(
 	return new AgentEventBridge(deps);
 }
 
+describe("teammate live conversation routing", () => {
+	it("streams ordered updates before completion and resolves a continued child from the active task", async () => {
+		const emitted: CoreSessionEvent[] = [];
+		let activeChild: string | undefined;
+		let releaseStart!: () => void;
+		let persisted = false;
+		const startGate = new Promise<void>((resolve) => {
+			releaseStart = resolve;
+		});
+		const session = {
+			agent: { getAgentId: () => "lead" },
+			config: {},
+			runtime: {},
+			activeTeamRunIds: new Set(),
+		} as unknown as ActiveSession;
+		const bridge = new AgentEventBridge({
+			getSession: () => session,
+			usageBySession: new Map(),
+			aggregateUsageBySession: new Map(),
+			persistMessages: vi.fn(),
+			enqueuePendingPrompt: vi.fn(),
+			emit: (event) => {
+				emitted.push(event);
+			},
+			activeTeamTaskSessionId: async () => activeChild,
+			invokeBackendOptional: async (method) => {
+				if (method === "onTeamTaskStart") {
+					await startGate;
+					activeChild = "saved-continued-child";
+				}
+				if (method === "onTeamTaskEnd") {
+					persisted = true;
+					activeChild = undefined;
+				}
+			},
+		});
+		const start = bridge.handleTeamEvent("parent", {
+			type: TeamMessageType.TaskStart,
+			agentId: "worker",
+			message: "continue",
+			continueConversation: true,
+		});
+		const childEvents = () =>
+			emitted.filter(
+				(event) =>
+					event.type === "agent_event" &&
+					event.payload.sessionId === "saved-continued-child",
+			);
+		const update = (event: AgentEvent) =>
+			bridge.handleTeamEvent("parent", {
+				type: TeamMessageType.AgentEvent,
+				agentId: "worker",
+				event,
+			});
+		const first = update({
+			type: "content_start",
+			contentType: "text",
+			text: "first ",
+		});
+		expect(childEvents()).toHaveLength(0);
+		releaseStart();
+		await Promise.all([start, first]);
+		expect(childEvents()).toHaveLength(1);
+		expect(persisted).toBe(false);
+		await update({
+			type: "content_start",
+			contentType: "reasoning",
+			reasoning: "thinking",
+		});
+		await update({
+			type: "content_start",
+			contentType: "tool",
+			toolCallId: "call",
+			toolName: "read_files",
+			input: {},
+		});
+		await update({
+			type: "content_end",
+			contentType: "tool",
+			toolCallId: "call",
+			toolName: "read_files",
+			output: "read",
+		});
+		await update({
+			type: "content_start",
+			contentType: "text",
+			text: "second",
+		});
+		expect(childEvents()).toHaveLength(5);
+		expect(persisted).toBe(false);
+		await update({
+			type: "done",
+			reason: "completed",
+			text: "first second",
+			iterations: 1,
+		});
+		expect(childEvents()).toHaveLength(5);
+		await bridge.handleTeamEvent("parent", {
+			type: TeamMessageType.TaskEnd,
+			agentId: "worker",
+		});
+		expect(persisted).toBe(true);
+		expect(childEvents()).toHaveLength(6);
+		await bridge.handleTeamEvent("parent", {
+			type: TeamMessageType.TaskEnd,
+			agentId: "worker",
+		});
+		expect(childEvents()).toHaveLength(6);
+	});
+});
+
 describe("AgentEventBridge.dispatchAgentEvent", () => {
+	it("routes subagent deltas to its saved child session without changing parent routing", () => {
+		const { bridge, deps, config } = createDispatchFixture();
+		bridge.dispatchAgentEvent("session-1", config, {
+			type: "content_start",
+			contentType: "text",
+			text: "live child",
+			agentId: "child-agent",
+			parentAgentId: "agent-1",
+			conversationId: "child-conversation",
+		});
+		expect(deps.emit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "agent_event",
+				payload: expect.objectContaining({
+					sessionId: "session-1__child-agent",
+				}),
+			}),
+		);
+		expect(deps.emit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "agent_event",
+				payload: expect.objectContaining({ sessionId: "session-1" }),
+			}),
+		);
+	});
 	function createDispatchFixture() {
 		const telemetry = createTelemetryStub();
 		const config = {
@@ -54,7 +191,13 @@ describe("AgentEventBridge.dispatchAgentEvent", () => {
 			emit: vi.fn(),
 			persistMessages: vi.fn(),
 		} as unknown as AgentEventBridgeDeps;
-		return { telemetry, config, sessions, bridge: new AgentEventBridge(deps) };
+		return {
+			telemetry,
+			config,
+			sessions,
+			deps,
+			bridge: new AgentEventBridge(deps),
+		};
 	}
 
 	const toolEvent = {

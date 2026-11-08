@@ -2029,6 +2029,71 @@ describe("disposeSidecarContext attachment cleanup", () => {
 });
 
 describe("Chat chunk pipe selection", () => {
+	it("streams a saved child through the observer before completion, then ends without replaying text", async () => {
+		const { handleHubLiveEvent } = await import("./context");
+		const ctx = await createStreamingContext("saved-child");
+		const child = ctx.liveSessions.get("saved-child");
+		if (child) child.config.parentSessionId = "parent";
+		for (const text of ["first ", "second"]) {
+			handleHubLiveEvent(ctx, {
+				event: "assistant.delta",
+				sessionId: "saved-child",
+				payload: {
+					text,
+					agent: { parentAgentId: "lead", agentId: "new-runtime-id" },
+				},
+			});
+		}
+		handleHubLiveEvent(ctx, {
+			event: "reasoning.delta",
+			sessionId: "saved-child",
+			payload: { text: "thinking" },
+		});
+		handleHubLiveEvent(ctx, {
+			event: "tool.started",
+			sessionId: "saved-child",
+			payload: { toolCallId: "call", toolName: "read_files" },
+		});
+		handleHubLiveEvent(ctx, {
+			event: "tool.finished",
+			sessionId: "saved-child",
+			payload: { toolCallId: "call", toolName: "read_files", output: "read" },
+		});
+		expect(chunksFor(ctx, "chat_text")).toEqual(["first ", "second"]);
+		expect(chunksFor(ctx, "chat_reasoning")).toHaveLength(1);
+		expect(chunksFor(ctx, "chat_tool_call_end")).toHaveLength(1);
+		expect(eventsFor(ctx, "chat_session_ended")).toHaveLength(0);
+		handleHubLiveEvent(ctx, {
+			event: "agent.done",
+			sessionId: "saved-child",
+			payload: {
+				reason: "completed",
+				text: "first second",
+				agent: { parentAgentId: "lead" },
+			},
+		});
+		expect(eventsFor(ctx, "chat_session_ended")).toHaveLength(1);
+		expect(chunksFor(ctx, "chat_text")).toEqual(["first ", "second"]);
+		handleHubLiveEvent(ctx, {
+			event: "session.updated",
+			sessionId: "saved-child",
+			sequence: 2,
+			payload: { session: { status: "running" } },
+		});
+		expect(child?.busy).toBe(true);
+		expect(child?.endedAt).toBeUndefined();
+	});
+
+	it("does not let a nested agent completion end the attached parent", async () => {
+		const { handleHubLiveEvent } = await import("./context");
+		const ctx = await createStreamingContext("parent");
+		handleHubLiveEvent(ctx, {
+			event: "agent.done",
+			sessionId: "parent",
+			payload: { reason: "completed", agent: { parentAgentId: "lead" } },
+		});
+		expect(eventsFor(ctx, "chat_session_ended")).toHaveLength(0);
+	});
 	async function createStreamingContext(
 		sessionId: string,
 		coreSubscriptions: Set<string> = new Set(),

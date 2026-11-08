@@ -363,6 +363,13 @@ completion updates that conversation with the cumulative runtime history.
 Fresh runs still allocate distinct child conversations. Individual async run
 records remain separate from these conversation entries.
 
+The local event bridge orders each root's team events behind task-start
+persistence. It resolves the active saved child ID for each teammate update
+and publishes text, reasoning, and tool events under that child ID as well as
+the existing parent stream. Parent usage accounting is unchanged. Child
+completion is published only after final history is saved, so attached views
+can replace live output with canonical history without replaying the final text.
+
 Workspace bootstrap is owned by the runtime that executes the session. Hub
 clients preserve an omitted `cwd` and `workspaceRoot` across the transport so
 the hub-side execution host can place the session in the shared chat

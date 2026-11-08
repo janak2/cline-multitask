@@ -395,6 +395,13 @@ export class UnifiedSessionPersistenceService {
 		);
 	}
 
+	activeTeamTaskSessionId(
+		rootSessionId: string,
+		agentId: string,
+	): string | undefined {
+		return this.teamChildren.activeTeamTaskSessionId(rootSessionId, agentId);
+	}
+
 	onTeamTaskEnd(
 		rootSessionId: string,
 		agentId: string,

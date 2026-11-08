@@ -433,6 +433,12 @@ export class LocalRuntimeHost implements RuntimeHost {
 			delete: async (input) => this.pendingPromptsController.delete(input),
 		};
 		this.eventBridge = new AgentEventBridge({
+			activeTeamTaskSessionId: (rootSessionId, agentId) =>
+				this.invokeOptionalValue<string>(
+					"activeTeamTaskSessionId",
+					rootSessionId,
+					agentId,
+				),
 			getSession: (sid) => this.sessions.get(sid),
 			usageBySession: this.usageBySession,
 			aggregateUsageBySession: this.aggregateUsageBySession,

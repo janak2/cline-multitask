@@ -1006,6 +1006,16 @@ export function handleHubLiveEvent(
 	if (agent?.teamRole === "teammate" && event.event !== "usage.updated") {
 		return;
 	}
+	if (event.event === "agent.done") {
+		const identity = event.payload?.agent as
+			| { parentAgentId?: unknown }
+			| undefined;
+		if (
+			typeof identity?.parentAgentId !== "string" ||
+			!session.config.parentSessionId
+		)
+			return;
+	}
 
 	switch (event.event) {
 		case "assistant.delta": {
@@ -1198,7 +1208,8 @@ export function handleHubLiveEvent(
 				event.event === "session.updated" &&
 				status === "running" &&
 				session.endedAt !== undefined &&
-				!session.busy
+				!session.busy &&
+				!session.config.parentSessionId
 			) {
 				return;
 			}
@@ -1207,11 +1218,14 @@ export function handleHubLiveEvent(
 			const statusChanged = session.status !== status;
 			session.status = status;
 			session.busy = status === "running";
+			if (session.busy && session.config.parentSessionId)
+				session.endedAt = undefined;
 			if (statusChanged) {
 				sendEvent(ctx, "chat_session_status", { sessionId, status });
 			}
 			return;
 		}
+		case "agent.done":
 		case "run.completed":
 		case "run.failed":
 		case "run.aborted": {
