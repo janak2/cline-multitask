@@ -634,6 +634,16 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 		}
 
 		let teamRuntime: AgentTeamsRuntime | undefined;
+		let delegationEnabled = input.teamDelegationEnabled !== false;
+		const guardDelegation = (tool: AgentTool): AgentTool => ({
+			...tool,
+			execute: async (toolInput, context) => {
+				if (!delegationEnabled) {
+					throw new Error("Multitask is off. New teammate work is disabled.");
+				}
+				return tool.execute(toolInput, context);
+			},
+		});
 		const teamStore = normalized.enableAgentTeams
 			? createLocalTeamStore()
 			: undefined;
@@ -724,7 +734,7 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 							onSubAgentEnd: input.onSubAgentEnd,
 						}),
 						effectiveToolPolicies,
-					),
+					).map(guardDelegation),
 				);
 			}
 		}
@@ -840,13 +850,13 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 
 		if (normalized.enableSpawnAgent && createSpawnTool) {
 			const spawnTool = createSpawnTool();
-			const delegate: AgentTool = {
+			const delegate = guardDelegation({
 				...spawnTool,
 				execute: async (spawnInput, context) => {
 					ensureTeamRuntime();
 					return spawnTool.execute(spawnInput, context);
 				},
-			};
+			});
 			tools.push(delegate);
 			if (
 				normalized.enableTools &&
@@ -917,6 +927,10 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 			logger: logger ?? config.logger,
 			telemetry: telemetry ?? config.telemetry,
 			teamRuntime,
+			setDelegationEnabled: (enabled) => {
+				delegationEnabled = enabled;
+				teamRuntime?.setDelegationEnabled(enabled);
+			},
 			teamRestoredFromPersistence: Boolean(restoredTeamState),
 			delegatedAgentConfigProvider:
 				this.teamRuntimeEntries.get(registryKey)

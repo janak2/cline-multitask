@@ -51,6 +51,7 @@ export interface BuiltRuntime {
 	logger?: BasicLogger;
 	telemetry?: ITelemetryService;
 	teamRuntime?: AgentTeamsRuntime;
+	setDelegationEnabled?: (enabled: boolean) => void;
 	teamRestoredFromPersistence?: boolean;
 	delegatedAgentConfigProvider?: DelegatedAgentConfigProvider;
 	extensions?: AgentConfig["extensions"];

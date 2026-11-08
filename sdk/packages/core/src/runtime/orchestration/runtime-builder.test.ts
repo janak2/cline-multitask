@@ -116,6 +116,76 @@ describe("DefaultRuntimeBuilder", () => {
 	it.each([
 		"spawn_agent",
 		"ux_verifier",
+	])("blocks %s after Multitask is disabled, including retained tool handles", async (name) => {
+		const execute = vi.fn().mockResolvedValue({ ok: true });
+		const runtime = await new DefaultRuntimeBuilder().build({
+			config: makeBaseConfig({ enableSpawnAgent: true }),
+			createSpawnTool: () => ({ ...makeSpawnTool(), execute }),
+			configExtensions: [],
+		});
+		const tool = runtime.tools.find((candidate) => candidate.name === name);
+		if (!tool || !runtime.setDelegationEnabled)
+			throw new Error("Missing delegation control");
+		const input =
+			name === "ux_verifier"
+				? {
+						task: "Check",
+						checklist: [{ id: "a", steps: ["Open"], expected: "Visible" }],
+					}
+				: {};
+		const context = { agentId: "lead", iteration: 1 };
+		try {
+			await tool.execute(input, context);
+			expect(execute).toHaveBeenCalledTimes(1);
+			runtime.setDelegationEnabled(false);
+			await expect(tool.execute(input, context)).rejects.toThrow(
+				"Multitask is off",
+			);
+			expect(execute).toHaveBeenCalledTimes(1);
+			runtime.setDelegationEnabled(true);
+			await tool.execute(input, context);
+			expect(execute).toHaveBeenCalledTimes(2);
+		} finally {
+			await runtime.shutdown("test");
+		}
+	});
+
+	it("blocks configured subagents and standalone spawning when restored with Multitask off", async () => {
+		const root = mkdtempSync(join(tmpdir(), "cline-off-agents-"));
+		tempDirs.push(root);
+		mkdirSync(join(root, ".cline", "agents"), { recursive: true });
+		writeFileSync(
+			join(root, ".cline", "agents", "reviewer.yml"),
+			"---\nname: reviewer\ndescription: Review files\n---\nReview files.",
+		);
+		const execute = vi.fn();
+		const runtime = await new DefaultRuntimeBuilder().build({
+			config: makeBaseConfig({
+				cwd: root,
+				workspaceRoot: root,
+				enableSpawnAgent: true,
+			}),
+			teamDelegationEnabled: false,
+			createSpawnTool: () => ({ ...makeSpawnTool(), execute }),
+			configExtensions: [],
+		});
+		try {
+			for (const name of ["spawn_agent", "subagent_reviewer"]) {
+				const tool = runtime.tools.find((candidate) => candidate.name === name);
+				if (!tool) throw new Error(`Missing ${name}`);
+				await expect(
+					tool.execute({}, { agentId: "lead", iteration: 1 }),
+				).rejects.toThrow("Multitask is off");
+			}
+			expect(execute).not.toHaveBeenCalled();
+		} finally {
+			await runtime.shutdown("test");
+		}
+	});
+
+	it.each([
+		"spawn_agent",
+		"ux_verifier",
 	])("honors the %s tool opt-out without bypassing it through UX delegation", async (disabled) => {
 		const runtime = await new DefaultRuntimeBuilder().build({
 			config: makeBaseConfig({ enableSpawnAgent: true }),

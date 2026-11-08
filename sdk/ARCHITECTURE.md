@@ -538,6 +538,10 @@ Design implication:
 	turn's abort signal through their `SessionRuntime`. The team runtime marks
 	intentional abort task-end events as cancelled so persistence does not record
 	them as failures.
+- Multitask metadata updates and turn inputs update the live runtime's delegation
+  control. Turning it off blocks new team work, standalone `spawn_agent`,
+  configured subagents, and UX workers, including previously registered tools.
+  Already-running work is left alone.
 - The usage service's `getAccumulatedUsage(sessionId)` method returns a summary
   with two explicit buckets: `usage` for the root/lead agent and
   `aggregateUsage` for root plus teammates/subagents. Local execution tracks

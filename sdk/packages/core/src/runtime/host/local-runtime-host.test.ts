@@ -8069,6 +8069,9 @@ describe("LocalRuntimeHost", () => {
 				}
 			});
 			const setDelegationEnabled = vi.fn();
+			const setRuntimeDelegationEnabled = vi.fn((enabled: boolean) => {
+				setDelegationEnabled(enabled);
+			});
 			const runtimeBuilder = {
 				build: vi
 					.fn()
@@ -8079,6 +8082,7 @@ describe("LocalRuntimeHost", () => {
 							return {
 								tools: [],
 								completionPolicy: { completionGuard: () => "keep going" },
+								setDelegationEnabled: setRuntimeDelegationEnabled,
 								teamRuntime: {
 									getTeamId: vi.fn().mockReturnValue("team_test"),
 									getTeamName: vi.fn().mockReturnValue("test"),
@@ -8180,6 +8184,7 @@ describe("LocalRuntimeHost", () => {
 				cancelOutstandingWork,
 				setDelegationEnabled,
 				runtimeBuilder,
+				setRuntimeDelegationEnabled,
 				agent,
 				turn,
 				prompts,
@@ -8210,6 +8215,9 @@ describe("LocalRuntimeHost", () => {
 				});
 				expect(host.session().multitask).toBe(enabled);
 				expect(host.setDelegationEnabled).toHaveBeenLastCalledWith(enabled);
+				expect(host.setRuntimeDelegationEnabled).toHaveBeenLastCalledWith(
+					enabled,
+				);
 			}
 			expect(host.cancelOutstandingWork).not.toHaveBeenCalled();
 			await host.manager.runTurn({

@@ -1312,7 +1312,11 @@ export class LocalRuntimeHost implements RuntimeHost {
 		const session = this.getSessionOrThrow(input.sessionId);
 		if (input.multitask !== undefined) {
 			session.multitask = input.multitask;
-			session.runtime.teamRuntime?.setDelegationEnabled(input.multitask);
+			if (session.runtime.setDelegationEnabled) {
+				session.runtime.setDelegationEnabled(input.multitask);
+			} else {
+				session.runtime.teamRuntime?.setDelegationEnabled(input.multitask);
+			}
 			for (const pending of session.pendingPrompts) {
 				pending.multitask = input.multitask;
 			}
@@ -1677,7 +1681,11 @@ export class LocalRuntimeHost implements RuntimeHost {
 				...activeSession.sessionMetadata,
 				multitask,
 			};
-			activeSession.runtime.teamRuntime?.setDelegationEnabled(multitask);
+			if (activeSession.runtime.setDelegationEnabled) {
+				activeSession.runtime.setDelegationEnabled(multitask);
+			} else {
+				activeSession.runtime.teamRuntime?.setDelegationEnabled(multitask);
+			}
 			for (const pending of activeSession.pendingPrompts) {
 				pending.multitask = multitask;
 			}
