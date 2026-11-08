@@ -936,6 +936,7 @@ export class AgentTeamsRuntime {
 
 		const wrappedConfig: TeamMemberConfig = {
 			...config,
+			initialMessages: existing?.agent?.getMessages() ?? config.initialMessages,
 			apiTimeoutMs: TEAMMATE_API_TIMEOUT_MS,
 			consumePendingUserMessage: () => {
 				const member = this.members.get(agentId);

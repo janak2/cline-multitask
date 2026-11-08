@@ -55,6 +55,25 @@ describe("resolveTeamDataDir", () => {
 });
 
 describe("createAgentTeamsTools schema surface", () => {
+	it("documents idle role updates separately from temporary task scope", () => {
+		const tools = createAgentTeamsTools({
+			runtime: new AgentTeamsRuntime({ teamName: "scope-guidance" }),
+			requesterId: "lead",
+			teammateConfigProvider: makeTeammateConfigProvider(),
+		});
+		const spawn = tools.find((tool) => tool.name === "team_spawn_teammate");
+		const run = tools.find((tool) => tool.name === "team_run_task");
+		expect(spawn?.description).toContain("same agentId and a new rolePrompt");
+		expect(spawn?.description).toContain("Preserves conversation history");
+		expect(run?.description).toContain("does not change the system role");
+		expect(JSON.stringify(spawn?.inputSchema)).toContain(
+			"temporary read-only investigation limits in team_run_task.task",
+		);
+		expect(JSON.stringify(run?.inputSchema)).toContain(
+			"user-authorized implementation after a read-only investigation",
+		);
+	});
+
 	it("exposes a compact task action tool plus strict schemas elsewhere", () => {
 		const runtime = new AgentTeamsRuntime({ teamName: "test-team" });
 		const tools = createAgentTeamsTools({

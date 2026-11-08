@@ -19,7 +19,7 @@ const { createSessionRuntimeMock } = vi.hoisted(() => {
 			canStartRun: vi.fn(() => true),
 			getAgentId: vi.fn(() => "teammate-1"),
 			getConversationId: vi.fn(() => "conv-1"),
-			getMessages: vi.fn(() => []),
+			getMessages: vi.fn((): AgentResult["messages"] => []),
 			subscribeEvents: vi.fn(() => () => {}),
 		};
 	});
@@ -149,6 +149,54 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 			message: "Follow up",
 			continueConversation: true,
 		});
+	});
+
+	it("refreshes an idle read-only role and retains history for authorized implementation", async () => {
+		const history: AgentResult["messages"] = [
+			{ role: "user", content: "Investigate only; do not edit in this task." },
+			{ role: "assistant", content: "Found the cause." },
+		];
+		const investigate = vi.fn(async () => ({
+			...createAbortedResult(),
+			finishReason: "completed" as const,
+			messages: history,
+		}));
+		mockNextSessionRuntime({
+			run: investigate,
+			getMessages: vi.fn(() => history),
+		});
+		const runtime = new AgentTeamsRuntime({ teamName: "scope-transition" });
+		const config = {
+			providerId: "anthropic",
+			modelId: "test-model",
+			systemPrompt: "Read-only investigator. Never edit files.",
+			tools: [],
+		};
+		runtime.spawnTeammate({ agentId: "worker", config });
+		await runtime.routeToTeammate("worker", "Investigate the bug read-only.");
+
+		const implement = vi.fn(async () => createAbortedResult());
+		mockNextSessionRuntime({ continue: implement });
+		runtime.spawnTeammate({
+			agentId: "worker",
+			config: {
+				...config,
+				systemPrompt:
+					"Implement approved fixes; preserve safety and approval rules.",
+			},
+		});
+		expect(createSessionRuntimeMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				systemPrompt:
+					"Implement approved fixes; preserve safety and approval rules.",
+				initialMessages: history,
+			}),
+		);
+		await runtime.routeToTeammate("worker", "User approved implementation.", {
+			continueConversation: true,
+		});
+		expect(implement).toHaveBeenCalledWith("User approved implementation.");
+		expect(investigate).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not emit task_start when teammate is already busy", async () => {

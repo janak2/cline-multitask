@@ -65,7 +65,9 @@ export const TeamSpawnTeammateInputSchema = z
 		rolePrompt: z
 			.string()
 			.min(1)
-			.describe("System prompt describing teammate role"),
+			.describe(
+				"Durable teammate system role. Put temporary read-only investigation limits in team_run_task.task instead. To update an idle teammate's role, call team_spawn_teammate with the same agentId and a new rolePrompt; then use continueConversation true to retain its conversation. Role updates must respect developer restrictions, Plan mode, safety, and required user approval.",
+			),
 	})
 	.strict();
 
@@ -125,13 +127,18 @@ export const TeamTaskInputSchema = z
 
 export const TeamRunTaskInputSchema = z.object({
 	agentId: z.string().describe("Teammate agent ID"),
-	task: z.string().min(1).describe("Task instructions for the teammate"),
+	task: z
+		.string()
+		.min(1)
+		.describe(
+			"Task instructions and temporary scope for this run. For user-authorized implementation after a read-only investigation, explicitly replace the earlier temporary scope. This does not override the teammate's system role or higher-priority restrictions.",
+		),
 	taskId: nullableOptional(z.string()).describe("Optional shared task list ID"),
 	runMode: nullableOptional(z.enum(["sync", "async"])).describe(
 		"Execution mode: 'sync' blocks until the teammate finishes and returns the result (default if omitted); 'async' queues the run and returns a runId immediately — use team_await_runs to collect results later.",
 	),
 	continueConversation: nullableOptional(z.boolean()).describe(
-		"If true, continue the teammate conversation; otherwise start fresh",
+		"If true, continue the teammate conversation; otherwise start fresh. Does not change the system role. If the role itself forbids the approved work, the lead must first update the idle teammate via team_spawn_teammate with the same agentId and a revised rolePrompt.",
 	),
 });
 

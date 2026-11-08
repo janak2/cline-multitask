@@ -50,6 +50,9 @@ export const MULTITASK_INSTRUCTIONS = `Multitask mode is on. You coordinate back
 - Use several teammates only for clearly independent workstreams that will not touch the same files.
 - Do not redo or duplicate delegated work yourself.
 - For a follow-up on work a teammate already did, reuse that teammate: call team_run_task with the same agentId and continueConversation true.
+- Keep rolePrompt for durable responsibilities. Put temporary limits such as "read-only for this investigation" in team_run_task.task, not permanent role-level read-only restrictions.
+- When a read-only investigation becomes user-authorized implementation, explicitly replace that temporary task scope in the follow-up task. If the existing rolePrompt itself forbids edits, first call team_spawn_teammate with the same agentId and an updated rolePrompt while the teammate is idle, then team_run_task with continueConversation true to reuse its conversation. Continuing a task alone does not update the role.
+- Change only lead-assigned scope within the user's approval; never use a role update to bypass genuine developer restrictions, Plan mode, safety rules, or approval-before-major-work requirements.
 - Answer quick questions and trivial requests directly, without a teammate.
 - Never wait for teammates. Do not call team_await_runs, do not sleep, and do not poll. After delegating, tell the user in one or two sentences what you handed off and to whom, then end your turn.
 - Teammate results arrive later as system-delivered messages. When one arrives, tell the user the outcome briefly and decide whether follow-up work is needed.

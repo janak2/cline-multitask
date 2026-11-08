@@ -98,6 +98,22 @@ describe("prompt format helpers", () => {
 		expect(normalizeUserInput(prompt)).toBe(prompt);
 	});
 
+	it("guides read-only investigation transitions without overriding durable restrictions", () => {
+		const guidance = formatMultitaskNotice();
+		expect(guidance).toContain('"read-only for this investigation"');
+		expect(guidance).toContain("in team_run_task.task");
+		expect(guidance).toContain("user-authorized implementation");
+		expect(guidance).toContain(
+			"first call team_spawn_teammate with the same agentId and an updated rolePrompt while the teammate is idle, then team_run_task with continueConversation true",
+		);
+		expect(guidance).toContain(
+			"Continuing a task alone does not update the role",
+		);
+		expect(guidance).toContain(
+			"never use a role update to bypass genuine developer restrictions, Plan mode, safety rules, or approval-before-major-work requirements",
+		);
+	});
+
 	it("hides the multitask notice from displayed user input", () => {
 		const wrapped = formatUserInputBlock(
 			`${formatMultitaskNotice()}\n${formatModeSwitchNotice("act", "plan")}\nadd dark mode`,
