@@ -575,7 +575,11 @@ describe("NodeHubClient", () => {
 	it.each([
 		"read",
 		"plugin execution",
-	])("recovers a lost %s reply without replaying plugin side effects", async (kind) => {
+		"run.start",
+		"run.enqueue",
+		"session.send_input",
+		"prompt before dispatch",
+	] as const)("handles a lost %s reply without replaying side effects", async (kind) => {
 		vi.resetModules();
 		const originalWebSocket = globalThis.WebSocket;
 		const recoveredUrl = "ws://127.0.0.1:25464/hub";
@@ -602,6 +606,14 @@ describe("NodeHubClient", () => {
 				_protocols?: string | string[],
 			) {
 				queueMicrotask(() => {
+					if (
+						kind === "prompt before dispatch" &&
+						this.url.includes(":25463/")
+					) {
+						this.readyState = 3;
+						this.emit("error", new Error("connection refused"));
+						return;
+					}
 					this.readyState = 1;
 					this.emit("open");
 				});
@@ -729,7 +741,7 @@ describe("NodeHubClient", () => {
 				expect(beforeDispatch).toHaveBeenCalledTimes(2);
 				expect(executed).toHaveBeenCalledTimes(2);
 				expect(client.getUrl()).toBe(recoveredUrl);
-			} else {
+			} else if (kind === "plugin execution") {
 				const { createHubPluginCommandsApi } = await import(
 					"./plugin-commands"
 				);
@@ -742,6 +754,16 @@ describe("NodeHubClient", () => {
 				expect(executed).toHaveBeenCalledExactlyOnceWith(
 					"plugins.commands.run",
 				);
+			} else if (kind === "prompt before dispatch") {
+				await expect(
+					client.command("run.start", { input: "send only once" }, "session-1"),
+				).resolves.toMatchObject({ ok: true });
+				expect(executed).toHaveBeenCalledExactlyOnceWith("run.start");
+			} else {
+				await expect(
+					client.command(kind, { input: "send only once" }, "session-1"),
+				).rejects.toMatchObject({ code: "hub_connection_closed" });
+				expect(executed).toHaveBeenCalledExactlyOnceWith(kind);
 			}
 			await client.dispose();
 		} finally {

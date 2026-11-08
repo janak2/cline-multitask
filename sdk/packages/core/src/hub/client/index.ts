@@ -723,6 +723,11 @@ export class NodeHubClient {
 	): Promise<HubReplyEnvelope> {
 		let attempt = 0;
 		let dispatched = false;
+		// A lost reply does not mean the prompt was rejected. Retrying can queue it twice.
+		const submitsPrompt =
+			command === "run.start" ||
+			command === "run.enqueue" ||
+			command === "session.send_input";
 		const dispatchOptions = {
 			...options,
 			onDispatch: (requestId: string) => {
@@ -743,7 +748,8 @@ export class NodeHubClient {
 			} catch (error) {
 				if (
 					!canRecoverTransport ||
-					(dispatched && options?.retryAfterDispatch === false) ||
+					(dispatched &&
+						(submitsPrompt || options?.retryAfterDispatch === false)) ||
 					attempt >= 1 ||
 					!(await this.recoverLocalHubTransport(error))
 				) {
