@@ -1450,11 +1450,22 @@ describe("first-send connection updates", () => {
 		}
 	});
 
-	it("tracks chat activity but not diagnostic output", () => {
+	it("tracks completed responses but not streaming or diagnostic output", () => {
 		const { ctx, sessionId } = createContext();
-		broadcastChunk(ctx, sessionId, "chat_core_log", "diagnostic");
-		expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toBeUndefined();
-		broadcastChunk(ctx, sessionId, "chat_text", "answer");
+		for (const stream of [
+			"chat_core_log",
+			"chat_text",
+			"chat_reasoning",
+			"chat_media",
+			"chat_tool_call_start",
+			"chat_tool_call_update",
+			"chat_tool_call_end",
+			"chat_queued_prompt_start",
+		]) {
+			broadcastChunk(ctx, sessionId, stream, "progress");
+			expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toBeUndefined();
+		}
+		broadcastChunk(ctx, sessionId, "chat_done", '{"reason":"completed"}');
 		expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toEqual(
 			expect.any(Number),
 		);

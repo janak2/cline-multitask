@@ -289,9 +289,10 @@ describe("useSessionHistory unread output", () => {
 });
 
 describe("useSessionHistory session mapping", () => {
-	it("keeps live activity through stale polls without changing grouping metadata or pagination", async () => {
+	it("reorders only on completion and keeps completed activity through stale polls", async () => {
 		const active = {
 			...sessionRow("old-active"),
+			prompt: "Working on a response",
 			endedAt: undefined,
 			status: "running",
 			metadata: { pinned: true },
@@ -310,19 +311,54 @@ describe("useSessionHistory session mapping", () => {
 			"old-active",
 		]);
 		await flush(12_000);
+		for (const stream of [
+			"chat_text",
+			"chat_reasoning",
+			"chat_media",
+			"chat_tool_call_start",
+			"chat_tool_call_update",
+			"chat_tool_call_end",
+			"chat_queued_prompt_start",
+		]) {
+			await act(async () =>
+				subscribers.get("chat_event")?.({
+					sessionId: "old-active",
+					stream,
+					chunk: "progress",
+					ts: Date.parse("2026-07-22T10:00:00Z"),
+				}),
+			);
+			expect(current.sessions.map((s) => s.sessionId)).toEqual([
+				"new-idle",
+				"old-active",
+			]);
+			expect(current.threads.map((s) => s.id)).toEqual(
+				[idle, active].map(sessionKey),
+			);
+		}
+		await act(async () =>
+			pendingLists[1].resolve([
+				idle,
+				{ ...active, lastActivityAt: "2026-07-22T10:00:00Z" },
+			]),
+		);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[idle, active].map(sessionKey),
+		);
 		await act(async () =>
 			subscribers.get("chat_event")?.({
 				sessionId: "old-active",
-				stream: "chat_text",
-				ts: Date.parse("2026-07-22T10:00:00Z"),
+				stream: "chat_done",
+				chunk: '{"reason":"completed"}',
+				ts: Date.parse("2026-07-22T10:01:00Z"),
 			}),
 		);
 		expect(current.sessions.map((s) => s.sessionId)).toEqual([
 			"old-active",
 			"new-idle",
 		]);
-		for (let i = 1; i <= 2; i++) {
-			if (i > 1) await flush(12_000);
+		for (let i = 2; i <= 3; i++) {
+			await flush(12_000);
 			await act(async () => pendingLists[i].resolve([idle, active]));
 			expect(current.sessions.map((s) => s.sessionId)).toEqual([
 				"old-active",

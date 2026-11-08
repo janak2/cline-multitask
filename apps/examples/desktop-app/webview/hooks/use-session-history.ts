@@ -547,6 +547,13 @@ function mergeDiscoveredSessions(
 			if (!existing) {
 				return session;
 			}
+			if (session.status === "running") {
+				session = {
+					...session,
+					lastActivityAt: existing.lastActivityAt,
+					endedAt: existing.endedAt,
+				};
+			}
 			if (
 				sessionActivityTimestamp(existing) > sessionActivityTimestamp(session)
 			) {

@@ -39,11 +39,5 @@ export function compareSessionsByActivityDesc(
 }
 
 export function isSessionActivityStream(stream?: string): boolean {
-	return (
-		stream === "chat_text" ||
-		stream === "chat_reasoning" ||
-		stream === "chat_media" ||
-		stream === "chat_tool_call_start" ||
-		stream === "chat_queued_prompt_start"
-	);
+	return stream === "chat_done";
 }
