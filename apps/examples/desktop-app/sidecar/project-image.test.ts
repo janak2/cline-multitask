@@ -8,6 +8,7 @@ import {
 	PROJECT_IMAGE_LIMIT_BYTES,
 	readLocalProjectImage,
 } from "./project-image";
+import { validateLocalProjectReference } from "./project-reference";
 
 const binding = vi.hoisted(() =>
 	vi.fn(() => ({ kind: "local", environmentId: "local" })),
@@ -66,5 +67,35 @@ it("requires trusted connections and refuses remote bytes", async () => {
 	binding.mockReturnValue({ kind: "remote", environmentId: "ssh" });
 	await expect(
 		handleCommand(ctx, "read_project_image", args, options),
+	).rejects.toThrow(/only in local workspaces/);
+});
+
+it("validates linked files through the trusted command and rejects missing, directory and symlink targets", async () => {
+	const ctx = createSidecarContext(root);
+	const path = join(root, "guide space.md");
+	writeFileSync(path, "# Guide");
+	const args = { workspaceRoot: root, path };
+	const options = {
+		connection: { send: vi.fn(), data: { canApproveTools: true } },
+	};
+	await expect(
+		handleCommand(ctx, "validate_project_reference", args),
+	).rejects.toThrow(/trusted desktop/);
+	await expect(
+		handleCommand(ctx, "validate_project_reference", args, options),
+	).resolves.toEqual({ path });
+	expect(() =>
+		validateLocalProjectReference(root, join(root, "missing")),
+	).toThrow(/missing/);
+	expect(() => validateLocalProjectReference(root, root)).toThrow(/not a file/);
+	symlinkSync(tmpdir(), join(root, "escape"));
+	expect(() =>
+		validateLocalProjectReference(root, join(root, "escape")),
+	).toThrow(/outside the workspace/);
+	symlinkSync(path, join(root, "safe.md"));
+	expect(validateLocalProjectReference(root, join(root, "safe.md"))).toBe(path);
+	binding.mockReturnValue({ kind: "remote", environmentId: "ssh" });
+	await expect(
+		handleCommand(ctx, "validate_project_reference", args, options),
 	).rejects.toThrow(/only in local workspaces/);
 });

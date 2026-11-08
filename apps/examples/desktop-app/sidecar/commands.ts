@@ -1,10 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import {
-	copyProjectEntries,
-	openContainingProjectFolder,
-	readCopiedFiles,
-	readDroppedFiles,
-} from "./project-clipboard";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -186,7 +180,12 @@ import {
 	sharedSessionDataDir,
 } from "./paths";
 import { listPluginCommands } from "./plugin-commands";
-import { readLocalProjectImage } from "./project-image";
+import {
+	copyProjectEntries,
+	openContainingProjectFolder,
+	readCopiedFiles,
+	readDroppedFiles,
+} from "./project-clipboard";
 import {
 	createLocalProjectDirectory,
 	deleteLocalProjectEntry,
@@ -197,6 +196,8 @@ import {
 	readProjectFile,
 	writeLocalProjectFile,
 } from "./project-files";
+import { readLocalProjectImage } from "./project-image";
+import { validateLocalProjectReference } from "./project-reference";
 import { getPullRequestStatus } from "./pull-request";
 import { capturePullRequestEvent } from "./pull-request-telemetry";
 import { resolveDesktopRemoteHelper } from "./remote-helper";
@@ -2226,7 +2227,8 @@ export async function handleCommand(
 		command === "list_project_entries" ||
 		command === "read_project_file" ||
 		command === "read_project_pdf" ||
-		command === "read_project_image"
+		command === "read_project_image" ||
+		command === "validate_project_reference"
 	) {
 		if (!options?.connection?.data?.canApproveTools) {
 			throw new Error("project files require a trusted desktop connection");
@@ -2235,6 +2237,13 @@ export async function handleCommand(
 		const root = String(args?.workspaceRoot ?? "").trim();
 		if (!root) throw new Error("workspaceRoot is required");
 		const path = String(args?.path ?? "") || root;
+		if (command === "validate_project_reference") {
+			if (binding.kind !== "local")
+				throw new Error(
+					"Linked file validation is currently available only in local workspaces",
+				);
+			return { path: validateLocalProjectReference(root, path) };
+		}
 		if (command === "read_project_image") {
 			if (binding.kind !== "local")
 				throw new Error(

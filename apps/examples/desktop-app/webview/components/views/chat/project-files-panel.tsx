@@ -17,8 +17,6 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PdfViewer } from "./pdf-viewer";
-import { MarkdownFileViewer } from "./markdown-file-viewer";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -66,6 +64,7 @@ import { toast } from "@/hooks/use-toast";
 import { desktopClient } from "@/lib/desktop-client";
 import { FileViewScrollArea, useFileViewState } from "@/lib/file-view-state";
 import { readProjectFolders, writeProjectFolders } from "@/lib/project-folders";
+import { projectReferenceRoot } from "@/lib/project-reference-root";
 import type { SessionFileDiff } from "@/lib/session-diff";
 import { cn } from "@/lib/utils";
 import {
@@ -74,6 +73,8 @@ import {
 } from "@/lib/workspace-paths";
 import { FileIcon, FolderIcon } from "./file-icons";
 import { CodeDiff, CodeFile } from "./highlighted-code";
+import { MarkdownFileViewer } from "./markdown-file-viewer";
+import { PdfViewer } from "./pdf-viewer";
 import {
 	type DiffScope,
 	SOURCE_CONTROL_STATUS_CLASS,
@@ -348,12 +349,8 @@ export function ProjectFilesPanel({
 	// the repository root.
 	const rootFor = useCallback(
 		(path: string) =>
-			[treeRoot, workspaceRoot].find((root) =>
-				path.startsWith(root.replace(/[\\/]+$/, "")),
-			) ??
-			repoRoot ??
-			workspaceRoot,
-		[repoRoot, treeRoot, workspaceRoot],
+			projectReferenceRoot(path, workspaceRoot, folders, repoRoot),
+		[repoRoot, folders, workspaceRoot],
 	);
 
 	// Listings carry a per-path generation so a slow response (SSH) cannot

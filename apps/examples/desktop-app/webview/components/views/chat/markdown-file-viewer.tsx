@@ -29,7 +29,9 @@ function DocumentImage({
 		const target = resolveMarkdownPath(path, workspaceRoot, source);
 		if (!target) {
 			setState({
-				error: "Image blocked: only relative workspace images are supported",
+				error: /^(https?:|\/\/)/i.test(source)
+					? "Remote image not loaded for privacy"
+					: "Unsafe image blocked: only relative workspace images are supported",
 			});
 			return;
 		}
@@ -113,7 +115,18 @@ export function MarkdownFileViewer({
 			const resolved = resolveMarkdownPath(path, workspaceRoot, href);
 			if (resolved) {
 				setLinkError(undefined);
-				onOpenFile(resolved);
+				void desktopClient
+					.invoke<{ path: string }>("validate_project_reference", {
+						path: resolved,
+						workspaceRoot,
+						environmentId,
+					})
+					.then((target) => onOpenFile(target.path))
+					.catch((error) =>
+						setLinkError(
+							error instanceof Error ? error.message : "Unable to open file",
+						),
+					);
 			} else
 				setLinkError(
 					"Link blocked: target must be a relative file inside this workspace",
@@ -147,7 +160,7 @@ export function MarkdownFileViewer({
 					return <SafeMarkdownLink href={href}>{children}</SafeMarkdownLink>;
 				return (
 					<a
-						href={href || "#"}
+						href={href?.startsWith("#") ? href : "#document-reference"}
 						onClick={(event) => {
 							event.preventDefault();
 							if (href) openReference(href);

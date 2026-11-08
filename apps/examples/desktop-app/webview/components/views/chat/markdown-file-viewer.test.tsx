@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FileViewStateProvider } from "@/lib/file-view-state";
+import { handleCommand } from "../../../../sidecar/commands";
+import { createSidecarContext } from "../../../../sidecar/context";
 import { MarkdownFileViewer } from "./markdown-file-viewer";
+
+vi.mock("../../../../sidecar/context", async (original) => ({
+	...(await original<typeof import("../../../../sidecar/context")>()),
+	getRuntimeBinding: () => ({ kind: "local", environmentId: "local" }),
+}));
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), open: vi.fn() }));
 vi.mock("@/lib/desktop-client", () => ({
@@ -26,9 +42,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	URL.createObjectURL = vi.fn(() => "blob:workspace-image");
 	URL.revokeObjectURL = vi.fn();
-	mocks.invoke.mockResolvedValue({
-		contentBase64: btoa("PNG\0\xff"),
-		mimeType: "image/png",
+	mocks.invoke.mockImplementation(async (command, args) => {
+		if (command === "validate_project_reference") return { path: args.path };
+		return { contentBase64: btoa("PNG\0\xff"), mimeType: "image/png" };
 	});
 	container = document.createElement("div");
 	document.body.append(container);
@@ -38,14 +54,19 @@ afterEach(async () => {
 	await act(async () => root.unmount());
 	container.remove();
 });
-async function render(content: string, key = "session-a", truncated = false) {
+async function render(
+	content: string,
+	key = "session-a",
+	truncated = false,
+	workspaceRoot = "/repo",
+) {
 	await act(async () =>
 		root.render(
 			<FileViewStateProvider value={key}>
 				<MarkdownFileViewer
 					content={content}
-					path="/repo/docs/README.md"
-					workspaceRoot="/repo"
+					path={`${workspaceRoot}/docs/README.md`}
+					workspaceRoot={workspaceRoot}
 					environmentId="local"
 					onOpenFile={onOpenFile}
 					truncated={truncated}
@@ -92,7 +113,11 @@ it("opens relative files without navigation and keeps unsafe HTML inert", async 
 	expect(container.querySelector("script")).toBeNull();
 	expect(container.innerHTML).not.toContain("onerror");
 	expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
-	expect(mocks.invoke).not.toHaveBeenCalled();
+	expect(mocks.invoke).toHaveBeenCalledWith("validate_project_reference", {
+		path: "/repo/guide.md",
+		workspaceRoot: "/repo",
+		environmentId: "local",
+	});
 });
 it("reads relative images via authorized binary command and releases URLs", async () => {
 	await render("![chart](../images/a.png)");
@@ -159,4 +184,63 @@ it("assigns heading anchors and scrolls fragments inside the preview", async () 
 	await click("Jump");
 	expect(scroll).toHaveBeenCalled();
 	expect(onOpenFile).not.toHaveBeenCalled();
+});
+
+it("renders bare and spaced references with real hardening and authorized fixture reads", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "cline-document-"));
+	const workspace = join(fixture, "workspace");
+	mkdirSync(join(workspace, "docs"), { recursive: true });
+	mkdirSync(join(fixture, "workspace-sibling"));
+	writeFileSync(join(workspace, "docs", "guide space.md"), "# Guide");
+	writeFileSync(join(workspace, "parent.md"), "# Parent");
+	writeFileSync(join(fixture, "workspace-sibling", "secret.md"), "secret");
+	symlinkSync(join(fixture, "workspace-sibling"), join(workspace, "escape"));
+	const png =
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9s8AAAAASUVORK5CYII=";
+	writeFileSync(
+		join(workspace, "docs", "chart space.png"),
+		Buffer.from(png, "base64"),
+	);
+	const ctx = createSidecarContext(workspace);
+	mocks.invoke.mockImplementation((command, args) =>
+		handleCommand(ctx, command, args, {
+			connection: { send: vi.fn(), data: { canApproveTools: true } },
+		}),
+	);
+	try {
+		await render(
+			"[Bare](<guide space.md>)\n\n[Parent](../parent.md)\n\n![chart](chart%20space.png)\n\n![remote](https://tracker.invalid/x.png)\n\n[Escape](../escape/secret.md)\n\n[Missing](missing.md)",
+			"fixture",
+			false,
+			workspace,
+		);
+		expect(container.textContent).not.toContain("[blocked]");
+		expect(container.textContent).toContain("Remote image not loaded");
+		expect(container.querySelector("img")?.src).toBe("blob:workspace-image");
+		expect(URL.createObjectURL).toHaveBeenCalledWith(
+			expect.objectContaining({
+				size: Buffer.from(png, "base64").length,
+				type: "image/png",
+			}),
+		);
+		await click("Bare");
+		expect(onOpenFile).toHaveBeenLastCalledWith(
+			join(workspace, "docs", "guide space.md"),
+		);
+		await click("Parent");
+		expect(onOpenFile).toHaveBeenLastCalledWith(join(workspace, "parent.md"));
+		onOpenFile.mockClear();
+		await click("Escape");
+		expect(container.textContent).toContain("outside the workspace");
+		await click("Missing");
+		expect(container.textContent).toContain("Linked file is missing");
+		expect(onOpenFile).not.toHaveBeenCalled();
+		expect(
+			container.querySelector(
+				'[src*="document.invalid"], [href*="document.invalid"]',
+			),
+		).toBeNull();
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
 });

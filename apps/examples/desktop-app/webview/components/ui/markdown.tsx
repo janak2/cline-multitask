@@ -407,13 +407,27 @@ function preserveDocumentReferences() {
 }
 
 // Preserve sanitized document-relative references before harden normalizes them.
+const documentHarden = Array.isArray(defaultRehypePlugins.harden)
+	? defaultRehypePlugins.harden[0]
+	: defaultRehypePlugins.harden;
+if (typeof documentHarden !== "function")
+	throw new Error("Streamdown hardener is unavailable");
 const documentRehypePlugins: ComponentProps<
 	typeof Streamdown
 >["rehypePlugins"] = [
 	defaultRehypePlugins.raw,
 	defaultRehypePlugins.sanitize,
 	preserveDocumentReferences,
-	defaultRehypePlugins.harden,
+	[
+		documentHarden,
+		{
+			defaultOrigin: "https://document.invalid/",
+			allowedLinkPrefixes: ["*"],
+			allowedImagePrefixes: ["*"],
+			allowedProtocols: ["tel:"],
+			allowDataImages: false,
+		},
+	],
 ];
 
 export const MemoizedMarkdown = memo(
