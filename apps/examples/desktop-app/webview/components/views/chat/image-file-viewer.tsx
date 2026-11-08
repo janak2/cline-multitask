@@ -11,10 +11,12 @@ export function ImageFileViewer({
 	path,
 	workspaceRoot,
 	environmentId,
+	refreshVersion = 0,
 }: {
 	path: string;
 	workspaceRoot: string;
 	environmentId: string;
+	refreshVersion?: number;
 }) {
 	const identity = JSON.stringify([environmentId, workspaceRoot, path]);
 	const [state, setState] = useState<{
@@ -23,10 +25,10 @@ export function ImageFileViewer({
 		error?: string;
 		loaded?: boolean;
 	}>({ identity });
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refreshVersion is the Files panel's explicit invalidation trigger.
 	useEffect(() => {
 		let cancelled = false;
-		let url: string | undefined;
-		setState({ identity });
+		setState((value) => (value.identity === identity ? value : { identity }));
 		void desktopClient
 			.invoke<{ contentBase64: string; mimeType: string }>(
 				"read_project_image",
@@ -43,35 +45,43 @@ export function ImageFileViewer({
 				const bytes = Uint8Array.from(atob(result.contentBase64), (char) =>
 					char.charCodeAt(0),
 				);
-				url = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
-				setState({ identity, url });
+				const url = URL.createObjectURL(
+					new Blob([bytes], { type: result.mimeType }),
+				);
+				setState((value) => ({
+					identity,
+					url,
+					loaded: value.identity === identity && value.loaded,
+				}));
 			})
 			.catch((error) => {
 				if (!cancelled)
-					setState({
-						identity,
+					setState((value) => ({
+						...(value.identity === identity ? value : { identity }),
 						error:
 							error instanceof Error ? error.message : "Unable to load image",
-					});
+					}));
 			});
 		return () => {
 			cancelled = true;
+		};
+	}, [identity, path, workspaceRoot, environmentId, refreshVersion]);
+	useEffect(() => {
+		const url = state.url;
+		return () => {
 			if (url) URL.revokeObjectURL(url);
 		};
-	}, [identity, path, workspaceRoot, environmentId]);
+	}, [state.url]);
 	const current = state.identity === identity ? state : { identity };
-	if (current.error)
-		return (
-			<div role="alert" className="p-6 text-center">
-				{current.error}
-			</div>
-		);
 	return (
 		<div
 			data-testid="image-file-viewer"
-			className="flex min-h-64 items-center justify-center p-4"
+			className="flex min-h-64 flex-col items-center justify-center gap-2 p-4"
 		>
-			{!current.loaded && <output>Loading image…</output>}
+			{current.error && (
+				<div role="alert">{current.error} — retrying on the next refresh.</div>
+			)}
+			{!current.loaded && !current.error && <output>Loading image…</output>}
 			{current.url && (
 				// biome-ignore lint/performance/noImgElement: authorized runtime Blob, never a network or HTML source.
 				<img
@@ -81,12 +91,14 @@ export function ImageFileViewer({
 					style={{ display: current.loaded ? undefined : "none" }}
 					onLoad={() =>
 						setState((value) =>
-							value.identity === identity ? { ...value, loaded: true } : value,
+							value.identity === identity && value.url === current.url
+								? { ...value, loaded: true }
+								: value,
 						)
 					}
 					onError={() =>
 						setState((value) =>
-							value.identity === identity
+							value.identity === identity && value.url === current.url
 								? { identity, error: "Unable to decode image" }
 								: value,
 						)

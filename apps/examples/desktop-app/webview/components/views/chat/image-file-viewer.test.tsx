@@ -31,6 +31,7 @@ afterEach(async () => {
 async function render(
 	path = join(workspace, "image.png"),
 	environmentId = "local",
+	refreshVersion = 0,
 ) {
 	await act(async () =>
 		root.render(
@@ -38,6 +39,7 @@ async function render(
 				path={path}
 				workspaceRoot={workspace}
 				environmentId={environmentId}
+				refreshVersion={refreshVersion}
 			/>,
 		),
 	);
@@ -131,4 +133,33 @@ it("ignores late reads on path/session environment switch and revokes replaced U
 	await render(join(workspace, "c.png"));
 	expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fixture");
 	expect(container.querySelector("img")?.alt).toBe("c.png");
+});
+
+it("refreshes the same path, preserves its image during transient failures, and ignores superseded reads", async () => {
+	const path = join(workspace, "image.png");
+	invoke.mockResolvedValue({ contentBase64: png, mimeType: "image/png" });
+	URL.createObjectURL = vi
+		.fn()
+		.mockReturnValueOnce("blob:first")
+		.mockReturnValueOnce("blob:updated");
+	await render(path);
+	invoke.mockRejectedValueOnce(new Error("Image changed while reading"));
+	await render(path, "local", 1);
+	expect(container.querySelector("img")?.src).toBe("blob:first");
+	expect(container.textContent).toContain("retrying on the next refresh");
+	let finish: (value: { contentBase64: string; mimeType: string }) => void =
+		() => {};
+	invoke.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	);
+	await render(path, "local", 2);
+	await render(path, "local", 3);
+	expect(container.querySelector("img")?.src).toBe("blob:updated");
+	expect(container.querySelector('[role="alert"]')).toBeNull();
+	expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:first");
+	await act(async () => finish({ contentBase64: png, mimeType: "image/png" }));
+	expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
 });

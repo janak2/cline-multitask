@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +11,7 @@ import {
 	fileViewStorageKey,
 } from "@/lib/file-view-state";
 import type { SessionFileDiff } from "@/lib/session-diff";
+import { readLocalProjectImage } from "../../../../sidecar/project-image";
 import { ProjectFilesPanel } from "./project-files-panel";
 
 const { invokeMock, sourceControlState } = vi.hoisted(() => {
@@ -729,6 +733,78 @@ describe("ProjectFilesPanel files view", () => {
 	async function showFiles() {
 		await click(button(/^Files$/));
 	}
+
+	it("reloads changed fixture bytes at the same path on the normal Files poll without reopening", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "cline-image-refresh-"));
+		const path = join(workspace, "chart.png");
+		const png = Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9s8AAAAASUVORK5CYII=",
+			"base64",
+		);
+		writeFileSync(path, png);
+		const previous = invokeMock.getMockImplementation()!;
+		const blobs: Blob[] = [];
+		URL.createObjectURL = vi.fn((blob: Blob) => {
+			blobs.push(blob);
+			return `blob:read-${blobs.length}`;
+		});
+		URL.revokeObjectURL = vi.fn();
+		let tick: (() => void) | undefined;
+		const interval = window.setInterval.bind(window);
+		vi.spyOn(window, "setInterval").mockImplementation(((
+			callback: () => void,
+			delay: number,
+		) => {
+			if (delay === 5000) tick = callback;
+			return interval(callback, delay);
+		}) as typeof window.setInterval);
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		invokeMock.mockImplementation((async (
+			command: string,
+			args?: Record<string, unknown>,
+		) => {
+			if (command === "list_project_entries")
+				return {
+					entries: [{ name: "chart.png", path, kind: "file" }],
+					truncated: false,
+				};
+			if (command === "read_project_image")
+				return readLocalProjectImage(workspace, path);
+			return previous(command, args);
+		}) as typeof previous);
+		try {
+			await renderSession("refresh", workspace);
+			await showFiles();
+			await click(button(/^chart\.png/));
+			const viewer = container.querySelector(
+				'[data-testid="image-file-viewer"]',
+			);
+			const oldUrl = container.querySelector("img")?.src;
+			const changed = Buffer.concat([
+				png,
+				Buffer.from("updated fixture bytes"),
+			]);
+			writeFileSync(path, changed);
+			if (!tick) throw new Error("Missing Files poll");
+			await act(async () => tick?.());
+			expect(container.querySelector('[data-testid="image-file-viewer"]')).toBe(
+				viewer,
+			);
+			expect(container.querySelector("img")?.src).not.toBe(oldUrl);
+			expect(blobs.at(-1)?.size).toBe(changed.length);
+			expect(URL.revokeObjectURL).toHaveBeenCalledWith(oldUrl);
+			writeFileSync(path, "incomplete write");
+			await act(async () => tick?.());
+			expect(container.textContent).toContain("retrying on the next refresh");
+			writeFileSync(path, png);
+			await act(async () => tick?.());
+			expect(container.querySelector('[role="alert"]')).toBeNull();
+			expect(blobs.at(-1)?.size).toBe(png.length);
+		} finally {
+			invokeMock.mockImplementation(previous);
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
 
 	it("routes image tabs to binary preview and restores them across sessions without text reads", async () => {
 		const previous = invokeMock.getMockImplementation()!;

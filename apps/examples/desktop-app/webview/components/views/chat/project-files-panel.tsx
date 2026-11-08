@@ -264,6 +264,7 @@ export function ProjectFilesPanel({
 		null,
 	);
 	const [files, setFiles] = useState<Map<string, FileState>>(() => new Map());
+	const [imageRefreshVersion, setImageRefreshVersion] = useState(0);
 	const [gitDiffs, setGitDiffs] = useState<Map<string, GitDiffState>>(
 		() => new Map(),
 	);
@@ -344,6 +345,7 @@ export function ProjectFilesPanel({
 	useEffect(() => {
 		setGitDiffs(markStale);
 		setFiles(markStale);
+		setImageRefreshVersion((version) => version + 1);
 	}, [sourceControl.state]);
 	// Files in another of the tree's folders are read against that folder, and
 	// files outside the browsable workspace (a repository above it) against
@@ -443,6 +445,7 @@ export function ProjectFilesPanel({
 			if (document.visibilityState === "visible") {
 				reloadDirectories({ ifIdle: true });
 				setFiles(markStale);
+				setImageRefreshVersion((version) => version + 1);
 			}
 		};
 		const interval = window.setInterval(
@@ -1085,6 +1088,7 @@ export function ProjectFilesPanel({
 				// Discards change what is on disk and in the index.
 				setFiles(markStale);
 				setGitDiffs(markStale);
+				setImageRefreshVersion((version) => version + 1);
 				// A discard can delete untracked files from the tree.
 				if (action.type === "discard") reloadDirectories();
 				return true;
@@ -1806,6 +1810,7 @@ export function ProjectFilesPanel({
 									path={activePath}
 									environmentId={environmentId}
 									workspaceRoot={rootFor(activePath)}
+									refreshVersion={imageRefreshVersion}
 								/>
 							) : /\.pdf$/i.test(activePath) ? (
 								<PdfViewer
