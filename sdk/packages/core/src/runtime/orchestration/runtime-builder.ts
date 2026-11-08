@@ -823,6 +823,9 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 				});
 
 				if (restoredStateHydratedIntoRuntime) {
+					teamRuntime.setDelegationEnabled(
+						input.teamDelegationEnabled !== false,
+					);
 					teamRuntime.recoverActiveRuns("runtime_recovered");
 				}
 
@@ -854,7 +857,9 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 		}
 
 		if (normalized.enableAgentTeams) {
-			ensureTeamRuntime();
+			ensureTeamRuntime()?.setDelegationEnabled(
+				input.teamDelegationEnabled !== false,
+			);
 		}
 
 		const finalTools = filterAvailableTools(tools, effectiveToolPolicies);

@@ -63,8 +63,8 @@ export const MULTITASK_INSTRUCTIONS = `Multitask mode is on. You coordinate back
  * mode. Like <mode_notice>, it reaches the model and is hidden from display
  * by stripModeNotices.
  */
-export function formatMultitaskNotice(): string {
-	return `<multitask_mode>${MULTITASK_INSTRUCTIONS}</multitask_mode>`;
+export function formatMultitaskNotice(enabled = true): string {
+	return `<multitask_mode>${enabled ? MULTITASK_INSTRUCTIONS : "Multitask mode is off. This replaces earlier Multitask-on guidance. Do not spawn teammates, assign new teammate tasks, or run/continue teammate work. Handle the user's request directly. Existing runs may finish; you may inspect their status/results or stop them."}</multitask_mode>`;
 }
 
 export type ModeSwitchNotice = {

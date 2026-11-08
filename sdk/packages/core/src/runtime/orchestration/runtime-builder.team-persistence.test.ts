@@ -52,6 +52,7 @@ class MockAgentTeamsRuntime {
 	}));
 	markStaleRunsInterrupted = vi.fn();
 	recoverActiveRuns = vi.fn();
+	setDelegationEnabled = vi.fn();
 	getTeammateIds = vi.fn(() => []);
 	shutdownTeammate = vi.fn();
 }
@@ -134,8 +135,10 @@ describe("DefaultRuntimeBuilder team persistence boundary", () => {
 		const { DefaultRuntimeBuilder } = await import("./runtime-builder");
 		const onTeamRestored = vi.fn();
 
-		await new DefaultRuntimeBuilder().build({
+		const builder = new DefaultRuntimeBuilder();
+		const input = {
 			config: {
+				sessionId: "toggle-persistence-session",
 				providerId: "anthropic",
 				modelId: "claude-sonnet-4-6",
 				apiKey: "key",
@@ -149,7 +152,17 @@ describe("DefaultRuntimeBuilder team persistence boundary", () => {
 				enableAgentTeams: true,
 			},
 			onTeamRestored,
-		});
+			teamDelegationEnabled: false,
+		};
+		await builder.build(input);
+		expect(runtimeInstance?.setDelegationEnabled).toHaveBeenLastCalledWith(
+			false,
+		);
+		expect(
+			runtimeInstance?.setDelegationEnabled.mock.invocationCallOrder[0],
+		).toBeLessThan(
+			runtimeInstance?.recoverActiveRuns.mock.invocationCallOrder[0] ?? 0,
+		);
 
 		expect(bootstrapAgentTeamsMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -265,6 +278,14 @@ describe("DefaultRuntimeBuilder team persistence boundary", () => {
 					expect.objectContaining({ agentId: "java-poet" }),
 				]),
 			}),
+		);
+		const originalRuntime = runtimeInstance;
+		await builder.build({ ...input, teamDelegationEnabled: true });
+		expect(runtimeInstance).toBe(originalRuntime);
+		expect(originalRuntime.setDelegationEnabled).toHaveBeenLastCalledWith(true);
+		await builder.build(input);
+		expect(originalRuntime.setDelegationEnabled).toHaveBeenLastCalledWith(
+			false,
 		);
 	});
 

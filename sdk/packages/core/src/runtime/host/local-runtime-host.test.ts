@@ -8068,6 +8068,7 @@ describe("LocalRuntimeHost", () => {
 					});
 				}
 			});
+			const setDelegationEnabled = vi.fn();
 			const runtimeBuilder = {
 				build: vi
 					.fn()
@@ -8093,6 +8094,7 @@ describe("LocalRuntimeHost", () => {
 										outcomeFragments: [],
 									}),
 									cancelOutstandingWork,
+									setDelegationEnabled,
 								},
 								shutdown: vi.fn(),
 							};
@@ -8176,6 +8178,8 @@ describe("LocalRuntimeHost", () => {
 				manager,
 				sessionService,
 				cancelOutstandingWork,
+				setDelegationEnabled,
+				runtimeBuilder,
 				agent,
 				turn,
 				prompts,
@@ -8196,6 +8200,64 @@ describe("LocalRuntimeHost", () => {
 			});
 			return { promise, resolve };
 		}
+
+		it("applies metadata toggles immediately and restores off on reconnect", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			for (const enabled of [true, false, true, false]) {
+				await host.manager.updateSession(host.sessionId, {
+					metadata: { multitask: enabled },
+				});
+				expect(host.session().multitask).toBe(enabled);
+				expect(host.setDelegationEnabled).toHaveBeenLastCalledWith(enabled);
+			}
+			expect(host.cancelOutstandingWork).not.toHaveBeenCalled();
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "work directly",
+			});
+			expect(host.prompts.at(-1)).toContain("Multitask mode is off");
+			await host.manager.dispose();
+			const resumed = createMultitaskHost({
+				resumeMetadata: { multitask: false },
+			});
+			await resumed.start();
+			expect(resumed.runtimeBuilder.build).toHaveBeenCalledWith(
+				expect.objectContaining({ teamDelegationEnabled: false }),
+			);
+			await resumed.manager.dispose();
+		});
+
+		it("does not replay queued Multitask-on state after the user turns it off", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			const pending = deferred();
+			host.setRespond(async () => {
+				await pending.promise;
+				return createResult();
+			});
+			const running = host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "first",
+				multitask: true,
+			});
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(1));
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "queued",
+				multitask: true,
+				delivery: "queue",
+			});
+			await host.manager.updateSession(host.sessionId, {
+				metadata: { multitask: false },
+			});
+			pending.resolve();
+			await running;
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(2));
+			expect(host.prompts[1]).toContain("Multitask mode is off");
+			expect(host.setDelegationEnabled).toHaveBeenLastCalledWith(false);
+			await host.manager.dispose();
+		});
 
 		it("ends the lead's turn while a teammate runs, and the session goes idle", async () => {
 			const host = createMultitaskHost();

@@ -98,6 +98,14 @@ describe("prompt format helpers", () => {
 		expect(normalizeUserInput(prompt)).toBe(prompt);
 	});
 
+	it("replaces historical on guidance with an explicit off notice", () => {
+		const notice = formatMultitaskNotice(false);
+		expect(notice).toContain("Multitask mode is off");
+		expect(notice).toContain("replaces earlier Multitask-on guidance");
+		expect(notice).not.toContain("Hand substantial work");
+		expect(normalizeUserInput(notice)).toBe(notice);
+	});
+
 	it("requires explicit role updates for authorized work outside a read-only role", () => {
 		const guidance = formatMultitaskNotice();
 		expect(guidance).toContain("Role-level read-only restrictions are valid");

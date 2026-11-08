@@ -812,6 +812,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 		try {
 			runtime = await this.runtimeBuilder.build({
 				...bootstrap.runtimeBuilderInput,
+				teamDelegationEnabled: initialSessionMetadata?.multitask !== false,
 				distinctId: this.distinctId,
 				runCommandExecutionController: this.runCommandExecutionController,
 			});
@@ -1008,8 +1009,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 				const entry = this.pendingPromptsController.consumeSteer(sessionId);
 				return entry
 					? formatModePrompt(
-							entry.multitask
-								? `${formatMultitaskNotice()}\n${entry.prompt}`
+							activeSessionRef?.sessionMetadata?.multitask !== undefined ||
+								activeSessionRef?.multitask
+								? `${formatMultitaskNotice(activeSessionRef?.multitask === true)}\n${entry.prompt}`
 								: entry.prompt,
 							entry.mode ?? configWithProvider.mode,
 						)
@@ -1308,6 +1310,13 @@ export class LocalRuntimeHost implements RuntimeHost {
 
 	async runTurn(input: SendSessionInput): Promise<AgentResult | undefined> {
 		const session = this.getSessionOrThrow(input.sessionId);
+		if (input.multitask !== undefined) {
+			session.multitask = input.multitask;
+			session.runtime.teamRuntime?.setDelegationEnabled(input.multitask);
+			for (const pending of session.pendingPrompts) {
+				pending.multitask = input.multitask;
+			}
+		}
 		// Only the input the queue drain replays carries this marker; any
 		// other input during a queued run is fresh user input.
 		const replayingQueuedPrompt = session.replayingQueuedPrompt === true;
@@ -1660,6 +1669,19 @@ export class LocalRuntimeHost implements RuntimeHost {
 			title: updates.title,
 		});
 		const updated = result?.updated === true;
+		const multitask = updates.metadata?.multitask;
+		const activeSession = this.sessions.get(sessionId.trim());
+		if (updated && activeSession && typeof multitask === "boolean") {
+			activeSession.multitask = multitask;
+			activeSession.sessionMetadata = {
+				...activeSession.sessionMetadata,
+				multitask,
+			};
+			activeSession.runtime.teamRuntime?.setDelegationEnabled(multitask);
+			for (const pending of activeSession.pendingPrompts) {
+				pending.multitask = multitask;
+			}
+		}
 		if (updated && result.metadata !== undefined) {
 			const active = this.sessions.get(sessionId.trim());
 			if (active) {
@@ -2487,6 +2509,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 		input: {
 			prompt: string;
 			mode?: SendSessionInput["mode"];
+			multitask?: boolean;
 			userImages?: string[];
 			userFiles?: string[];
 		},
@@ -2512,8 +2535,10 @@ export class LocalRuntimeHost implements RuntimeHost {
 		emitMentionTelemetry(session.config.telemetry, enriched);
 
 		const prompt = formatModePrompt(
-			multitask
-				? `${formatMultitaskNotice()}\n${enriched.prompt}`
+			multitask ||
+				input.multitask === false ||
+				session.sessionMetadata?.multitask === false
+				? `${formatMultitaskNotice(multitask)}\n${enriched.prompt}`
 				: enriched.prompt,
 			input.mode ?? session.config.mode,
 		);

@@ -93,6 +93,82 @@ function createAbortedResult(): AgentResult {
 }
 
 describe("AgentTeamsRuntime teammate lifecycle events", () => {
+	it("blocks new and continued work while off, and permits explicit re-enabling", async () => {
+		const execute = vi.fn(async () => createAbortedResult());
+		mockNextSessionRuntime({ run: execute, continue: execute });
+		const runtime = new AgentTeamsRuntime({ teamName: "toggle" });
+		spawnTestTeammate(runtime, "worker");
+		await runtime.routeToTeammate("worker", "on");
+		const staleDispatch = () => runtime.startTeammateRun("worker", "stale");
+		for (let i = 0; i < 2; i++) {
+			runtime.setDelegationEnabled(false);
+			expect(staleDispatch).toThrow("Multitask is off");
+			expect(() => spawnTestTeammate(runtime, "another")).toThrow(
+				"Multitask is off",
+			);
+			await expect(
+				runtime.routeToTeammate("worker", "continue", {
+					continueConversation: true,
+				}),
+			).rejects.toThrow("Multitask is off");
+			expect(() =>
+				runtime.createTask({
+					title: "new",
+					description: "new",
+					createdBy: "lead",
+				}),
+			).toThrow("Multitask is off");
+			expect(() =>
+				runtime.sendMessage("lead", "worker", "new", "work"),
+			).toThrow("Multitask is off");
+			expect(runtime.getSnapshot().members).toHaveLength(2);
+			runtime.setDelegationEnabled(true);
+			await runtime.routeToTeammate("worker", "reenabled", {
+				continueConversation: true,
+			});
+		}
+		expect(execute).toHaveBeenCalledTimes(3);
+	});
+
+	it("cancels undispatched work on off without aborting a running teammate", async () => {
+		let finish!: (result: AgentResult) => void;
+		const running = new Promise<AgentResult>((resolve) => {
+			finish = resolve;
+		});
+		const execute = vi.fn(() => running);
+		const abort = vi.fn();
+		mockNextSessionRuntime({ run: execute, abort });
+		const runtime = new AgentTeamsRuntime({
+			teamName: "queue-toggle",
+			maxConcurrentRuns: 1,
+		});
+		spawnTestTeammate(runtime, "worker");
+		const first = runtime.startTeammateRun("worker", "running");
+		const queued = runtime.startTeammateRun("worker", "queued");
+		runtime.setDelegationEnabled(false);
+		expect(runtime.listRuns().find((run) => run.id === first.id)?.status).toBe(
+			"running",
+		);
+		expect(runtime.listRuns().find((run) => run.id === queued.id)?.status).toBe(
+			"cancelled",
+		);
+		expect(abort).not.toHaveBeenCalled();
+		expect(
+			runtime.sendMessage("worker", "lead", "progress", "still running"),
+		).toBeDefined();
+		finish({ ...createAbortedResult(), finishReason: "completed" });
+		await vi.waitFor(() =>
+			expect(
+				runtime.listRuns().find((run) => run.id === first.id)?.status,
+			).toBe("completed"),
+		);
+		expect(execute).toHaveBeenCalledTimes(1);
+		runtime.setDelegationEnabled(true);
+		expect(execute).toHaveBeenCalledTimes(1);
+		runtime.setDelegationEnabled(false);
+		expect(() => runtime.shutdownTeammate("worker")).not.toThrow();
+	});
+
 	it("spawns teammates with a 10 minute API timeout", () => {
 		// biome-ignore lint/complexity/useArrowFunction: `new SessionRuntime(...)` requires a non-arrow callable.
 		createSessionRuntimeMock.mockImplementationOnce(function () {

@@ -55,6 +55,46 @@ describe("resolveTeamDataDir", () => {
 });
 
 describe("createAgentTeamsTools schema surface", () => {
+	it("rejects stale spawn and run tool executions after Multitask is disabled", async () => {
+		const runtime = new AgentTeamsRuntime({ teamName: "disabled-dispatch" });
+		const tools = createAgentTeamsTools({
+			runtime,
+			requesterId: "lead",
+			teammateConfigProvider: makeTeammateConfigProvider(),
+		});
+		const spawn = tools.find((tool) => tool.name === "team_spawn_teammate");
+		const run = tools.find((tool) => tool.name === "team_run_task");
+		const status = tools.find((tool) => tool.name === "team_status");
+		const context = {
+			agentId: "lead",
+			toolCallId: "toggle-test",
+			iteration: 1,
+		};
+		await spawn?.execute(
+			{ agentId: "worker", rolePrompt: "Read-only" },
+			context,
+		);
+		runtime.setDelegationEnabled(false);
+		await expect(
+			spawn?.execute({ agentId: "other", rolePrompt: "Read-only" }, context),
+		).rejects.toThrow("Multitask is off");
+		for (const runMode of ["sync", "async"]) {
+			await expect(
+				run?.execute(
+					{
+						agentId: "worker",
+						task: "stale assignment",
+						runMode,
+						continueConversation: true,
+					},
+					context,
+				),
+			).rejects.toThrow("Multitask is off");
+		}
+		expect(runtime.listRuns()).toHaveLength(0);
+		await expect(status?.execute({}, context)).resolves.toBeDefined();
+	});
+
 	it("keeps role restrictions binding until an explicit idle role update", () => {
 		const tools = createAgentTeamsTools({
 			runtime: new AgentTeamsRuntime({ teamName: "scope-guidance" }),

@@ -618,6 +618,23 @@ export class AgentTeamsRuntime {
 	private readonly missionLogIntervalSteps: number;
 	private readonly missionLogIntervalMs: number;
 	private readonly maxConcurrentRuns: number;
+	private delegationEnabled = true;
+
+	setDelegationEnabled(enabled: boolean): void {
+		this.delegationEnabled = enabled;
+		if (!enabled) {
+			this.clearQueuedRunDispatchTimer();
+			for (const run of this.runs.values()) {
+				if (run.status === "queued") this.cancelRun(run.id, "multitask_off");
+			}
+		}
+	}
+
+	private assertDelegationEnabled(): void {
+		if (!this.delegationEnabled) {
+			throw new Error("Multitask is off. New teammate work is disabled.");
+		}
+	}
 
 	constructor(options: AgentTeamsRuntimeOptions) {
 		this.teamName = options.teamName;
@@ -922,6 +939,7 @@ export class AgentTeamsRuntime {
 	}
 
 	spawnTeammate({ agentId, config }: SpawnTeammateOptions): TeamMemberSnapshot {
+		this.assertDelegationEnabled();
 		const existing = this.members.get(agentId);
 		if (existing && existing.role !== "teammate") {
 			throw new Error(
@@ -1018,6 +1036,7 @@ export class AgentTeamsRuntime {
 	}
 
 	createTask(input: CreateTeamTaskInput): TeamTask {
+		this.assertDelegationEnabled();
 		const taskId = `task_${String(++this.taskCounter).padStart(4, "0")}`;
 		const now = new Date();
 		const task: TeamTask = {
@@ -1040,6 +1059,7 @@ export class AgentTeamsRuntime {
 	}
 
 	claimTask(taskId: string, agentId: string): TeamTask {
+		this.assertDelegationEnabled();
 		const task = this.requireTask(taskId);
 		this.assertDependenciesResolved(task);
 		task.status = "in_progress";
@@ -1102,6 +1122,7 @@ export class AgentTeamsRuntime {
 		message: string,
 		options?: RouteToTeammateOptions,
 	): Promise<AgentResult> {
+		this.assertDelegationEnabled();
 		const member = this.members.get(agentId);
 		if (!member || member.role !== "teammate" || !member.agent) {
 			throw new Error(`Teammate "${agentId}" was not found`);
@@ -1197,6 +1218,7 @@ export class AgentTeamsRuntime {
 			leaseOwner?: string;
 		},
 	): TeamRunRecord {
+		this.assertDelegationEnabled();
 		const runId = `run_${String(++this.runCounter).padStart(5, "0")}`;
 		const record: TeamRunRecord & { result?: TeamRunResultRecord } = {
 			id: runId,
@@ -1224,6 +1246,7 @@ export class AgentTeamsRuntime {
 
 	private dispatchQueuedRuns(): void {
 		this.clearQueuedRunDispatchTimer();
+		if (!this.delegationEnabled) return;
 		let nextDelayedAttemptAt: Date | undefined;
 		while (
 			this.countActiveRuns() < this.maxConcurrentRuns &&
@@ -1365,6 +1388,8 @@ export class AgentTeamsRuntime {
 				isIntentionalTeammateAbort(member, error)
 			) {
 				this.cancelRun(run.id, member?.abortReason ?? message);
+			} else if (!this.delegationEnabled) {
+				this.cancelRun(run.id, "multitask_off");
 			} else if (run.retryCount < run.maxRetries) {
 				run.retryCount++;
 				run.status = "queued";
@@ -1513,6 +1538,10 @@ export class AgentTeamsRuntime {
 			if (!["queued", "running"].includes(run.status)) {
 				continue;
 			}
+			if (!this.delegationEnabled) {
+				this.cancelRun(run.id, "multitask_off");
+				continue;
+			}
 
 			const member = this.members.get(run.agentId);
 			if (!member || member.role !== "teammate" || !member.agent) {
@@ -1575,6 +1604,12 @@ export class AgentTeamsRuntime {
 		body: string,
 		taskId?: string,
 	): TeamMailboxMessage {
+		if (
+			this.getMemberRole(fromAgentId) === "lead" &&
+			fromAgentId !== toAgentId
+		) {
+			this.assertDelegationEnabled();
+		}
 		if (!this.members.has(fromAgentId)) {
 			throw new Error(`Unknown sender "${fromAgentId}"`);
 		}
