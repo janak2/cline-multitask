@@ -930,6 +930,7 @@ function ChatInputBarImpl({
 			const nextOption = EFFORT_LEVELS.find((option) => option.value === value);
 			if (nextOption) {
 				onReasoningChange(buildReasoningConfig(nextOption));
+				if (sessionId) return;
 				try {
 					writeReasoningSelectionToWindow(
 						normalizeProviderId(provider),
@@ -940,42 +941,32 @@ function ChatInputBarImpl({
 				}
 			}
 		},
-		[modelSupportsReasoning, onReasoningChange, provider],
+		[modelSupportsReasoning, onReasoningChange, provider, sessionId],
 	);
 
-	const seededReasoningProviderRef = useRef<string | null>(null);
 	useEffect(() => {
-		if (modelSupportsReasoning !== true) {
+		if (
+			sessionId ||
+			modelSupportsReasoning !== true ||
+			hasExplicitReasoningSelection
+		) {
 			return;
 		}
 		const normalizedId = normalizeProviderId(provider);
-		const unset = thinking === undefined && reasoningEffort === undefined;
-		if (!unset && seededReasoningProviderRef.current === normalizedId) {
-			return;
-		}
-		seededReasoningProviderRef.current = normalizedId;
-		// The thread's config is rebuilt on every mount (and session hydration
-		// only restores provider/model), so seed the effort from the last value
-		// the user picked for this provider before falling back to the default.
-		// A provider switch re-seeds too, but only when that provider has a
-		// remembered value; otherwise the current choice carries over.
 		const remembered = EFFORT_LEVELS.find(
 			(option) =>
 				option.value ===
 				readReasoningSelectionStorageFromWindow()[normalizedId],
 		);
-		if (!unset && !remembered) {
-			return;
-		}
 		onReasoningChange(
 			buildReasoningConfig(remembered ?? DEFAULT_REASONING_EFFORT),
 		);
 	}, [
 		modelSupportsReasoning,
+		hasExplicitReasoningSelection,
 		onReasoningChange,
 		provider,
-		reasoningEffort,
-		thinking,
+		sessionId,
 	]);
 
 	// Focus the composer on mount/variant change and when text is injected

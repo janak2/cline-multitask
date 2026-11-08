@@ -1590,6 +1590,7 @@ function ChatThreadPane({
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,
+		setReasoning,
 		setWorkspacePath,
 		sendPrompt,
 		steerPromptInQueue,
@@ -2706,22 +2707,9 @@ function ChatThreadPane({
 
 	const handleReasoningChange = useCallback(
 		(next: Pick<ChatSessionConfig, "thinking" | "reasoningEffort">) => {
-			setConfig((prev) => {
-				if (
-					prev.thinking === next.thinking &&
-					prev.reasoningEffort === next.reasoningEffort
-				) {
-					return prev;
-				}
-				return {
-					...prev,
-					thinking: next.thinking,
-					reasoningEffort:
-						next.thinking === false ? undefined : next.reasoningEffort,
-				};
-			});
+			setReasoning(next);
 		},
-		[setConfig],
+		[setReasoning],
 	);
 
 	const handleRemoveQueuedPrompt = useCallback(

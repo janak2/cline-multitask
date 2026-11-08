@@ -252,6 +252,60 @@ describe("remote environment command routing", () => {
 		sessionStoreDeleteMock.mockReturnValue(false);
 	});
 
+	it("persists one chat's effort metadata without changing another chat or its other metadata", async () => {
+		const { handleCommand } = await import("./commands");
+		const { createSidecarContext } = await import("./context");
+		const ctx = createSidecarContext("/fixture");
+		const saved = new Map<string, Record<string, unknown>>([
+			[
+				"A",
+				{ title: "A", reasoning: { thinking: true, reasoningEffort: "low" } },
+			],
+			[
+				"B",
+				{ title: "B", reasoning: { thinking: true, reasoningEffort: "max" } },
+			],
+		]);
+		const binding = createExistingRemoteBinding(profile.id);
+		binding.sessionManager.get = vi.fn<typeof binding.sessionManager.get>(
+			async (id) => ({
+				sessionId: id,
+				metadata: saved.get(id),
+				source: "desktop",
+				status: "completed",
+				isSubagent: false,
+				startedAt: "2026-01-01T00:00:00Z",
+				updatedAt: "2026-01-01T00:00:00Z",
+				interactive: true,
+				provider: "cline",
+				model: "test-model",
+				cwd: "/fixture",
+				workspaceRoot: "/fixture",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+			}),
+		);
+		binding.sessionManager.update = vi.fn(async (id, update) => {
+			saved.set(id, update.metadata ?? {});
+			return { updated: true };
+		});
+		ctx.runtimeBindings.set(profile.id, binding);
+		await handleCommand(ctx, "update_chat_session_metadata", {
+			environmentId: profile.id,
+			sessionId: "A",
+			metadata: { reasoning: { thinking: false } },
+		});
+		expect(saved.get("A")).toEqual({
+			title: "A",
+			reasoning: { thinking: false },
+		});
+		expect(saved.get("B")).toEqual({
+			title: "B",
+			reasoning: { thinking: true, reasoningEffort: "max" },
+		});
+	});
+
 	it("routes proceed-while-running exclusively to the requested SSH Hub", async () => {
 		const { handleCommand } = await import("./commands");
 		const { createSidecarContext } = await import("./context");

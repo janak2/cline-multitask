@@ -217,6 +217,8 @@ async function renderVoiceComposer({
 	activeTeammateRuns,
 	mode = "act",
 	onModeToggle = vi.fn(),
+	onReasoningChange = vi.fn(),
+	reasoningEffort = "low",
 }: {
 	attachments?: Parameters<typeof ChatInputBar>[0]["attachments"];
 	model?: string;
@@ -239,6 +241,8 @@ async function renderVoiceComposer({
 	activeTeammateRuns?: number;
 	mode?: "act" | "plan";
 	onModeToggle?: () => void;
+	onReasoningChange?: Parameters<typeof ChatInputBar>[0]["onReasoningChange"];
+	reasoningEffort?: Parameters<typeof ChatInputBar>[0]["reasoningEffort"];
 } = {}) {
 	const Wrapper = strictMode ? StrictMode : Fragment;
 	await act(async () => {
@@ -272,7 +276,7 @@ async function renderVoiceComposer({
 						onModelChange={vi.fn()}
 						onPromptInputChange={onPromptInputChange}
 						onProviderChange={vi.fn()}
-						onReasoningChange={vi.fn()}
+						onReasoningChange={onReasoningChange}
 						onRemoveAttachment={vi.fn()}
 						onRemovePromptInQueue={vi.fn()}
 						onSend={onSend}
@@ -281,7 +285,7 @@ async function renderVoiceComposer({
 						promptDraft={{ version: promptVersion, value: prompt }}
 						promptsInQueue={[]}
 						provider="cline"
-						reasoningEffort="low"
+						reasoningEffort={reasoningEffort}
 						status={status}
 						summary={{ toolCalls: 0, tokensIn: 0, tokensOut: 0 }}
 						thinking
@@ -2339,7 +2343,76 @@ describe("ChatInputBar", () => {
 		});
 	});
 
-	it("applies the new provider's remembered thinking level when switching providers", async () => {
+	it("does not replace a session's effort or global default while mounting, switching chats, or choosing an effort", async () => {
+		loadProviderModelCatalogMock.mockResolvedValue({
+			providers: [],
+			enabledProviderIds: ["cline"],
+			providerModels: { cline: ["test-model"] },
+			providerReasoningModels: { cline: ["test-model"] },
+		});
+		window.localStorage.setItem(
+			REASONING_SELECTION_STORAGE_KEY,
+			JSON.stringify({ cline: "medium" }),
+		);
+		const onReasoningChange = vi.fn();
+		await renderVoiceComposer({
+			sessionId: "A",
+			reasoningEffort: "high",
+			onReasoningChange,
+		});
+		expect(onReasoningChange).not.toHaveBeenCalled();
+		expect(
+			container.querySelector('[aria-label="Thinking level"]')?.textContent,
+		).toContain("High");
+		await renderVoiceComposer({
+			sessionId: "A",
+			model: "unsupported-model",
+			reasoningEffort: "high",
+			onReasoningChange,
+		});
+		expect(
+			container.querySelector<HTMLButtonElement>(
+				'[aria-label="Thinking level"]',
+			)?.disabled,
+		).toBe(true);
+		expect(onReasoningChange).not.toHaveBeenCalled();
+		await renderVoiceComposer({
+			sessionId: "A",
+			reasoningEffort: "high",
+			onReasoningChange,
+		});
+		expect(
+			container.querySelector<HTMLButtonElement>(
+				'[aria-label="Thinking level"]',
+			)?.disabled,
+		).toBe(false);
+		expect(onReasoningChange).not.toHaveBeenCalled();
+		await renderVoiceComposer({
+			sessionId: "B",
+			reasoningEffort: "low",
+			onReasoningChange,
+		});
+		expect(onReasoningChange).not.toHaveBeenCalled();
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'[aria-label="Thinking level"]',
+		);
+		await act(async () => trigger?.click());
+		const high = [
+			...document.querySelectorAll<HTMLElement>('[role="option"]'),
+		].find((option) => option.textContent === "High");
+		await act(async () => high?.click());
+		expect(onReasoningChange).toHaveBeenCalledWith({
+			thinking: true,
+			reasoningEffort: "high",
+		});
+		expect(
+			JSON.parse(
+				window.localStorage.getItem(REASONING_SELECTION_STORAGE_KEY) ?? "{}",
+			),
+		).toEqual({ cline: "medium" });
+	});
+
+	it("keeps the chat's explicit thinking level when switching providers", async () => {
 		loadProviderModelCatalogMock.mockResolvedValue({
 			providers: [],
 			enabledProviderIds: ["anthropic", "cline"],
@@ -2404,12 +2477,7 @@ describe("ChatInputBar", () => {
 		expect(onReasoningChange).not.toHaveBeenCalled();
 
 		await renderBar("anthropic", "claude-test");
-		await vi.waitFor(() => {
-			expect(onReasoningChange).toHaveBeenCalledWith({
-				thinking: true,
-				reasoningEffort: "high",
-			});
-		});
+		expect(onReasoningChange).not.toHaveBeenCalled();
 	});
 
 	it.each([

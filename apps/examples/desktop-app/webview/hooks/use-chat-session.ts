@@ -66,6 +66,8 @@ import { humanizeCloudSessionError } from "@/lib/cloud-session-error";
 import { appendCappedCommandOutput } from "@/lib/command-output";
 import { desktopClient } from "@/lib/desktop-client";
 import { imageAttachmentMediaType } from "@/lib/image-attachments";
+import { readReasoningSelectionStorageFromWindow } from "@/lib/model-selection";
+import { normalizeProviderId } from "@/lib/provider-id";
 import { formatRunError, HUB_INTERRUPTED_MESSAGE_KIND } from "@/lib/run-error";
 import {
 	buildSessionDiffState,
@@ -89,6 +91,10 @@ import {
 	registerHostHomeDirectory,
 	registerTaskWorktreeRoot,
 } from "@/lib/workspace-paths";
+import {
+	readSessionReasoning,
+	type SessionReasoningSettings,
+} from "../../session-reasoning";
 
 export { DEFAULT_CHAT_CONFIG } from "@/hooks/chat-session/constants";
 
@@ -591,6 +597,8 @@ export function useChatSession(environmentId: string) {
 	const [config, setConfig] = useState<ChatSessionConfig>(() =>
 		getInitialChatConfig(environmentId),
 	);
+	const reasoningWriteRef = useRef(Promise.resolve());
+	const reasoningRevisionRef = useRef(0);
 	// Swap in the live feed's first free model once it arrives, only while the
 	// config is still the untouched new-user default. Never blocks the UI.
 	// A restored or running session keeps the model it has.
@@ -3957,6 +3965,8 @@ export function useChatSession(environmentId: string) {
 				branch: undefined,
 				provider: initial.provider,
 				model: initial.model,
+				thinking: initial.thinking,
+				reasoningEffort: initial.reasoningEffort,
 				apiKey:
 					prev.provider === initial.provider ? prev.apiKey : initial.apiKey,
 				...(switchingTarget || leavingTaskWorktree
@@ -4010,6 +4020,7 @@ export function useChatSession(environmentId: string) {
 				);
 			}
 			const requestId = hydrationRequestIdRef.current + 1;
+			const reasoningRevision = reasoningRevisionRef.current;
 			const hydrationStartedAt = Date.now();
 			hydrationRequestIdRef.current = requestId;
 			setIsCloudSessionExpired(
@@ -4023,8 +4034,18 @@ export function useChatSession(environmentId: string) {
 			abortedRef.current = false;
 			clearAbortFallbackTimeout();
 			setSessionId(session.sessionId);
+			const fallbackEffort =
+				readReasoningSelectionStorageFromWindow()[
+					normalizeProviderId(session.provider ?? "")
+				];
+			const savedReasoning = readSessionReasoning(session.metadata) ?? {
+				thinking: fallbackEffort !== "none",
+				reasoningEffort:
+					fallbackEffort === "none" ? undefined : (fallbackEffort ?? "low"),
+			};
 			setConfig((prev) => ({
 				...prev,
+				...savedReasoning,
 				environmentId,
 				sessionId: session.sessionId,
 				executionTarget: session.origin === "cloud" ? "cloud" : "local",
@@ -4133,6 +4154,8 @@ export function useChatSession(environmentId: string) {
 					setIsHydratingSession(false);
 				}
 
+				await reasoningWriteRef.current;
+				if (hydrationRequestIdRef.current !== requestId) return;
 				const attached = await desktopClient
 					.invoke<{
 						sessionId?: string;
@@ -4145,6 +4168,7 @@ export function useChatSession(environmentId: string) {
 						prompt?: string;
 						environmentId?: string;
 						multitask?: boolean;
+						metadata?: unknown;
 					}>("chat_session_command", {
 						request: {
 							action: "attach",
@@ -4185,6 +4209,9 @@ export function useChatSession(environmentId: string) {
 				}
 				setConfig((prev) => ({
 					...prev,
+					...(reasoningRevisionRef.current === reasoningRevision
+						? (readSessionReasoning(attached?.metadata) ?? savedReasoning)
+						: {}),
 					environmentId,
 					sessionId: session.sessionId,
 					executionTarget: session.origin === "cloud" ? "cloud" : "local",
@@ -4417,6 +4444,35 @@ export function useChatSession(environmentId: string) {
 		[isCloudSessionExpired, postSession, setPromptsInQueue],
 	);
 
+	const setReasoning = useCallback(
+		(next: SessionReasoningSettings) => {
+			reasoningRevisionRef.current += 1;
+			const reasoning = {
+				thinking: next.thinking,
+				reasoningEffort:
+					next.thinking === false ? undefined : next.reasoningEffort,
+			};
+			setConfig((previous) => ({ ...previous, ...reasoning }));
+			if (!sessionId) return;
+			reasoningWriteRef.current = reasoningWriteRef.current
+				.then(async () => {
+					await desktopClient.invoke("update_chat_session_metadata", {
+						environmentId,
+						sessionId,
+						metadata: { reasoning },
+					});
+				})
+				.catch(() => {
+					toast({
+						variant: "destructive",
+						title: "Thinking level was not saved",
+						description: "Try choosing the thinking level again.",
+					});
+				});
+		},
+		[environmentId, sessionId],
+	);
+
 	const summary = useMemo(
 		() => ({
 			toolCalls,
@@ -4466,6 +4522,7 @@ export function useChatSession(environmentId: string) {
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,
+		setReasoning,
 		setWorkspacePath,
 		start,
 		hydrateSession,

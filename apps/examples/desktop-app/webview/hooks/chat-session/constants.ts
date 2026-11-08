@@ -6,6 +6,7 @@ import {
 	type ExecutionTarget,
 	readExecutionTargetFromWindow,
 	readModelSelectionStorageFromWindow,
+	readReasoningSelectionStorageFromWindow,
 } from "@/lib/model-selection";
 import { normalizeProviderId } from "@/lib/provider-id";
 import {
@@ -100,12 +101,15 @@ export function getInitialChatConfig(
 			? rememberedModelForDefaultProvider
 			: undefined) ||
 		(liveDefaultModelId ?? DEFAULT_CHAT_CONFIG.model);
+	const effort = readReasoningSelectionStorageFromWindow()[provider];
 
 	const local: ChatSessionConfig = {
 		...DEFAULT_CHAT_CONFIG,
 		environmentId,
 		provider,
 		model,
+		thinking: effort ? effort !== "none" : undefined,
+		reasoningEffort: effort === "none" ? undefined : effort,
 		workspaceRoot: workspaceSelection.lastWorkspace,
 		cwd: workspaceSelection.lastWorkspace,
 	};

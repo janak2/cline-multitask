@@ -181,6 +181,22 @@ describe("starting SSH sessions", () => {
 		expect(ctx.liveSessions.get(sessionId)?.messages).toEqual(transcript);
 	});
 
+	it("persists the new chat's effort alongside its environment metadata", async () => {
+		const { ctx, config, start } = setup();
+		await handleChatSessionCommand(ctx, {
+			action: "start",
+			config: { ...config, thinking: true, reasoningEffort: "high" },
+		});
+		expect(start).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sessionMetadata: expect.objectContaining({
+					reasoning: { thinking: true, reasoningEffort: "high" },
+					remoteEnvironmentId: environmentId,
+				}),
+			}),
+		);
+	});
+
 	it("propagates other read failures without creating a session", async () => {
 		const { ctx, config, readMessages, start } = setup();
 		const error = Object.assign(new Error("Hub disconnected"), {
@@ -1514,6 +1530,49 @@ describe("first-send connection updates", () => {
 		expect(updateSessionConnection.mock.invocationCallOrder[0]).toBeLessThan(
 			send.mock.invocationCallOrder[0] ?? 0,
 		);
+	});
+
+	it("restores each chat's saved effort on attach and updates only that runtime before sending", async () => {
+		const { ctx, sessionId, send, updateSessionConnection } = createContext();
+		const saved = new Map([
+			[sessionId, { thinking: true, reasoningEffort: "low" }],
+			["chat-B", { thinking: true, reasoningEffort: "max" }],
+		]);
+		ctx.sessionEnvironmentIds.set("chat-B", "local");
+		(localSessionManager(ctx) as { get?: unknown }).get = vi.fn(
+			async (id: string) => ({
+				sessionId: id,
+				status: "idle",
+				provider: baseConfig.provider,
+				model: baseConfig.model,
+				cwd: "/workspace",
+				workspaceRoot: "/workspace",
+				metadata: { reasoning: saved.get(id) },
+			}),
+		);
+		for (const id of [sessionId, "chat-B"]) {
+			await handleChatSessionCommand(ctx, {
+				action: "attach",
+				sessionId: id,
+				config: { environmentId: "local" },
+			});
+		}
+		expect(ctx.liveSessions.get(sessionId)?.config.reasoningEffort).toBe("low");
+		expect(ctx.liveSessions.get("chat-B")?.config.reasoningEffort).toBe("max");
+		await handleChatSessionCommand(ctx, {
+			action: "send",
+			sessionId,
+			prompt: "Use A",
+			config: { ...baseConfig, reasoningEffort: "medium" },
+		});
+		expect(updateSessionConnection).toHaveBeenCalledWith(
+			sessionId,
+			expect.objectContaining({ thinking: true, reasoningEffort: "medium" }),
+		);
+		expect(updateSessionConnection.mock.invocationCallOrder[0]).toBeLessThan(
+			send.mock.invocationCallOrder[0],
+		);
+		expect(ctx.liveSessions.get("chat-B")?.config.reasoningEffort).toBe("max");
 	});
 
 	it("rebuilds the same session with its transcript before a provider switch", async () => {

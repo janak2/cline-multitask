@@ -9,6 +9,7 @@ import {
 } from "@/lib/command-output";
 import {
 	MODEL_SELECTION_STORAGE_KEY,
+	REASONING_SELECTION_STORAGE_KEY,
 	writeExecutionTargetToWindow,
 	writeModelSelectionStorageToWindow,
 } from "@/lib/model-selection";
@@ -434,6 +435,148 @@ afterEach(async () => {
 });
 
 describe("useChatSession", () => {
+	it("persists independent chat efforts, restores them after switching/reload, and sends the selected effort", async () => {
+		const saved = new Map<string, Record<string, unknown>>([
+			["A", { reasoning: { thinking: true, reasoningEffort: "low" } }],
+			["B", { reasoning: { thinking: true, reasoningEffort: "medium" } }],
+		]);
+		const history = (
+			sessionId: string,
+		): Parameters<ChatSessionHook["hydrateSession"]>[0] => ({
+			sessionId,
+			environmentId: "local",
+			status: "completed",
+			provider: "cline",
+			model: "test-model",
+			cwd: "/workspace/cline",
+			workspaceRoot: "/workspace/cline",
+			startedAt: "2026-01-01T00:00:00Z",
+		});
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (command === "update_chat_session_metadata") {
+					const id = String(args?.sessionId);
+					saved.set(id, {
+						...saved.get(id),
+						...(args?.metadata as Record<string, unknown>),
+					});
+					return saved.get(id);
+				}
+				if (command === "chat_session_command") {
+					const request = args?.request as {
+						action: string;
+						sessionId: string;
+						config?: { sessionId: string };
+					};
+					if (request.action === "start")
+						return {
+							sessionId: request.config?.sessionId,
+							cwd: "/workspace/cline",
+							workspaceRoot: "/workspace/cline",
+						};
+					if (request.action === "attach")
+						return {
+							...history(request.sessionId),
+							metadata: saved.get(request.sessionId),
+						};
+					if (request.action === "send")
+						return {
+							ok: true,
+							result: { text: "mock", finishReason: "completed" },
+						};
+				}
+				return [];
+			},
+		);
+		window.localStorage.setItem(
+			REASONING_SELECTION_STORAGE_KEY,
+			JSON.stringify({ cline: "max" }),
+		);
+		await act(async () => current.hydrateSession(history("A")));
+		expect(current.config.reasoningEffort).toBe("low");
+		await act(async () =>
+			current.setReasoning({ thinking: true, reasoningEffort: "high" }),
+		);
+		await act(async () => current.hydrateSession(history("B")));
+		expect(current.config.reasoningEffort).toBe("medium");
+		await act(async () => current.setReasoning({ thinking: false }));
+		await act(async () => current.hydrateSession(history("A")));
+		expect(current.config.reasoningEffort).toBe("high");
+		await act(async () => current.sendPrompt("Use A's setting"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"chat_session_command",
+			{
+				request: expect.objectContaining({
+					action: "send",
+					sessionId: "A",
+					config: expect.objectContaining({
+						thinking: true,
+						reasoningEffort: "high",
+					}),
+				}),
+			},
+			{ timeoutMs: null },
+		);
+		await act(async () => root.unmount());
+		root = createRoot(container);
+		await act(async () => root.render(<HookHarness />));
+		await act(async () => current.hydrateSession(history("B")));
+		expect(current.config.thinking).toBe(false);
+		expect(current.config.reasoningEffort).toBeUndefined();
+		await act(async () => current.hydrateSession(history("A")));
+		expect(current.config.reasoningEffort).toBe("high");
+		await act(async () => current.reset());
+		expect(current.config.reasoningEffort).toBe("max");
+		expect(
+			JSON.parse(
+				window.localStorage.getItem(REASONING_SELECTION_STORAGE_KEY) ?? "{}",
+			),
+		).toEqual({ cline: "max" });
+	});
+
+	it("keeps a newer effort selection when a delayed attach returns older metadata", async () => {
+		const attached = deferred<Record<string, unknown>>();
+		const reached = deferred<void>();
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (
+					command === "chat_session_command" &&
+					(args?.request as { action?: string })?.action === "attach"
+				) {
+					reached.resolve();
+					return await attached.promise;
+				}
+				return [];
+			},
+		);
+		let hydration: Promise<void>;
+		await act(async () => {
+			hydration = current.hydrateSession({
+				sessionId: "A",
+				environmentId: "local",
+				status: "completed",
+				provider: "cline",
+				model: "test-model",
+				cwd: "/workspace/cline",
+				workspaceRoot: "/workspace/cline",
+				startedAt: "2026-01-01T00:00:00Z",
+			});
+			await reached.promise;
+		});
+		await act(async () =>
+			current.setReasoning({ thinking: true, reasoningEffort: "max" }),
+		);
+		await act(async () => {
+			attached.resolve({
+				sessionId: "A",
+				status: "completed",
+				metadata: { reasoning: { thinking: true, reasoningEffort: "low" } },
+			});
+			await hydration;
+		});
+		expect(current.config.reasoningEffort).toBe("max");
+	});
+
 	it("sends selected Plan mode for a new chat and Act after switching an existing chat", async () => {
 		invokeMock.mockImplementation(
 			async (command: string, args?: Record<string, unknown>) => {

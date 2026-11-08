@@ -40,6 +40,7 @@ import {
 	formatUserCommandBlock,
 	type SessionPluginIssue,
 } from "@cline/shared";
+import { readSessionReasoning } from "../session-reasoning";
 import {
 	deleteMaterializedAttachments,
 	discardAllTrackedAttachments,
@@ -1120,20 +1121,23 @@ async function handleStart(
 		providerId: String(coreConfig.providerId ?? ""),
 		modelId: String(coreConfig.modelId ?? ""),
 	});
+	const reasoning = readSessionReasoning({ reasoning: config });
 	const startResult = await manager.start({
 		...splitCoreSessionConfig(coreConfig as unknown as ClineCoreStartConfig),
 		source: SessionSource.DESKTOP,
 		interactive: true,
 		...(initialMessages ? { initialMessages } : {}),
 		toolPolicies: resolveToolPolicies(config),
-		sessionMetadata:
-			binding.kind === "ssh"
+		sessionMetadata: {
+			...(reasoning ? { reasoning } : {}),
+			...(binding.kind === "ssh"
 				? {
 						remoteEnvironmentId: binding.environmentId,
 						remoteEnvironmentName: binding.remote?.profile.name,
 						remoteHost: binding.remote?.profile.host,
 					}
-				: undefined,
+				: {}),
+		},
 	});
 	const sessionId = startResult.sessionId;
 	startedSessionId = sessionId;
@@ -1225,6 +1229,7 @@ async function handleAttach(
 	const baseAttachedConfig: JsonRecord = {
 		...(existing?.config ?? {}),
 		...(request.config ?? {}),
+		...(readSessionReasoning(metadata) ?? {}),
 		sessionId,
 		environmentId: binding.environmentId,
 		provider: session.provider || existing?.config.provider || "",
