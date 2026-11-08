@@ -47,6 +47,7 @@ vi.mock("@/lib/desktop-client", () => ({
 }));
 
 import type { ChatMessage } from "@/lib/chat-schema";
+import { sessionKey } from "@/lib/session-identity";
 
 type ChatSessionHook = ReturnType<typeof useChatSession>;
 
@@ -8315,6 +8316,99 @@ describe("retained chat history", () => {
 			await hydration;
 		});
 		expect(current.messages[0].content).toBe("updated elsewhere");
+	});
+
+	it.each([
+		false,
+		true,
+	])("keeps an unpersisted submitted prompt after switching (remount: %s)", async (remount) => {
+		const pendingPrompt: ChatMessage = {
+			...message,
+			id: "pending-user",
+			content: message.content,
+			createdAt: Date.now() - 10_000,
+		};
+		chatHistoryCache.set(sessionKey(session), {
+			messages: [message, pendingPrompt],
+			limit: 120,
+			pendingUserMessageIds: [pendingPrompt.id],
+		});
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message] : [],
+		);
+		if (remount) {
+			await act(async () => root.unmount());
+			root = createRoot(container);
+			await act(async () => root.render(<HookHarness />));
+		}
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			pendingPrompt.id,
+		]);
+		await act(async () =>
+			current.hydrateSession({ ...session, sessionId: "other" }),
+		);
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			pendingPrompt.id,
+		]);
+		const canonical = {
+			...pendingPrompt,
+			id: "saved-user",
+			content: `<user_input mode="act">${pendingPrompt.content}</user_input>`,
+		};
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message, canonical] : [],
+		);
+		await act(async () => current.loadOlderMessages());
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			canonical.id,
+		]);
+	});
+
+	it("caches a submitted prompt while its send is waiting for the agent", async () => {
+		const response = deferred<{ ok: boolean }>();
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (command === "read_session_messages") return [message];
+				if (command === "chat_session_command") {
+					const request = args?.request;
+					if (
+						request &&
+						typeof request === "object" &&
+						"action" in request &&
+						request.action === "send"
+					) {
+						return response.promise;
+					}
+					return { ...session, promptsInQueue: [] };
+				}
+				return [];
+			},
+		);
+		await act(async () => current.hydrateSession(session));
+		let sending!: Promise<boolean>;
+		await act(async () => {
+			sending = current.sendPrompt("Follow up before the reply");
+			for (let i = 0; i < 20; i++) await Promise.resolve();
+		});
+		expect(current.error).toBeNull();
+		const pendingId = current.messages.at(-1)?.id;
+		expect(
+			chatHistoryCache.get(sessionKey(session))?.pendingUserMessageIds,
+		).toContain(pendingId);
+		await act(async () => root.unmount());
+		root = createRoot(container);
+		await act(async () => root.render(<HookHarness />));
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages.at(-1)?.content).toBe("Follow up before the reply");
+		await act(async () => {
+			response.resolve({ ok: true });
+			await sending;
+		});
 	});
 
 	it("loads before a long aligned turn and keeps the expanded window on return", async () => {

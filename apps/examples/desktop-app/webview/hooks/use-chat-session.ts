@@ -104,6 +104,7 @@ const INITIAL_HISTORY_MESSAGES = 120;
 export const chatHistoryCache = new ChatCache<{
 	messages: ChatMessage[];
 	limit: number;
+	pendingUserMessageIds?: string[];
 }>();
 
 // How long streamed text/reasoning deltas are buffered before a React commit.
@@ -238,23 +239,36 @@ function mergeHydratedMessagesWithLive(options: {
 	current: ChatMessage[];
 	sessionId: string;
 	hydrationStartedAt: number;
+	preserveMessageIds?: ReadonlySet<string>;
 }): ChatMessage[] {
-	const { hydrated, current, sessionId, hydrationStartedAt } = options;
-	const liveDuringHydration = current.filter(
+	const {
+		hydrated,
+		current,
+		sessionId,
+		hydrationStartedAt,
+		preserveMessageIds,
+	} = options;
+	const sessionMessages = current.filter(
+		(message) => message.sessionId === sessionId,
+	);
+	const liveDuringHydration = sessionMessages.filter(
 		(message) =>
-			message.sessionId === sessionId &&
-			message.createdAt >= hydrationStartedAt,
+			message.createdAt >= hydrationStartedAt ||
+			preserveMessageIds?.has(message.id),
 	);
 	if (liveDuringHydration.length === 0) {
 		return hydrated;
 	}
+	const messageKey = (message: ChatMessage) =>
+		`${message.role}\u0000${message.role === "user" ? comparableUserContent(message.content) : message.content}\u0000${message.reasoning ?? ""}`;
 	const hydratedKeyCounts = new Map<string, number>();
 	for (const message of hydrated) {
-		const key = `${message.role}\u0000${message.content}\u0000${message.reasoning ?? ""}`;
+		const key = messageKey(message);
 		hydratedKeyCounts.set(key, (hydratedKeyCounts.get(key) ?? 0) + 1);
 	}
-	const nonDuplicateLive = liveDuringHydration.filter((message) => {
-		const key = `${message.role}\u0000${message.content}\u0000${message.reasoning ?? ""}`;
+	const liveIds = new Set(liveDuringHydration.map((message) => message.id));
+	const nonDuplicateLive = sessionMessages.filter((message) => {
+		const key = messageKey(message);
 		const hydratedCount = hydratedKeyCounts.get(key) ?? 0;
 		if (hydratedCount > 0) {
 			if (hydratedCount === 1) {
@@ -264,7 +278,7 @@ function mergeHydratedMessagesWithLive(options: {
 			}
 			return false;
 		}
-		return true;
+		return liveIds.has(message.id);
 	});
 	return sortMessagesChronologically([...hydrated, ...nonDuplicateLive]);
 }
@@ -680,6 +694,7 @@ export function useChatSession(environmentId: string) {
 	// A chat_queued_prompt_start event may only re-key one of these — never a
 	// same-content message left over from an earlier turn (see the handler).
 	const outstandingOptimisticUserIdsRef = useRef<Set<string>>(new Set());
+	const retainedPendingUserIdsRef = useRef<Set<string>>(new Set());
 	const cloudOptimisticStatesRef = useRef<Map<string, CloudOptimisticState>>(
 		new Map(),
 	);
@@ -778,7 +793,18 @@ export function useChatSession(environmentId: string) {
 	useEffect(() => {
 		if (!sessionId || isHydratingSession || messages.length === 0) return;
 		const key = sessionKey({ sessionId, environmentId });
-		const value = { messages, limit: historyLimitRef.current };
+		const value = {
+			messages,
+			limit: historyLimitRef.current,
+			pendingUserMessageIds: messages
+				.filter(
+					(message) =>
+						message.role === "user" &&
+						(outstandingOptimisticUserIdsRef.current.has(message.id) ||
+							retainedPendingUserIdsRef.current.has(message.id)),
+				)
+				.map((message) => message.id),
+		};
 		chatHistoryCache.set(key, value);
 		return () => chatHistoryCache.set(key, value);
 	}, [sessionId, environmentId, messages, isHydratingSession]);
@@ -2050,6 +2076,8 @@ export function useChatSession(environmentId: string) {
 									candidate.id === priorRekeyedId)
 							) {
 								outstandingOptimisticUserIdsRef.current.delete(candidate.id);
+								retainedPendingUserIdsRef.current.delete(candidate.id);
+								retainedPendingUserIdsRef.current.add(userMessageId);
 								rekeyedOptimisticIdByMessageIdRef.current[userMessageId] =
 									candidate.id;
 								// Preserve optimistic tracking across re-keying so failed sends remain visible.
@@ -2654,6 +2682,7 @@ export function useChatSession(environmentId: string) {
 						current: messagesRef.current,
 						sessionId,
 						hydrationStartedAt: pollStartedAt,
+						preserveMessageIds: retainedPendingUserIdsRef.current,
 					});
 					// Same as hydration: canonical rows may have replaced live
 					// tool rows, so rebuild the tool routing keys or later
@@ -2972,6 +3001,7 @@ export function useChatSession(environmentId: string) {
 					outstandingOptimisticUserIdsRef.current.delete(
 						optimisticUserMessageId,
 					);
+					retainedPendingUserIdsRef.current.delete(optimisticUserMessageId);
 					setMessages((prev) =>
 						prev.filter((message) => message.id !== optimisticUserMessageId),
 					);
@@ -2981,6 +3011,7 @@ export function useChatSession(environmentId: string) {
 
 			if (optimisticUserMessageId) {
 				outstandingOptimisticUserIdsRef.current.add(optimisticUserMessageId);
+				retainedPendingUserIdsRef.current.add(optimisticUserMessageId);
 				if (parsed.executionTarget === "cloud") {
 					cloudOptimisticStatesRef.current.set(optimisticUserMessageId, {
 						sessionId: plannedSessionId,
@@ -4000,6 +4031,7 @@ export function useChatSession(environmentId: string) {
 		rekeyedOptimisticIdByMessageIdRef.current = {};
 		lastCoreErrorBySessionRef.current = {};
 		cloudOptimisticStatesRef.current.clear();
+		retainedPendingUserIdsRef.current.clear();
 		cloudTranscriptKnownRef.current = {};
 		cloudTranscriptUserIdsRef.current = {};
 		shownTurnFailureRef.current = null;
@@ -4043,6 +4075,9 @@ export function useChatSession(environmentId: string) {
 			const reasoningRevision = reasoningRevisionRef.current;
 			const hydrationStartedAt = Date.now();
 			const cached = chatHistoryCache.get(sessionKey(session));
+			retainedPendingUserIdsRef.current = new Set(
+				cached?.pendingUserMessageIds,
+			);
 			historyLimitRef.current = cached?.limit ?? INITIAL_HISTORY_MESSAGES;
 			setIsLoadingOlderMessages(false);
 			hydrationRequestIdRef.current = requestId;
@@ -4115,19 +4150,22 @@ export function useChatSession(environmentId: string) {
 						});
 					}
 				} else {
-					const mergedMessages = mergeHydratedMessagesWithLive({
-						hydrated: msgs,
-						current: messagesRef.current,
-						sessionId: session.sessionId,
-						hydrationStartedAt,
+					setMessages((current) => {
+						const mergedMessages = mergeHydratedMessagesWithLive({
+							hydrated: msgs,
+							current,
+							sessionId: session.sessionId,
+							hydrationStartedAt,
+							preserveMessageIds: retainedPendingUserIdsRef.current,
+						});
+						// Hub attachment starts forwarding future events but does not replay the
+						// tool.started event for a command already in flight. Rebuild its routing
+						// key from canonical history before those future updates can arrive.
+						const liveToolState = deriveLiveToolState(mergedMessages);
+						liveToolMessageIdsRef.current = liveToolState.messageIds;
+						liveToolInputsRef.current = liveToolState.inputs;
+						return mergedMessages;
 					});
-					// Hub attachment starts forwarding future events but does not replay the
-					// tool.started event for a command already in flight. Rebuild its routing
-					// key from canonical history before those future updates can arrive.
-					const liveToolState = deriveLiveToolState(mergedMessages);
-					liveToolMessageIdsRef.current = liveToolState.messageIds;
-					liveToolInputsRef.current = liveToolState.inputs;
-					setMessages(mergedMessages);
 				}
 				setRawTranscript("");
 				resetCounters();
@@ -4370,6 +4408,7 @@ export function useChatSession(environmentId: string) {
 					current,
 					sessionId: target,
 					hydrationStartedAt: startedAt,
+					preserveMessageIds: retainedPendingUserIdsRef.current,
 				}),
 			);
 		} catch (err) {
