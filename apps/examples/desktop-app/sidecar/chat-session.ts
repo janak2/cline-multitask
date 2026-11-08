@@ -1893,6 +1893,7 @@ async function handleSendOnce(
 			// muted by its subscription, so the session is no longer attach-only.
 			session.attachedViaHub = false;
 		}
+		emitChunk(ctx, sessionId, "chat_user_message", "");
 		if (delivery === "queue") {
 			if (session) {
 				session.prompt = prompt;

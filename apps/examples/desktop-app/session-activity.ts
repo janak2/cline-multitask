@@ -39,5 +39,5 @@ export function compareSessionsByActivityDesc(
 }
 
 export function isSessionActivityStream(stream?: string): boolean {
-	return stream === "chat_done";
+	return stream === "chat_user_message" || stream === "chat_done";
 }

@@ -289,6 +289,48 @@ describe("useSessionHistory unread output", () => {
 });
 
 describe("useSessionHistory session mapping", () => {
+	it("moves a sent user message to the top without letting streaming overtake another completed message", async () => {
+		const older = { ...sessionRow("older"), prompt: "hello" };
+		const newer = {
+			...sessionRow("newer"),
+			lastActivityAt: "2026-07-21T10:00:00Z",
+		};
+		await act(async () => root.render(<HookHarness />));
+		await flush();
+		await act(async () => pendingLists[0].resolve([older, newer]));
+		const emit = async (sessionId: string, stream: string, minute: number) => {
+			await act(async () =>
+				subscribers.get("chat_event")?.({
+					sessionId,
+					stream,
+					chunk: "",
+					ts: Date.parse("2026-07-22T10:00:00Z") + minute * 60_000,
+				}),
+			);
+		};
+		await emit("older", "chat_user_message", 0);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[older, newer].map(sessionKey),
+		);
+		await flush(12_000);
+		await act(async () =>
+			pendingLists[1].resolve([{ ...older, status: "running" }, newer]),
+		);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[older, newer].map(sessionKey),
+		);
+		await emit("newer", "chat_done", 1);
+		await emit("older", "chat_text", 2);
+		await emit("older", "chat_tool_call_start", 3);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[newer, older].map(sessionKey),
+		);
+		await emit("older", "chat_done", 4);
+		expect(current.threads.map((s) => s.id)).toEqual(
+			[older, newer].map(sessionKey),
+		);
+	});
+
 	it("reorders only on completion and keeps completed activity through stale polls", async () => {
 		const active = {
 			...sessionRow("old-active"),

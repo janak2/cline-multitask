@@ -1543,6 +1543,26 @@ describe("first-send connection updates", () => {
 		);
 	});
 
+	it.each<"queue" | undefined>([
+		undefined,
+		"queue",
+	])("records user message activity before awaiting the agent (%s)", async (delivery) => {
+		const { ctx, send, sessionId } = createContext();
+		send.mockImplementationOnce(async () => {
+			expect(ctx.liveSessions.get(sessionId)?.lastActivityAt).toEqual(
+				expect.any(Number),
+			);
+			return { text: "done", finishReason: "completed", messages: [] };
+		});
+		await handleChatSessionCommand(ctx, {
+			action: "send",
+			sessionId,
+			prompt: "hello",
+			delivery,
+		});
+		expect(send).toHaveBeenCalledOnce();
+	});
+
 	it("restores each chat's saved effort on attach and updates only that runtime before sending", async () => {
 		const { ctx, sessionId, send, updateSessionConnection } = createContext();
 		const saved = new Map([
