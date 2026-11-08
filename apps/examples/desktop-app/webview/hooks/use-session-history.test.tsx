@@ -199,6 +199,15 @@ describe("useSessionHistory unread output", () => {
 		await emit(stream, chunk, 2);
 		expect(current.unreadSessionIds.size).toBe(0);
 	});
+	it("reuses unread state for repeated background output", async () => {
+		await mount();
+		await emit("chat_text", "first", 1);
+		const unread = current.unreadSessionIds;
+		await emit("chat_text", "second", 2);
+		await emit("chat_reasoning", '{"text":"thinking"}', 3);
+		expect(current.unreadSessionIds).toBe(unread);
+	});
+
 	it("keeps viewed output read through switching, duplicate replay, and late bookkeeping", async () => {
 		await mount();
 		await emit("chat_text", "answer", 10);

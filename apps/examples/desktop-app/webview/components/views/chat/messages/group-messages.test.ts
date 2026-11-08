@@ -5,6 +5,7 @@ import {
 	buildUserRunCountMap,
 	type ChatRenderItem,
 	collapseCompletedWork,
+	createChatRenderItemsCache,
 	formatThoughtLabel,
 	getThoughtDurationMilliseconds,
 	groupChatMessages,
@@ -21,6 +22,76 @@ function makeMessage(
 		...overrides,
 	} as ChatMessage;
 }
+
+describe("createChatRenderItemsCache", () => {
+	it("reuses finished turns while rebuilding streaming content", () => {
+		const build = createChatRenderItemsCache();
+		const messages = [
+			makeMessage({ id: "user-1", role: "user", content: "first" }),
+			makeMessage({ id: "answer-1", content: "done" }),
+			makeMessage({ id: "user-2", role: "user", content: "second" }),
+			makeMessage({ id: "answer-2", content: "stream" }),
+		];
+		const before = build(messages, { collapseTrailingRun: false });
+		const updated = [
+			...messages.slice(0, -1),
+			{ ...messages[3], content: "streaming" },
+		];
+		const after = build(updated, { collapseTrailingRun: false });
+		expect(after).toEqual(
+			collapseCompletedWork(groupChatMessages(updated), {
+				collapseTrailingRun: false,
+			}),
+		);
+		expect(after[0]).toBe(before[0]);
+		expect(after[1]).toBe(before[1]);
+		expect(after.at(-1)).not.toBe(before.at(-1));
+	});
+
+	it("matches uncached grouping through appends, completion, history changes, and reset", () => {
+		const build = createChatRenderItemsCache();
+		let messages: ChatMessage[] = [];
+		const additions = [
+			makeMessage({ id: "user", role: "user", content: "hello" }),
+			makeMessage({ id: "reasoning", reasoning: "thinking" }),
+			makeMessage({
+				id: "tool",
+				role: "tool",
+				content: '{"toolName":"read_files","result":"ok"}',
+			}),
+			makeMessage({ id: "answer", content: "done" }),
+			makeMessage({
+				id: "steering",
+				role: "user",
+				content: "[SYSTEM] continue",
+				meta: { userRunSpan: 0 },
+			}),
+			makeMessage({ id: "next-user", role: "user", content: "next" }),
+			makeMessage({ id: "next-answer", content: "answer" }),
+		];
+		const check = () => {
+			for (const collapseTrailingRun of [false, true]) {
+				expect(build(messages, { collapseTrailingRun })).toEqual(
+					collapseCompletedWork(groupChatMessages(messages), {
+						collapseTrailingRun,
+					}),
+				);
+			}
+		};
+		for (const message of additions) {
+			messages = [...messages, message];
+			check();
+		}
+		messages = messages.map((message) => ({ ...message }));
+		check();
+		messages = messages.slice(2);
+		check();
+		messages = messages.slice(0, 2);
+		check();
+		messages = [];
+		check();
+	});
+});
 
 describe("groupChatMessages", () => {
 	it("folds a reasoning-only assistant message into the next assistant message", () => {

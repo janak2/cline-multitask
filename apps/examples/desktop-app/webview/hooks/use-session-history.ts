@@ -1460,6 +1460,7 @@ export function useSessionHistory({
 				}
 				if (sessionId !== viewedSessionRef.current && visibleOutput) {
 					setUnreadSessionIds((current) => {
+						if (current.has(sessionId)) return current;
 						const next = new Set(current);
 						next.add(sessionId);
 						return next;

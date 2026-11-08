@@ -413,6 +413,58 @@ export function collapseCompletedWork(
 	return out;
 }
 
+export function createChatRenderItemsCache() {
+	let turns: {
+		messages: ChatMessage[];
+		collapse: boolean;
+		hasNext: boolean;
+		items: ChatRenderItem[];
+	}[] = [];
+
+	return (messages: ChatMessage[], options: CollapseWorkOptions) => {
+		const next: typeof turns = [];
+		const items: ChatRenderItem[] = [];
+		for (let start = 0; start < messages.length; ) {
+			let end = start + 1;
+			while (
+				end < messages.length &&
+				(messages[end].role !== "user" ||
+					isSystemSteeringMessage(messages[end]))
+			) {
+				end++;
+			}
+			const collapse = end < messages.length || options.collapseTrailingRun;
+			const hasNext = end < messages.length;
+			const previous = turns[next.length];
+			const unchanged =
+				previous?.collapse === collapse &&
+				previous.hasNext === hasNext &&
+				previous.messages.length === end - start &&
+				previous.messages.every(
+					(message, index) => message === messages[start + index],
+				);
+			const turn = unchanged
+				? previous
+				: {
+						messages: messages.slice(start, end),
+						collapse,
+						hasNext,
+						items: collapseCompletedWork(
+							groupChatMessages(
+								messages.slice(start, end < messages.length ? end + 1 : end),
+							),
+							{ collapseTrailingRun: collapse },
+						).slice(0, end < messages.length ? -1 : undefined),
+					};
+			next.push(turn);
+			items.push(...turn.items);
+			start = end;
+		}
+		turns = next;
+		return items;
+	};
+}
+
 export function groupChatMessages(messages: ChatMessage[]): ChatRenderItem[] {
 	const items: ChatRenderItem[] = [];
 	let pendingReasoningMessages: ChatMessage[] = [];

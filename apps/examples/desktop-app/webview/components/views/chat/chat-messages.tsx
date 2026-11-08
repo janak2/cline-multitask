@@ -36,9 +36,8 @@ import { STREAMING_TITLE_CLASS } from "./messages/constants";
 import {
 	buildPreviousTimestampMap,
 	buildUserRunCountMap,
-	collapseCompletedWork,
+	createChatRenderItemsCache,
 	getThoughtDurationMilliseconds,
-	groupChatMessages,
 	isSystemSteeringMessage,
 } from "./messages/group-messages";
 import { ChatImageLightbox } from "./messages/image-lightbox";
@@ -240,12 +239,10 @@ function ChatMessagesImpl({
 	// landed mid-answer and left partial trailing text — so the user can see
 	// where it stopped. Only a run the agent finished folds into a summary row.
 	const collapseTrailingRun = status === "completed" || status === "idle";
+	const buildRenderItems = useMemo(() => createChatRenderItemsCache(), []);
 	const renderItems = useMemo(
-		() =>
-			collapseCompletedWork(groupChatMessages(messages), {
-				collapseTrailingRun,
-			}),
-		[messages, collapseTrailingRun],
+		() => buildRenderItems(messages, { collapseTrailingRun }),
+		[messages, collapseTrailingRun, buildRenderItems],
 	);
 	const isRunActive =
 		!isHistoryPreview &&
