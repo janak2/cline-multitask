@@ -53,6 +53,7 @@ import type {
 	ToolCallUpdateEvent,
 } from "@/hooks/chat-session/types";
 import { toast } from "@/hooks/use-toast";
+import { ChatCache } from "@/lib/chat-cache";
 import { readPluginIssueWarning } from "@/lib/chat-output";
 import {
 	type ChatMessage,
@@ -81,7 +82,7 @@ import {
 	type SessionHistoryItem,
 	type SessionHistoryStatus,
 } from "@/lib/session-history";
-import { eventEnvironmentId } from "@/lib/session-identity";
+import { eventEnvironmentId, sessionKey } from "@/lib/session-identity";
 import { readImportedHistorySummaryActivity } from "@/lib/session-import";
 import {
 	isTaskWorktreePath,
@@ -99,6 +100,11 @@ import {
 export { DEFAULT_CHAT_CONFIG } from "@/hooks/chat-session/constants";
 
 const MAX_MESSAGES = 800;
+const INITIAL_HISTORY_MESSAGES = 120;
+export const chatHistoryCache = new ChatCache<{
+	messages: ChatMessage[];
+	limit: number;
+}>();
 
 // How long streamed text/reasoning deltas are buffered before a React commit.
 // ~3 frames: fast enough to feel live, slow enough to absorb per-token events.
@@ -662,6 +668,8 @@ export function useChatSession(environmentId: string) {
 		[],
 	);
 	const messagesRef = useRef<ChatMessage[]>([]);
+	const historyLimitRef = useRef(INITIAL_HISTORY_MESSAGES);
+	const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
 	// When the last chat_event chunk for the active session arrived. The
 	// stale-stream fallback below only polls while this stays quiet.
 	const lastLiveChunkAtRef = useRef(0);
@@ -767,6 +775,13 @@ export function useChatSession(environmentId: string) {
 	useEffect(() => {
 		messagesRef.current = messages;
 	}, [messages]);
+	useEffect(() => {
+		if (!sessionId || isHydratingSession || messages.length === 0) return;
+		const key = sessionKey({ sessionId, environmentId });
+		const value = { messages, limit: historyLimitRef.current };
+		chatHistoryCache.set(key, value);
+		return () => chatHistoryCache.set(key, value);
+	}, [sessionId, environmentId, messages, isHydratingSession]);
 	useEffect(() => {
 		providerIdRef.current = config.provider;
 		providerAuthRef.current = config.providerAuth;
@@ -1067,7 +1082,8 @@ export function useChatSession(environmentId: string) {
 					.invoke<ChatMessage[]>("read_session_messages", {
 						environmentId,
 						sessionId: sid,
-						maxMessages: MAX_MESSAGES,
+						maxMessages: historyLimitRef.current,
+						alignToTurn: true,
 					})
 					.then((historyMessages) => {
 						if (
@@ -2603,7 +2619,8 @@ export function useChatSession(environmentId: string) {
 						.invoke<ChatMessage[]>("read_session_messages", {
 							environmentId,
 							sessionId,
-							maxMessages: MAX_MESSAGES,
+							maxMessages: historyLimitRef.current,
+							alignToTurn: true,
 						})
 						.catch(() => null);
 				const recordPromise = desktopClient
@@ -3452,7 +3469,8 @@ export function useChatSession(environmentId: string) {
 							{
 								environmentId,
 								sessionId: activeSessionId,
-								maxMessages: MAX_MESSAGES,
+								maxMessages: historyLimitRef.current,
+								alignToTurn: true,
 							},
 						);
 						if (historyMessages.length > 0 && !newerTurnOwnsTranscript()) {
@@ -3480,7 +3498,8 @@ export function useChatSession(environmentId: string) {
 						{
 							environmentId,
 							sessionId: activeSessionId,
-							maxMessages: MAX_MESSAGES,
+							maxMessages: historyLimitRef.current,
+							alignToTurn: true,
 						},
 					);
 					if (historyMessages.length > 0 && !newerTurnOwnsTranscript()) {
@@ -3845,7 +3864,8 @@ export function useChatSession(environmentId: string) {
 				: await desktopClient.invoke<ChatMessage[]>("read_session_messages", {
 						environmentId,
 						sessionId: nextSessionId,
-						maxMessages: MAX_MESSAGES,
+						maxMessages: historyLimitRef.current,
+						alignToTurn: true,
 					});
 
 			setSessionId(nextSessionId);
@@ -4022,6 +4042,9 @@ export function useChatSession(environmentId: string) {
 			const requestId = hydrationRequestIdRef.current + 1;
 			const reasoningRevision = reasoningRevisionRef.current;
 			const hydrationStartedAt = Date.now();
+			const cached = chatHistoryCache.get(sessionKey(session));
+			historyLimitRef.current = cached?.limit ?? INITIAL_HISTORY_MESSAGES;
+			setIsLoadingOlderMessages(false);
 			hydrationRequestIdRef.current = requestId;
 			setIsCloudSessionExpired(
 				session.origin === "cloud" && session.status === "expired",
@@ -4117,6 +4140,11 @@ export function useChatSession(environmentId: string) {
 				void refreshSessionDiffSummary(session.sessionId);
 			};
 
+			if (cached) {
+				applyHydratedMessages(cached.messages, session.status);
+				setIsHydratingSession(false);
+			}
+
 			let loadingHistory = true;
 			if (session.origin === "cloud" && session.status !== "expired") {
 				void desktopClient
@@ -4142,7 +4170,8 @@ export function useChatSession(environmentId: string) {
 					{
 						environmentId,
 						sessionId: session.sessionId,
-						maxMessages: MAX_MESSAGES,
+						maxMessages: historyLimitRef.current,
+						alignToTurn: true,
 					},
 				);
 				if (hydrationRequestIdRef.current !== requestId) return;
@@ -4308,6 +4337,55 @@ export function useChatSession(environmentId: string) {
 		],
 	);
 
+	const loadOlderMessages = useCallback(async () => {
+		const target = activeSessionIdRef.current;
+		if (!target || isLoadingOlderMessages) return;
+		const requestId = hydrationRequestIdRef.current;
+		const startedAt = Date.now();
+		const limit =
+			Math.max(
+				historyLimitRef.current,
+				messagesRef.current[0]?.meta?.historyWindowSize ?? 0,
+			) + INITIAL_HISTORY_MESSAGES;
+		setIsLoadingOlderMessages(true);
+		try {
+			const history = await desktopClient.invoke<ChatMessage[]>(
+				"read_session_messages",
+				{
+					environmentId,
+					sessionId: target,
+					maxMessages: limit,
+					alignToTurn: true,
+				},
+			);
+			if (
+				hydrationRequestIdRef.current !== requestId ||
+				activeSessionIdRef.current !== target
+			)
+				return;
+			historyLimitRef.current = limit;
+			setMessages((current) =>
+				mergeHydratedMessagesWithLive({
+					hydrated: history,
+					current,
+					sessionId: target,
+					hydrationStartedAt: startedAt,
+				}),
+			);
+		} catch (err) {
+			if (hydrationRequestIdRef.current === requestId) {
+				toast({
+					variant: "destructive",
+					title: "Could not load older messages",
+					description: errorMessage(err),
+				});
+			}
+		} finally {
+			if (hydrationRequestIdRef.current === requestId)
+				setIsLoadingOlderMessages(false);
+		}
+	}, [environmentId, isLoadingOlderMessages]);
+
 	const forkSession = useCallback(
 		async (options?: {
 			beforeRunCount?: number;
@@ -4346,7 +4424,8 @@ export function useChatSession(environmentId: string) {
 				: await desktopClient.invoke<ChatMessage[]>("read_session_messages", {
 						environmentId,
 						sessionId: newSessionId,
-						maxMessages: MAX_MESSAGES,
+						maxMessages: historyLimitRef.current,
+						alignToTurn: true,
 					});
 			return { newSessionId, forkedFromSessionId, messages: nextMessages };
 		},
@@ -4510,6 +4589,9 @@ export function useChatSession(environmentId: string) {
 		config,
 		messages,
 		historyPreview: isHydratingSession ? historyPreview : [],
+		hasOlderMessages: messages[0]?.meta?.historyHasMore === true,
+		isLoadingOlderMessages,
+		loadOlderMessages,
 		rawTranscript,
 		error,
 		summary,

@@ -2803,3 +2803,25 @@ describe("ChatMessages last turn receipt", () => {
 		expect(receipts()).toHaveLength(0);
 	});
 });
+
+it("loads older history through the transcript button", async () => {
+	const load = vi.fn();
+	await renderMessages(
+		[
+			{
+				id: "latest",
+				sessionId: "session-1",
+				role: "user",
+				content: "latest prompt",
+				createdAt: 1,
+			},
+		],
+		{ hasOlderMessages: true, onLoadOlderMessages: load },
+	);
+	const button = Array.from(container.querySelectorAll("button")).find(
+		(item) => item.textContent === "Load older messages",
+	);
+	expect(button).toBeDefined();
+	await act(async () => button?.click());
+	expect(load).toHaveBeenCalledOnce();
+});

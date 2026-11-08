@@ -714,3 +714,43 @@ describe("readSessionMessages", () => {
 		});
 	});
 });
+
+describe("turn-aligned history windows", () => {
+	it("keeps whole turns and reports whether older history remains", async () => {
+		const messages = [
+			{ role: "user", content: "old prompt", ts: 1 },
+			{ role: "assistant", content: "old answer", ts: 2 },
+			{ role: "user", content: "recent prompt", ts: 3 },
+			{ role: "assistant", content: "recent answer", ts: 4 },
+		];
+		const ctx = { liveSessions: new Map() };
+		const recent = await readSessionMessages(
+			ctx,
+			"window-test",
+			1,
+			messages,
+			undefined,
+			true,
+		);
+		expect(recent).toEqual([
+			expect.objectContaining({
+				content: "recent prompt",
+				meta: expect.objectContaining({
+					historyHasMore: true,
+					runCount: 2,
+				}),
+			}),
+			expect.objectContaining({ content: "recent answer" }),
+		]);
+		const full = await readSessionMessages(
+			ctx,
+			"window-test",
+			10,
+			messages,
+			undefined,
+			true,
+		);
+		expect(full).toHaveLength(4);
+		expect(full[0]).toMatchObject({ meta: { historyHasMore: false } });
+	});
+});

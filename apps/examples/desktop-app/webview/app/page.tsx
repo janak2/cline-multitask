@@ -1,11 +1,5 @@
 "use client";
 
-import {
-	FileViewStateProvider,
-	fileViewStorageKey,
-	useFileViewState,
-} from "@/lib/file-view-state";
-
 import type { HandoffGitPreview } from "@cline/core/cloud";
 import type { ProviderAuthInfo } from "@cline/shared/browser";
 import { AgentConversationHeader, AttachmentDropZone } from "@cline/ui";
@@ -129,6 +123,11 @@ import {
 	watchDesktopTrayStatus,
 } from "@/lib/desktop-tray";
 import { syncDesktopWindowTitle } from "@/lib/desktop-window-title";
+import {
+	FileViewStateProvider,
+	fileViewStorageKey,
+	useFileViewState,
+} from "@/lib/file-view-state";
 import {
 	cloudImageAttachmentError,
 	imageAttachmentMediaType,
@@ -1575,6 +1574,9 @@ function ChatThreadPane({
 		chatTransportError,
 		isHydratingSession,
 		historyPreview,
+		hasOlderMessages,
+		isLoadingOlderMessages,
+		loadOlderMessages,
 		isCloudSessionExpired,
 		activeAssistantMessageId,
 		activityLabel,
@@ -3464,6 +3466,10 @@ function ChatThreadPane({
 							<CloudProvisioningPane phase="Opening session..." />
 						) : (
 							<ChatMessages
+								environmentId={environmentId}
+								hasOlderMessages={hasOlderMessages}
+								isLoadingOlderMessages={isLoadingOlderMessages}
+								onLoadOlderMessages={loadOlderMessages}
 								onAnswerAskQuestion={handleAnswerAskQuestion}
 								onApproveToolApproval={handleApproveToolApproval}
 								onRejectToolApproval={handleRejectToolApproval}

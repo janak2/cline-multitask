@@ -77,6 +77,8 @@ export const ChatMessageSchema = z.object({
 	createdAt: z.number().int().nonnegative(),
 	meta: z
 		.object({
+			historyHasMore: z.boolean().optional(),
+			historyWindowSize: z.number().int().nonnegative().optional(),
 			stream: z.enum(["stdout", "stderr"]).optional(),
 			toolName: z.string().optional(),
 			toolCallId: z.string().optional(),

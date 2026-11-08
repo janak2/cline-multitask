@@ -365,6 +365,7 @@ export function readSessionMessagesSync(
 	sourceMessages?: unknown[],
 	/** Where a remote session resolved `@` mentions (its workspace root). */
 	remoteMentionBaseDir?: string,
+	alignToTurn = false,
 ): unknown[] {
 	const isRemoteRead = sourceMessages !== undefined;
 	const persisted = isRemoteRead
@@ -381,7 +382,15 @@ export function readSessionMessagesSync(
 				? []
 				: (ctx.liveSessions.get(sessionId)?.messages ?? []);
 	const max = Math.max(1, maxMessages);
-	const start = Math.max(0, messages.length - max);
+	let start = Math.max(0, messages.length - max);
+	if (alignToTurn) {
+		while (start > 0) {
+			const message = messages[start];
+			if (message && typeof message === "object" && getUserRunSpan(message) > 0)
+				break;
+			start--;
+		}
+	}
 	const displayMessages = projectSessionMessagesForDisplay(
 		messages.slice(start),
 	).map((entry) => ({
@@ -767,6 +776,13 @@ export function readSessionMessagesSync(
 		}
 	}
 
+	if (alignToTurn && out[0]) {
+		out[0].meta = {
+			...(out[0].meta as JsonRecord | undefined),
+			historyHasMore: start > 0,
+			historyWindowSize: messages.length - start,
+		};
+	}
 	return out;
 }
 
@@ -796,6 +812,7 @@ export async function readSessionMessages(
 	maxMessages = 800,
 	sourceMessages?: unknown[],
 	remoteMentionBaseDir?: string,
+	alignToTurn = false,
 ): Promise<unknown[]> {
 	return readSessionMessagesSync(
 		ctx,
@@ -803,5 +820,6 @@ export async function readSessionMessages(
 		maxMessages,
 		sourceMessages,
 		remoteMentionBaseDir,
+		alignToTurn,
 	);
 }

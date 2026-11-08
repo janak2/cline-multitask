@@ -135,4 +135,13 @@ describe("chat scroll restoration", () => {
 		await render("b");
 		expect((await render("a")).scrollTop).toBe(1000);
 	});
+	it("preserves the visible position when older messages are prepended", async () => {
+		const viewport = await render("a", [message(10)]);
+		viewport.scrollTop = 240;
+		viewport.dispatchEvent(new Event("scroll"));
+		vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
+			1700,
+		);
+		expect((await render("a", [message(1), message(10)])).scrollTop).toBe(740);
+	});
 });

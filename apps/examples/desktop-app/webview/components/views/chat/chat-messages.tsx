@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { ChatCache } from "@/lib/chat-cache";
 import type {
 	ChatMessage,
 	ChatMessageImage,
@@ -28,6 +29,7 @@ import type {
 } from "@/lib/chat-schema";
 import { formatRunError } from "@/lib/run-error";
 import type { SessionChangeSet } from "@/lib/session-changes";
+import { sessionKey } from "@/lib/session-identity";
 import type { SessionImportTool } from "@/lib/session-import";
 import { cn } from "@/lib/utils";
 import { ChatScrollProvider, ChatScrollViewport } from "./chat-scroll";
@@ -52,7 +54,15 @@ import { TurnReceipt } from "./messages/turn-receipt";
 import { WorkBlock } from "./messages/work-block";
 import { TranscriptOutline } from "./transcript-outline";
 
+const renderCaches = new ChatCache<
+	ReturnType<typeof createChatRenderItemsCache>
+>();
+
 type ChatMessagesProps = {
+	environmentId?: string;
+	hasOlderMessages?: boolean;
+	isLoadingOlderMessages?: boolean;
+	onLoadOlderMessages?: () => void | Promise<void>;
 	sessionId: string | null;
 	status: ChatSessionStatus;
 	chatTransportState?:
@@ -114,6 +124,10 @@ type AskQuestionRequestItem = {
 };
 
 function ChatMessagesImpl({
+	environmentId = "local",
+	hasOlderMessages = false,
+	isLoadingOlderMessages = false,
+	onLoadOlderMessages,
 	sessionId,
 	status,
 	chatTransportState = "connecting",
@@ -239,7 +253,19 @@ function ChatMessagesImpl({
 	// landed mid-answer and left partial trailing text — so the user can see
 	// where it stopped. Only a run the agent finished folds into a summary row.
 	const collapseTrailingRun = status === "completed" || status === "idle";
-	const buildRenderItems = useMemo(() => createChatRenderItemsCache(), []);
+	const buildRenderItems = useMemo(() => {
+		if (!sessionId) return createChatRenderItemsCache();
+		const key = sessionKey({ sessionId, environmentId });
+		const build = renderCaches.get(key) ?? createChatRenderItemsCache();
+		renderCaches.set(key, build);
+		return build;
+	}, [sessionId, environmentId]);
+	useEffect(() => {
+		if (!sessionId) return;
+		const key = sessionKey({ sessionId, environmentId });
+		renderCaches.set(key, buildRenderItems);
+		return () => renderCaches.set(key, buildRenderItems);
+	}, [sessionId, environmentId, buildRenderItems]);
 	const renderItems = useMemo(
 		() => buildRenderItems(messages, { collapseTrailingRun }),
 		[messages, collapseTrailingRun, buildRenderItems],
@@ -584,6 +610,17 @@ function ChatMessagesImpl({
 									<MessageScrollerItem messageId="imported-session">
 										<ImportedSessionNotice tool={importedFromTool} />
 									</MessageScrollerItem>
+								) : null}
+								{hasOlderMessages && onLoadOlderMessages ? (
+									<Button
+										variant="ghost"
+										disabled={isLoadingOlderMessages}
+										onClick={() => void onLoadOlderMessages()}
+									>
+										{isLoadingOlderMessages
+											? "Loading older messages…"
+											: "Load older messages"}
+									</Button>
 								) : null}
 								{renderItems.map((item, itemIndex) => {
 									// Working rows — live (`run`) or folded (`work`) — render

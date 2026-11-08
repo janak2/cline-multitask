@@ -133,6 +133,36 @@ export function ChatScrollViewport({
 		};
 	}, [ready, saved, scrollToEnd, scrollToStart]);
 
+	const previousHistory = useRef<{
+		firstId?: string;
+		height: number;
+		top: number;
+	} | null>(null);
+	useLayoutEffect(() => {
+		const viewport = viewportRef.current;
+		if (!viewport) return;
+		const previous = previousHistory.current;
+		if (
+			previous?.firstId &&
+			messages[0]?.id !== previous.firstId &&
+			messages.some((message) => message.id === previous.firstId)
+		) {
+			viewport.scrollTop =
+				previous.top + viewport.scrollHeight - previous.height;
+		}
+		previousHistory.current = {
+			firstId: messages[0]?.id,
+			height: viewport.scrollHeight,
+			top: viewport.scrollTop,
+		};
+		const recordPosition = () => {
+			if (previousHistory.current)
+				previousHistory.current.top = viewport.scrollTop;
+		};
+		viewport.addEventListener("scroll", recordPosition);
+		return () => viewport.removeEventListener("scroll", recordPosition);
+	}, [messages]);
+
 	useLayoutEffect(() => {
 		const viewport = viewportRef.current;
 		return () => {

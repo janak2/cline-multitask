@@ -20,7 +20,11 @@ import {
 	getThoughtDurationMilliseconds,
 } from "../components/views/chat/messages/group-messages";
 import { buildToolPresentation } from "../components/views/chat/messages/tool-summaries";
-import { mergeCloudSnapshotWithLive, useChatSession } from "./use-chat-session";
+import {
+	chatHistoryCache,
+	mergeCloudSnapshotWithLive,
+	useChatSession,
+} from "./use-chat-session";
 import { PromptDraftCache, usePromptDraft } from "./use-prompt-draft";
 import { normalizeDiscoveredStatus } from "./use-session-history";
 
@@ -41,6 +45,8 @@ vi.mock("@/lib/desktop-client", () => ({
 		subscribeTransportState: vi.fn(() => () => undefined),
 	},
 }));
+
+import type { ChatMessage } from "@/lib/chat-schema";
 
 type ChatSessionHook = ReturnType<typeof useChatSession>;
 
@@ -401,6 +407,7 @@ function handlerFor(eventName: string): (payload: unknown) => void {
 }
 
 beforeEach(async () => {
+	chatHistoryCache.clear();
 	Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 	if (typeof window.localStorage.clear !== "function") {
 		Object.defineProperty(window, "localStorage", {
@@ -430,6 +437,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await act(async () => root.unmount());
+	chatHistoryCache.clear();
 	container.remove();
 	vi.restoreAllMocks();
 });
@@ -5185,7 +5193,8 @@ describe("useChatSession", () => {
 		expect(invokeMock).toHaveBeenCalledWith("read_session_messages", {
 			environmentId: "local",
 			sessionId: hydratedSessionId,
-			maxMessages: 800,
+			maxMessages: 120,
+			alignToTurn: true,
 		});
 		expect(invokeMock).toHaveBeenCalledWith(
 			"chat_session_command",
@@ -8257,5 +8266,125 @@ describe("cloud snapshot replay", () => {
 			await pending;
 		});
 		expect(users.map((m) => m.id)).toEqual(["canonical-first", secondId]);
+	});
+});
+
+describe("retained chat history", () => {
+	const session = {
+		sessionId: "cached-chat",
+		provider: "cline",
+		model: "test-model",
+		cwd: "/workspace/cline",
+		workspaceRoot: "/workspace/cline",
+		environmentId: "local",
+		status: "completed" as const,
+		startedAt: "2026-01-01T00:00:00Z",
+	};
+	const message: ChatMessage = {
+		id: "cached-user",
+		sessionId: "cached-chat",
+		role: "user",
+		content: "cached prompt",
+		createdAt: 1,
+		meta: { historyHasMore: true },
+	};
+
+	it("shows cached history after remount while fresh history is pending", async () => {
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message] : [],
+		);
+		await act(async () => current.hydrateSession(session));
+		await act(async () => root.unmount());
+		root = createRoot(container);
+		await act(async () => root.render(<HookHarness />));
+		const pending = deferred<ChatMessage[]>();
+		invokeMock.mockImplementation((command: string) =>
+			command === "read_session_messages"
+				? pending.promise
+				: Promise.resolve([]),
+		);
+		let hydration!: Promise<void>;
+		await act(async () => {
+			hydration = current.hydrateSession(session);
+		});
+		expect(current.messages[0]).toBe(message);
+		expect(current.isHydratingSession).toBe(false);
+		const fresh = { ...message, content: "updated elsewhere" };
+		await act(async () => {
+			pending.resolve([fresh]);
+			await hydration;
+		});
+		expect(current.messages[0].content).toBe("updated elsewhere");
+	});
+
+	it("loads before a long aligned turn and keeps the expanded window on return", async () => {
+		const recent = {
+			...message,
+			meta: { historyHasMore: true, historyWindowSize: 300 },
+		};
+		const older = {
+			...message,
+			id: "older",
+			content: "older prompt",
+			createdAt: 0,
+			meta: { historyHasMore: false, historyWindowSize: 420 },
+		};
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (command !== "read_session_messages") return [];
+				return args?.maxMessages === 420 ? [older, recent] : [recent];
+			},
+		);
+		await act(async () => current.hydrateSession(session));
+		await act(async () => current.loadOlderMessages());
+		expect(current.messages.map((item) => item.id)).toEqual([
+			"older",
+			"cached-user",
+		]);
+		expect(current.hasOlderMessages).toBe(false);
+		await act(async () =>
+			current.hydrateSession({ ...session, sessionId: "different" }),
+		);
+		await act(async () => current.hydrateSession(session));
+		expect(invokeMock).toHaveBeenCalledWith("read_session_messages", {
+			environmentId: "local",
+			sessionId: session.sessionId,
+			maxMessages: 420,
+			alignToTurn: true,
+		});
+	});
+
+	it("expands the history window and ignores an older-page response after switching", async () => {
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message] : [],
+		);
+		await act(async () => current.hydrateSession(session));
+		expect(current.hasOlderMessages).toBe(true);
+		const pending = deferred<ChatMessage[]>();
+		invokeMock.mockImplementation(
+			(command: string, args?: Record<string, unknown>) =>
+				command === "read_session_messages" && args?.maxMessages === 240
+					? pending.promise
+					: Promise.resolve([]),
+		);
+		let loading!: Promise<void>;
+		await act(async () => {
+			loading = current.loadOlderMessages();
+		});
+		expect(current.isLoadingOlderMessages).toBe(true);
+		expect(invokeMock).toHaveBeenCalledWith("read_session_messages", {
+			environmentId: "local",
+			sessionId: session.sessionId,
+			maxMessages: 240,
+			alignToTurn: true,
+		});
+		await act(async () =>
+			current.hydrateSession({ ...session, sessionId: "other-chat" }),
+		);
+		await act(async () => {
+			pending.resolve([message]);
+			await loading;
+		});
+		expect(current.messages.some((item) => item.id === message.id)).toBe(false);
 	});
 });

@@ -2405,15 +2405,30 @@ export async function handleCommand(
 	if (command === "read_session_messages") {
 		const sessionId = String(args?.sessionId ?? "").trim();
 		const cloud = getCloudSessionManager(ctx);
+		const alignToTurn = args?.alignToTurn === true;
 		const maxMessages =
 			typeof args?.maxMessages === "number" ? args.maxMessages : 800;
 		if (cloud.isCloudSession(sessionId)) {
 			const messages = await cloud.readMessages(sessionId);
-			return await readSessionMessages(ctx, sessionId, maxMessages, messages);
+			return await readSessionMessages(
+				ctx,
+				sessionId,
+				maxMessages,
+				messages,
+				undefined,
+				alignToTurn,
+			);
 		}
 		const binding = await getCommandSessionBinding(ctx, sessionId, args);
 		if (binding?.kind !== "ssh") {
-			return await readSessionMessages(ctx, sessionId, maxMessages);
+			return await readSessionMessages(
+				ctx,
+				sessionId,
+				maxMessages,
+				undefined,
+				undefined,
+				alignToTurn,
+			);
 		}
 		const [remoteMessages, remoteSession] = await Promise.all([
 			binding.sessionManager.readMessages(sessionId),
@@ -2426,6 +2441,7 @@ export async function handleCommand(
 			maxMessages,
 			remoteMessages,
 			remoteSession?.workspaceRoot || remoteSession?.cwd || undefined,
+			alignToTurn,
 		);
 	}
 	if (command === "read_session_hooks") {
