@@ -176,6 +176,45 @@ try {
 		});
 	}
 	assert.deepEqual(errors, []);
+	const prompt = page.locator("textarea");
+	await prompt.fill("Review @Project Documents/Design Notes/Release Plan");
+	await page
+		.getByRole("option", {
+			name: "Project Documents/Design Notes/Release Plan Draft.md",
+			exact: true,
+		})
+		.waitFor();
+	await prompt.press("Enter");
+	assert.equal(
+		await prompt.inputValue(),
+		"Review @Project Documents/Design Notes/Release Plan Draft.md ",
+	);
+	assert.equal(await prompt.getAttribute("aria-expanded"), "false");
+	await prompt.fill("");
+	await prompt.pressSequentially("@Project Documents/Design Notes");
+	await page
+		.getByRole("option", {
+			name: "Project Documents/Design Notes/",
+			exact: true,
+		})
+		.waitFor();
+	await prompt.press("Escape");
+	await prompt.pressSequentially(" please explain");
+	assert.equal(await prompt.getAttribute("aria-expanded"), "false");
+	await prompt.pressSequentially(" @Project Documents/Design Notes");
+	await page
+		.getByRole("option", {
+			name: "Project Documents/Design Notes/",
+			exact: true,
+		})
+		.click();
+	assert(
+		(await prompt.inputValue()).endsWith("@Project Documents/Design Notes/ "),
+	);
+	assert.equal(await prompt.getAttribute("aria-expanded"), "false");
+	console.log(
+		"Composer browser mentions: PASS (spaces, full references, Escape and new trigger)",
+	);
 	console.log(JSON.stringify(results, null, 2));
 	console.log(
 		"Composer browser layout: PASS (Files open, real menus and rectangle checks)",

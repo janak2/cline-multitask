@@ -25,7 +25,7 @@ const provider: Provider = {
 };
 
 export const desktopClient = {
-	async invoke(command: string) {
+	async invoke(command: string, args?: Record<string, unknown>) {
 		switch (command) {
 			case "list_provider_catalog":
 				return { providers: [provider], settingsPath: "" };
@@ -35,6 +35,13 @@ export const desktopClient = {
 				return { runtimeCommands: [] };
 			case "list_plugin_commands":
 				return { status: "ready", commands: [] };
+			case "search_workspace_files":
+				return [
+					"Project Documents/Design Notes/",
+					"Project Documents/Design Notes/Release Plan Draft.md",
+				].filter((path) =>
+					path.toLowerCase().includes(String(args?.query ?? "").toLowerCase()),
+				);
 			default:
 				throw new Error(`Unexpected browser fixture command: ${command}`);
 		}

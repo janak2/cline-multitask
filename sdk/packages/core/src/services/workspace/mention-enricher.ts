@@ -27,11 +27,27 @@ function stripTrailingPunctuation(input: string): string {
 	return input.slice(0, end);
 }
 
-function extractMentionTokens(input: string): string[] {
-	const matches = input.matchAll(/(^|[\s])@([^\s]+)/g);
+function extractMentionTokens(
+	input: string,
+	cwd: string,
+	fileList: ReadonlySet<string>,
+): string[] {
+	const matches = input.matchAll(/(^|\s)@/g);
 	const mentions: string[] = [];
 	for (const match of matches) {
-		const token = (match[2] ?? "").trim();
+		const remainder = input
+			.slice(match.index + match[0].length)
+			.split(/[\r\n]/, 1)[0];
+		const nextMention = remainder.search(/\s@/);
+		const body = nextMention < 0 ? remainder : remainder.slice(0, nextMention);
+		let token = body.split(/\s/, 1)[0];
+		for (const boundary of body.matchAll(/\s|$/g)) {
+			const candidate = stripTrailingPunctuation(
+				body.slice(0, boundary.index).replace(LEADING_WRAPPERS, ""),
+			);
+			const relative = normalizeMentionPath(candidate, cwd);
+			if (relative && fileList.has(relative)) token = candidate;
+		}
 		if (token.length === 0) {
 			continue;
 		}
@@ -66,8 +82,7 @@ export async function enrichPromptWithMentions(
 	cwd: string,
 	options: MentionEnricherOptions = {},
 ): Promise<MentionEnrichmentResult> {
-	const mentions = extractMentionTokens(input);
-	if (mentions.length === 0) {
+	if (!/(^|\s)@\S/.test(input)) {
 		return {
 			prompt: input,
 			mentions: [],
@@ -80,6 +95,17 @@ export async function enrichPromptWithMentions(
 	const maxFileBytes = options.maxFileBytes;
 	const maxTotalBytes = options.maxTotalBytes;
 	const fileList = await getFileIndex(cwd, { ttlMs: options.ttlMs });
+	const mentionPaths = new Set(fileList);
+	for (const file of fileList) {
+		for (
+			let index = file.indexOf("/");
+			index >= 0;
+			index = file.indexOf("/", index + 1)
+		) {
+			mentionPaths.add(file.slice(0, index));
+		}
+	}
+	const mentions = extractMentionTokens(input, cwd, mentionPaths);
 	const matched: string[] = [];
 	const ignored: string[] = [];
 	const attachments: Array<{ path: string; content: string }> = [];
@@ -92,7 +118,7 @@ export async function enrichPromptWithMentions(
 		}
 
 		const relativePath = normalizeMentionPath(mention, cwd);
-		if (!relativePath || !fileList.has(relativePath)) {
+		if (!relativePath || !mentionPaths.has(relativePath)) {
 			ignored.push(mention);
 			continue;
 		}
@@ -105,7 +131,7 @@ export async function enrichPromptWithMentions(
 		const absolutePath = path.join(cwd, relativePath);
 		try {
 			const fileStat = await stat(absolutePath);
-			if (!fileStat.isFile()) {
+			if (!fileStat.isFile() && !fileStat.isDirectory()) {
 				ignored.push(mention);
 				continue;
 			}

@@ -1,9 +1,20 @@
-import { readFile, stat } from "node:fs/promises";
+import { opendir, readFile, stat } from "node:fs/promises";
 
 const MAX_USER_FILE_BYTES = 20 * 1_000 * 1_024;
 
 export async function loadUserFileContent(path: string): Promise<string> {
 	const fileStat = await stat(path);
+	if (fileStat.isDirectory()) {
+		const entries: string[] = [];
+		for await (const entry of await opendir(path)) {
+			if (entries.length === 200) {
+				entries.push("…");
+				break;
+			}
+			entries.push(`${entry.name}${entry.isDirectory() ? "/" : ""}`);
+		}
+		return entries.sort((a, b) => a.localeCompare(b)).join("\n");
+	}
 	if (!fileStat.isFile()) {
 		throw new Error("Path is not a file");
 	}

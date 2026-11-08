@@ -20,6 +20,40 @@ async function createTempWorkspace(): Promise<string> {
 }
 
 describe("enrichPromptWithMentions", () => {
+	it("resolves full multiword files and folders without including surrounding prose", async () => {
+		const cwd = await createTempWorkspace();
+		try {
+			await mkdir(path.join(cwd, "Project Documents", "Design Notes"), {
+				recursive: true,
+			});
+			await writeFile(
+				path.join(
+					cwd,
+					"Project Documents",
+					"Design Notes",
+					"Release Plan Draft.md",
+				),
+				"draft",
+			);
+			await writeFile(path.join(cwd, "Project"), "shorter prefix");
+			const input =
+				"Review @Project Documents/Design Notes/Release Plan Draft.md then @Project Documents/Design Notes/ please.";
+			const result = await enrichPromptWithMentions(input, cwd);
+			expect(result.mentions).toEqual([
+				"Project Documents/Design Notes/Release Plan Draft.md",
+				"Project Documents/Design Notes/",
+			]);
+			expect(result.matchedFiles).toEqual([
+				"Project Documents/Design Notes/Release Plan Draft.md",
+				"Project Documents/Design Notes",
+			]);
+			expect(result.ignoredMentions).toEqual([]);
+			expect(result.prompt).toBe(input);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("returns matched files for matching @path mentions", async () => {
 		const cwd = await createTempWorkspace();
 		try {

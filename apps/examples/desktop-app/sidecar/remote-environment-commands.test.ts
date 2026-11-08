@@ -745,6 +745,48 @@ describe("remote environment command routing", () => {
 		);
 	});
 
+	it("searches multiword remote file and folder paths without shell interpolation", async () => {
+		const { handleCommand } = await import("./commands");
+		const { createSidecarContext } = await import("./context");
+		const ctx = createSidecarContext("/local/project");
+		const fake = createFakeService();
+		ctx.remoteEnvironments = fake.service;
+		ctx.runtimeBindings.set(
+			profile.id,
+			createExistingRemoteBinding(profile.id),
+		);
+		fake.run.mockResolvedValue({
+			stdout:
+				"Project Documents/Design Notes/Release Plan Draft.md\nREADME.md\n",
+			stderr: "",
+			exitCode: 0,
+		});
+		await expect(
+			handleCommand(ctx, "search_workspace_files", {
+				environmentId: profile.id,
+				workspaceRoot: "/srv/My Project",
+				query: "Design Notes/Release Plan",
+			}),
+		).resolves.toEqual([
+			"Project Documents/Design Notes/Release Plan Draft.md",
+		]);
+		await expect(
+			handleCommand(ctx, "search_workspace_files", {
+				environmentId: profile.id,
+				workspaceRoot: "/srv/My Project",
+				query: "Project Documents/Design Notes",
+			}),
+		).resolves.toEqual([
+			"Project Documents/Design Notes/",
+			"Project Documents/Design Notes/Release Plan Draft.md",
+		]);
+		expect(fake.run).toHaveBeenCalledWith(profile.id, {
+			command: "sh",
+			args: ["-c", expect.not.stringContaining("Project Documents")],
+			cwd: "/srv/My Project",
+		});
+	});
+
 	it("bounds remote search output before transfer and drops a truncated filename", async () => {
 		const { handleCommand } = await import("./commands");
 		const { createSidecarContext } = await import("./context");

@@ -47,6 +47,21 @@ describe("getComposerHighlights", () => {
 		]);
 	});
 
+	it("highlights the longest known multiword file or folder, not the following prose", () => {
+		const known = new Set([
+			"Project Documents",
+			"Project Documents/Release Plan.md",
+		]);
+		const input =
+			"Use @Project Documents/Release Plan.md and @Project Documents/ next";
+		const highlights = getComposerHighlights(input, new Set(), (path) =>
+			known.has(path),
+		);
+		expect(highlights.map(({ start, end }) => input.slice(start, end))).toEqual(
+			["@Project Documents/Release Plan.md", "@Project Documents/"],
+		);
+	});
+
 	it("strips trailing punctuation without backtracking on long runs", () => {
 		expect(stripMentionTrailingPunctuation("src/app.ts),.")).toBe("src/app.ts");
 		const adversarial = `${"!".repeat(50_000)}file.ts`;

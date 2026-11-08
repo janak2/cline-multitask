@@ -1,6 +1,20 @@
 import { getFileIndex } from "@cline/core";
 import type { SidecarContext } from "../types";
 
+export function withWorkspaceDirectories(paths: Iterable<string>): Set<string> {
+	const entries = new Set(paths);
+	for (const path of paths) {
+		for (
+			let index = path.indexOf("/");
+			index >= 0;
+			index = path.indexOf("/", index + 1)
+		) {
+			entries.add(path.slice(0, index + 1));
+		}
+	}
+	return entries;
+}
+
 export function searchWorkspaceFiles(
 	ctx: Pick<SidecarContext, "localWorkspaceRoot">,
 	args?: Record<string, unknown>,
@@ -32,7 +46,7 @@ export function searchWorkspaceFiles(
 		return Number.POSITIVE_INFINITY;
 	};
 	return getFileIndex(root).then((index) =>
-		Array.from(index)
+		Array.from(withWorkspaceDirectories(index))
 			.sort((a, b) => a.localeCompare(b))
 			.map((path) => ({ path, rank: rankPath(path) }))
 			.filter((item) => Number.isFinite(item.rank))

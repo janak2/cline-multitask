@@ -624,6 +624,13 @@ mark the operation as failed. Exhausted stream recovery disables the agent's
 whole-turn retry so the two retry budgets do not multiply. Previously streamed
 text and reasoning follow AI SDK's append semantics and may repeat on recovery.
 
+### 6.2 Workspace mentions
+
+Workspace mention enrichment resolves unquoted multiword paths against the file
+index and its parent directories. It chooses the longest matching path before
+surrounding prose. File references load file contents; folder references load a
+bounded listing of direct children, not recursive file contents.
+
 ### 7. Storage Adapters
 
 Stateful persistence should be isolated behind adapter/service layers.

@@ -271,7 +271,7 @@ function getActiveMention(input: string, cursor: number): ActiveMention | null {
 		return null;
 	}
 	const mentionBody = left.slice(atIndex + 1);
-	if (!/^[^\s@]*$/.test(mentionBody)) {
+	if (/[@\r\n\t]/.test(mentionBody)) {
 		return null;
 	}
 	return {
@@ -678,21 +678,17 @@ function ChatInputBarImpl({
 		() => getActiveMention(promptInput, cursorIndex),
 		[promptInput, cursorIndex],
 	);
-	const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
-		null,
-	);
-	const mentionKey = activeMention
-		? `${activeMention.start}:${activeMention.query}`
-		: null;
+	const [dismissedMentionStart, setDismissedMentionStart] = useState<
+		number | null
+	>(null);
 	const mentionOpen =
 		executionTarget === "local" &&
-		mentionKey !== null &&
-		dismissedMentionKey !== mentionKey;
+		activeMention !== null &&
+		dismissedMentionStart !== activeMention.start;
 	const [mentionFiles, setMentionFiles] = useState<string[]>([]);
 	const [mentionLoading, setMentionLoading] = useState(false);
 	const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
 	const mentionResultsCacheRef = useRef(new Map<string, string[]>());
-	const mentionLastRequestKeyRef = useRef<string | null>(null);
 	const knownTokens = useKnownComposerTokens();
 
 	// ---- Slash command state ----
@@ -1016,10 +1012,6 @@ function ChatInputBarImpl({
 			workspaceRoot,
 			activeMention.query,
 		);
-		if (mentionLastRequestKeyRef.current === requestKey) {
-			return;
-		}
-		mentionLastRequestKeyRef.current = requestKey;
 		const cached = mentionResultsCacheRef.current.get(requestKey);
 		if (cached) {
 			setMentionFiles(cached);
@@ -1028,11 +1020,11 @@ function ChatInputBarImpl({
 			return;
 		}
 
+		setMentionFiles([]);
+		setMentionSelectedIndex(0);
+		setMentionLoading(true);
 		let cancelled = false;
 		const timeoutId = window.setTimeout(async () => {
-			if (mentionFiles.length === 0) {
-				setMentionLoading(true);
-			}
 			try {
 				const results = await desktopClient.invoke<string[]>(
 					"search_workspace_files",
@@ -1055,9 +1047,7 @@ function ChatInputBarImpl({
 				if (cancelled) {
 					return;
 				}
-				if (mentionFiles.length === 0) {
-					setMentionFiles([]);
-				}
+				setMentionFiles([]);
 			} finally {
 				if (!cancelled) {
 					setMentionLoading(false);
@@ -1069,13 +1059,7 @@ function ChatInputBarImpl({
 			cancelled = true;
 			window.clearTimeout(timeoutId);
 		};
-	}, [
-		activeMention,
-		environmentId,
-		mentionOpen,
-		workspaceRoot,
-		mentionFiles.length,
-	]);
+	}, [activeMention, environmentId, mentionOpen, workspaceRoot]);
 
 	const insertMentionFile = useCallback(
 		(filePath: string) => {
@@ -1085,10 +1069,10 @@ function ChatInputBarImpl({
 			const nextValue =
 				`${promptInput.slice(0, activeMention.start)}@${filePath} ` +
 				promptInput.slice(activeMention.end);
-			// The menu closes on its own: the inserted trailing space ends the
-			// active mention, so the derived `mentionOpen` turns false.
+			setDismissedMentionStart(activeMention.start);
 			setPromptInput(nextValue);
 			const nextCursor = activeMention.start + filePath.length + 2;
+			setCursorIndex(nextCursor);
 			requestAnimationFrame(() => {
 				const input = promptInputRef.current;
 				if (!input) {
@@ -1400,6 +1384,16 @@ function ChatInputBarImpl({
 							variant={variant}
 							onChange={(e) => {
 								if (speechInputActive) return;
+								const nextMention = getActiveMention(
+									e.target.value,
+									e.target.selectionStart ?? e.target.value.length,
+								);
+								if (
+									!nextMention ||
+									nextMention.start !== activeMention?.start
+								) {
+									setDismissedMentionStart(null);
+								}
 								setPromptInput(e.target.value);
 								setCursorIndex(
 									e.target.selectionStart ?? e.target.value.length,
@@ -1484,7 +1478,8 @@ function ChatInputBarImpl({
 								}
 								if (mentionOpen && e.key === "Escape") {
 									e.preventDefault();
-									setDismissedMentionKey(mentionKey);
+									e.stopPropagation();
+									setDismissedMentionStart(activeMention.start);
 									return;
 								}
 								if (e.key === "Escape" && canAbort) {

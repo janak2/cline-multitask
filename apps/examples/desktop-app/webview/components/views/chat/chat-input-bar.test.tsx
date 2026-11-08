@@ -3832,6 +3832,192 @@ describe("ChatInputBar token ring", () => {
 	});
 });
 
+describe("ChatInputBar file and folder mentions", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	});
+	afterEach(() => vi.useRealTimers());
+
+	async function edit(value: string, cursor = value.length) {
+		const textarea = container.querySelector("textarea");
+		if (!textarea) throw new Error("Missing composer textarea");
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)?.set?.call(textarea, value);
+			textarea.setSelectionRange(cursor, cursor);
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		return textarea;
+	}
+	async function key(key: string) {
+		const event = new KeyboardEvent("keydown", {
+			key,
+			bubbles: true,
+			cancelable: true,
+		});
+		await act(async () =>
+			container.querySelector("textarea")?.dispatchEvent(event),
+		);
+		return event;
+	}
+	async function settleSearch() {
+		await act(async () => vi.advanceTimersByTimeAsync(125));
+	}
+	function mockSearch(search: (query: string) => Promise<string[]>) {
+		return vi
+			.spyOn(desktopClient, "invoke")
+			.mockImplementation(async (command, args) => {
+				if (command === "search_workspace_files")
+					return await search(String(args?.query ?? ""));
+				if (command === "list_user_instruction_configs")
+					return { runtimeCommands: [] };
+				if (command === "list_plugin_commands")
+					return { status: "ready", commands: [] };
+				return [];
+			});
+	}
+
+	it.each([
+		["Project Documents/Design Notes/Release Plan Draft.md", "Enter"],
+		["Project Documents/Design Notes/", "Tab"],
+	])("keeps multiword search open and inserts the full %s reference with %s", async (path, selectionKey) => {
+		const search = vi.fn(async (query: string) =>
+			path.toLowerCase().includes(query.toLowerCase()) ? [path] : [],
+		);
+		mockSearch(search);
+		const onSend = vi.fn();
+		await renderVoiceComposer({ onSend });
+		const query = path.slice(0, -2);
+		for (let length = 1; length <= query.length; length++) {
+			await edit(`Use @${query.slice(0, length)}`);
+			expect(
+				container.querySelector("#mention-file-suggestions"),
+			).not.toBeNull();
+			if (query[length - 1] === " ") {
+				await settleSearch();
+				expect(search).toHaveBeenLastCalledWith(query.slice(0, length));
+				expect(
+					container.querySelector("#mention-file-option-0")?.textContent,
+				).toBe(path);
+			}
+		}
+		await settleSearch();
+		await key(selectionKey);
+		await act(
+			async () =>
+				new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+		);
+		expect(container.querySelector("textarea")?.value).toBe(`Use @${path} `);
+		expect(container.querySelector("textarea")?.selectionStart).toBe(
+			`Use @${path} `.length,
+		);
+		expect(container.querySelector("#mention-file-suggestions")).toBeNull();
+		await edit(`Use @${path} then explain`);
+		await settleSearch();
+		expect(container.querySelector("#mention-file-suggestions")).toBeNull();
+		await key("Enter");
+		expect(onSend).toHaveBeenCalledWith(`Use @${path} then explain`);
+	});
+
+	it("navigates with arrows and preserves text after the caret on mouse selection", async () => {
+		mockSearch(async () => [
+			"My Notes/First Draft.md",
+			"My Notes/Second Draft.md",
+		]);
+		await renderVoiceComposer();
+		await edit("Review @My Notes and explain", "Review @My Notes".length);
+		await settleSearch();
+		await key("ArrowDown");
+		expect(
+			container
+				.querySelector("#mention-file-option-1")
+				?.getAttribute("aria-selected"),
+		).toBe("true");
+		await key("ArrowUp");
+		expect(
+			container
+				.querySelector("#mention-file-option-0")
+				?.getAttribute("aria-selected"),
+		).toBe("true");
+		await act(async () =>
+			container
+				.querySelector<HTMLButtonElement>("#mention-file-option-1")
+				?.click(),
+		);
+		expect(container.querySelector("textarea")?.value).toBe(
+			"Review @My Notes/Second Draft.md  and explain",
+		);
+		expect(container.querySelector("#mention-file-suggestions")).toBeNull();
+	});
+
+	it("Escape dismisses an in-flight search without aborting work, and typing prose cannot reopen it", async () => {
+		const pending = deferred<string[]>();
+		const search = vi.fn(() => pending.promise);
+		mockSearch(search);
+		const onAbort = vi.fn();
+		const onSend = vi.fn();
+		await renderVoiceComposer({ status: "running", onAbort, onSend });
+		await edit("@My Project Files");
+		await settleSearch();
+		const escapeEvent = await key("Escape");
+		expect(escapeEvent.defaultPrevented).toBe(true);
+		await act(async () => pending.resolve(["My Project Files/README.md"]));
+		await edit("@My Project Files please explain");
+		await settleSearch();
+		expect(container.querySelector("#mention-file-suggestions")).toBeNull();
+		expect(onAbort).not.toHaveBeenCalled();
+		expect(onSend).not.toHaveBeenCalled();
+		await edit("@My Project Files please explain @My Project Files");
+		await settleSearch();
+		expect(container.querySelector("#mention-file-option-0")?.textContent).toBe(
+			"My Project Files/README.md",
+		);
+	});
+
+	it("ignores stale async results and retries a cancelled query when deliberately retyped", async () => {
+		const stale = deferred<string[]>();
+		const fresh = deferred<string[]>();
+		const search = vi.fn((query: string) =>
+			query === "My Notes" ? stale.promise : fresh.promise,
+		);
+		mockSearch(search);
+		await renderVoiceComposer({ strictMode: true });
+		await edit("@My Notes");
+		await settleSearch();
+		await edit("@My Notes/Release Plan");
+		await settleSearch();
+		await act(async () => fresh.resolve(["My Notes/Release Plan.md"]));
+		await act(async () => stale.resolve(["My Notes/Old Draft.md"]));
+		expect(container.querySelector("#mention-file-option-0")?.textContent).toBe(
+			"My Notes/Release Plan.md",
+		);
+		await key("Escape");
+		await edit("");
+		await edit("@My Notes");
+		await settleSearch();
+		expect(
+			search.mock.calls.filter(([query]) => query === "My Notes"),
+		).toHaveLength(2);
+		expect(container.querySelector("#mention-file-option-0")?.textContent).toBe(
+			"My Notes/Old Draft.md",
+		);
+	});
+
+	it("does not search email addresses or cross a line break", async () => {
+		const search = vi.fn(async () => []);
+		mockSearch(search);
+		await renderVoiceComposer();
+		await edit("person@example.com");
+		await settleSearch();
+		await edit("@My Notes\nplain prose");
+		await settleSearch();
+		expect(search).not.toHaveBeenCalled();
+		expect(container.querySelector("#mention-file-suggestions")).toBeNull();
+	});
+});
+
 describe("ChatInputBar compact layout", () => {
 	it("compacts by the composer's own width, not the window's", async () => {
 		const observers: Array<(width: number) => void> = [];

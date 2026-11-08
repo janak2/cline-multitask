@@ -46,8 +46,19 @@ export function getComposerHighlights(
 	if (command && commandNames.has(command[2].toLowerCase())) {
 		highlights.push({ start: command[1].length, end: command[0].length });
 	}
-	for (const match of input.matchAll(/(^|\s)@(\S+)/g)) {
-		const path = stripMentionTrailingPunctuation(match[2]);
+	for (const match of input.matchAll(/(^|\s)@/g)) {
+		const remainder = input
+			.slice(match.index + match[0].length)
+			.split(/[\r\n]/, 1)[0];
+		const nextMention = remainder.search(/\s@/);
+		const body = nextMention < 0 ? remainder : remainder.slice(0, nextMention);
+		let path = "";
+		for (const boundary of body.matchAll(/\s|$/g)) {
+			const candidate = stripMentionTrailingPunctuation(
+				body.slice(0, boundary.index),
+			);
+			if (isKnownMentionPath(normalizeMentionPath(candidate))) path = candidate;
+		}
 		if (!path || !isKnownMentionPath(normalizeMentionPath(path))) continue;
 		const start = match.index + match[1].length;
 		highlights.push({ start, end: start + 1 + path.length });

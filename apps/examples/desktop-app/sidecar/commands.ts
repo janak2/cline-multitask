@@ -220,7 +220,10 @@ import {
 	readPersistedChatMessages,
 	readSessionMessages,
 } from "./session-data/messages";
-import { searchWorkspaceFiles } from "./session-data/search";
+import {
+	searchWorkspaceFiles,
+	withWorkspaceDirectories,
+} from "./session-data/search";
 import {
 	getCommitDetails,
 	getCommitFileDiff,
@@ -1154,10 +1157,11 @@ async function searchRemoteWorkspaceFiles(
 		if (lower.includes(query)) return 2;
 		return Number.POSITIVE_INFINITY;
 	};
-	return output
+	const paths = output
 		.split("\n")
 		.map((path) => path.trim().replace(/^\.\//, ""))
-		.filter(Boolean)
+		.filter(Boolean);
+	return Array.from(withWorkspaceDirectories(paths))
 		.map((path) => ({ path, rank: rank(path) }))
 		.filter((entry) => Number.isFinite(entry.rank))
 		.sort((left, right) =>
