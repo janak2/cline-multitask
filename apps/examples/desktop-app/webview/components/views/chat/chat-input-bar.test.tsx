@@ -2147,7 +2147,7 @@ describe("ChatInputBar", () => {
 			'[aria-label="Thinking level"]',
 		);
 		const leftControls = attachTrigger?.parentElement;
-		expect(leftControls?.className).not.toContain("flex-wrap");
+		expect(leftControls?.className).toContain("flex-wrap");
 		expect(leftControls?.contains(compactModelTrigger ?? null)).toBe(true);
 		expect(leftControls?.contains(thinkingTrigger ?? null)).toBe(true);
 		expect(leftControls?.contains(speechTrigger ?? null)).toBe(false);

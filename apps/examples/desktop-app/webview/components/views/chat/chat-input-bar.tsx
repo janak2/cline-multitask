@@ -1635,8 +1635,8 @@ function ChatInputBarImpl({
 			</AgentComposerBody>
 
 			{/* Composer settings */}
-			<AgentComposerSettings>
-				<AgentComposerSettingsGroup className="group-data-[compact]/composer:flex-none">
+			<AgentComposerSettings className="flex-wrap">
+				<AgentComposerSettingsGroup className="max-w-full flex-wrap gap-y-2 group-data-[compact]/composer:flex-none">
 					<button
 						aria-label={
 							executionTarget === "cloud" ? "Attach images" : "Attach files"
@@ -1730,7 +1730,7 @@ function ChatInputBarImpl({
 							Stop teammates ({activeTeammateRuns})
 						</button>
 					)}
-					<div className="min-w-0 group-data-[compact]/composer:shrink-0">
+					<div className="min-w-56 flex-1 group-data-[compact]/composer:min-w-0 group-data-[compact]/composer:flex-none">
 						<ModelSelector
 							key={executionTarget}
 							autoCorrectModel={!cloudSettingsLocked}
@@ -1757,7 +1757,7 @@ function ChatInputBarImpl({
 					>
 						<SelectTrigger
 							aria-label="Thinking level"
-							className="gap-1.5 border-0 px-2 text-sm shadow-none data-[size=sm]:h-7 [&>svg:last-child]:hidden group-data-[compact]/composer:size-7 group-data-[compact]/composer:shrink-0 group-data-[compact]/composer:justify-center group-data-[compact]/composer:p-0 bg-transparent! hover:bg-surface-hover!"
+							className="shrink-0 gap-1.5 border-0 px-2 text-sm shadow-none data-[size=sm]:h-7 [&>svg:last-child]:hidden group-data-[compact]/composer:size-7 group-data-[compact]/composer:justify-center group-data-[compact]/composer:p-0 bg-transparent! hover:bg-surface-hover!"
 							size="sm"
 							title={
 								cloudSettingsLocked
@@ -1793,9 +1793,7 @@ function ChatInputBarImpl({
 					) : null}
 				</AgentComposerSettingsGroup>
 
-				{/* Reserve room for the model and thinking controls so a long
-				    branch name can't squeeze the model name out entirely. */}
-				<AgentComposerSettingsEnd className="max-w-[calc(100%-22rem)] group-data-[compact]/composer:max-w-none">
+				<AgentComposerSettingsEnd className="max-w-full">
 					{variant === "conversation" ? (
 						<div className="flex min-w-0 items-center gap-0">
 							<div className="min-w-0 overflow-visible">
@@ -2550,9 +2548,9 @@ const ModelSelector = memo(function ModelSelector({
 			) : null}
 
 			<div className="flex min-w-0 items-center gap-0.5 group-data-[compact]/composer:hidden">
-				{/* Wide enough for the longest built-in provider names ("Cline
-				    Usage-Billing", "OpenAI ChatGPT Subscription") untruncated. */}
-				<div className="shrink-0">{renderProviderSelect("max-w-56")}</div>
+				<div className="min-w-0 max-w-[60%]">
+					{renderProviderSelect("w-full max-w-56")}
+				</div>
 				<div className="bg-border-2 h-4 w-[0.1rem] shrink-0" />
 				{/* Uncapped so long model names show in full when the row has
 				    room; the name truncates only once the row runs out of space. */}
