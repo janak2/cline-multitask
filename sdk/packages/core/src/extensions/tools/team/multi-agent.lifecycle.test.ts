@@ -161,8 +161,10 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 			finishReason: "completed" as const,
 			messages: history,
 		}));
+		const continueReadOnly = vi.fn(async () => createAbortedResult());
 		mockNextSessionRuntime({
 			run: investigate,
+			continue: continueReadOnly,
 			getMessages: vi.fn(() => history),
 		});
 		const runtime = new AgentTeamsRuntime({ teamName: "scope-transition" });
@@ -174,6 +176,22 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 		};
 		runtime.spawnTeammate({ agentId: "worker", config });
 		await runtime.routeToTeammate("worker", "Investigate the bug read-only.");
+		const constructorsBeforeContinuation =
+			createSessionRuntimeMock.mock.calls.length;
+		await runtime.routeToTeammate("worker", "User approved implementation.", {
+			continueConversation: true,
+		});
+		expect(continueReadOnly).toHaveBeenCalledWith(
+			"User approved implementation.",
+		);
+		expect(createSessionRuntimeMock).toHaveBeenCalledTimes(
+			constructorsBeforeContinuation,
+		);
+		expect(createSessionRuntimeMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				systemPrompt: "Read-only investigator. Never edit files.",
+			}),
+		);
 
 		const implement = vi.fn(async () => createAbortedResult());
 		mockNextSessionRuntime({ continue: implement });

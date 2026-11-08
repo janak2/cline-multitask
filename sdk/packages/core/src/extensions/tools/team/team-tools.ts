@@ -304,7 +304,7 @@ export function createAgentTeamsTools(
 			createTool<TeamSpawnTeammateInput, { agentId: string; status: string }>({
 				name: "team_spawn_teammate",
 				description:
-					"Spawn a teammate, or update an idle teammate's system role using the same agentId and a new rolePrompt. Preserves conversation history for a subsequent team_run_task with continueConversation true. Put temporary task limits in the task, not the durable role.",
+					"Spawn a teammate, or explicitly update an idle teammate's system role using the same agentId and a new rolePrompt. Preserves conversation history for a subsequent team_run_task with continueConversation true. Role-level read-only restrictions remain binding until an explicit role update; preserve higher-priority restrictions and required approval.",
 				inputSchema: zodToJsonSchema(TeamSpawnTeammateInputSchema),
 				execute: async (input) => {
 					const validatedInput = validateWithZod(
@@ -497,7 +497,7 @@ export function createAgentTeamsTools(
 		createTool<TeamRunTaskInput, TeamRunTaskToolResult>({
 			name: "team_run_task",
 			description:
-				"Route a delegated task to a teammate. Choose sync (wait) or async (run in background). Set temporary scope in task; continueConversation reuses history but does not change the system role. The lead can update an idle teammate's role with team_spawn_teammate before running newly approved work.",
+				"Route a delegated task to a teammate. Choose sync (wait) or async (run in background). continueConversation reuses history but does not change the system role. Task instructions and user approval do not override role restrictions. If authorized work requires a different scope, the lead must explicitly update the idle teammate's role with team_spawn_teammate using the same agentId before continuation.",
 			inputSchema: zodToJsonSchema(TeamRunTaskInputSchema),
 			execute: async (input) => {
 				const validatedInput = validateWithZod(TeamRunTaskInputSchema, input);

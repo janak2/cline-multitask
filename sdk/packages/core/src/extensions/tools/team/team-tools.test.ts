@@ -55,7 +55,7 @@ describe("resolveTeamDataDir", () => {
 });
 
 describe("createAgentTeamsTools schema surface", () => {
-	it("documents idle role updates separately from temporary task scope", () => {
+	it("keeps role restrictions binding until an explicit idle role update", () => {
 		const tools = createAgentTeamsTools({
 			runtime: new AgentTeamsRuntime({ teamName: "scope-guidance" }),
 			requesterId: "lead",
@@ -66,12 +66,17 @@ describe("createAgentTeamsTools schema surface", () => {
 		expect(spawn?.description).toContain("same agentId and a new rolePrompt");
 		expect(spawn?.description).toContain("Preserves conversation history");
 		expect(run?.description).toContain("does not change the system role");
+		expect(run?.description).toContain(
+			"Task instructions and user approval do not override role restrictions",
+		);
 		expect(JSON.stringify(spawn?.inputSchema)).toContain(
-			"temporary read-only investigation limits in team_run_task.task",
+			"including enforceable read-only restrictions",
 		);
 		expect(JSON.stringify(run?.inputSchema)).toContain(
-			"user-authorized implementation after a read-only investigation",
+			"Task instructions and user approval do not override existing role restrictions",
 		);
+		expect(JSON.stringify(spawn)).not.toContain("Put temporary");
+		expect(JSON.stringify(run)).not.toContain("temporary scope");
 	});
 
 	it("exposes a compact task action tool plus strict schemas elsewhere", () => {
