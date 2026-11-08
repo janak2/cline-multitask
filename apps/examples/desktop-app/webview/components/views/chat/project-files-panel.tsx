@@ -81,6 +81,7 @@ import {
 	SOURCE_CONTROL_STATUS_CLASS,
 	SourceControlColumn,
 } from "./source-control-column";
+import { TextFileEditor } from "./text-file-editor";
 import { WorkspacePanelFrame } from "./workspace-panel-frame";
 
 type ProjectEntry = {
@@ -1827,6 +1828,41 @@ export function ProjectFilesPanel({
 								<ErrorText>{activeFileState.error}</ErrorText>
 							) : activeFileState.content === null ? (
 								<Centered>Binary file</Centered>
+							) : canEdit &&
+								!activeFileState.truncated &&
+								/\.(md|markdown|txt)$/i.test(activePath) ? (
+								<TextFileEditor
+									key={`${environmentId}:${activePath}`}
+									path={activePath}
+									content={activeFileState.content ?? ""}
+									environmentId={environmentId}
+									workspaceRoot={rootFor(activePath)}
+									onSaved={() => {
+										invalidateReads([activePath]);
+										setFiles((current) => {
+											const next = new Map(current);
+											next.delete(activePath);
+											return next;
+										});
+										setGitDiffs((current) => markStale(current));
+										void sourceControl.refresh();
+									}}
+								>
+									{/\.(md|markdown)$/i.test(activePath) ? (
+										<MarkdownFileViewer
+											content={activeFileState.content ?? ""}
+											path={activePath}
+											workspaceRoot={rootFor(activePath)}
+											environmentId={environmentId}
+											onOpenFile={openFile}
+										/>
+									) : (
+										<CodeFile
+											contents={activeFileState.content ?? ""}
+											path={activePath}
+										/>
+									)}
+								</TextFileEditor>
 							) : /\.(md|markdown)$/i.test(activePath) ? (
 								<MarkdownFileViewer
 									key={`${environmentId}:${activePath}`}

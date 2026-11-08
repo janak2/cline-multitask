@@ -196,6 +196,61 @@ async function renderSession(
 	});
 }
 
+it("offers markdown editing in the file view but not the diff view", async () => {
+	await render();
+	await click(button(/^README\.md/));
+	expect(container.querySelector("textarea")).toBeNull();
+	await click(button(/^file$/i));
+	await click(button(/^Edit$/));
+	expect(
+		container.querySelector('textarea[aria-label="File contents"]')
+			?.textContent,
+	).toContain("/repo/README.md");
+	await click(button(/^Cancel$/));
+	expect(
+		container.querySelector('[data-testid="markdown-file-viewer"]'),
+	).not.toBeNull();
+});
+
+it("offers editing for text files", async () => {
+	await render();
+	await click(button(/^notes\.txt/));
+	await click(button(/^file$/i));
+	await click(button(/^Edit$/));
+	expect(
+		container.querySelector('textarea[aria-label="File contents"]'),
+	).not.toBeNull();
+});
+
+it("keeps remote text files read-only", async () => {
+	await renderSession("remote", "/repo", "ssh-test");
+	await click(button(/^README\.md/));
+	await click(button(/^file$/i));
+	expect(
+		Array.from(container.querySelectorAll("button")).some(
+			(item) => item.textContent === "Edit",
+		),
+	).toBe(false);
+});
+
+it("does not offer editing for a truncated file", async () => {
+	const fallback = invokeMock.getMockImplementation();
+	invokeMock.mockImplementation(async (command, args) =>
+		command === "read_project_file"
+			? { content: "partial", truncated: true }
+			: ((await fallback?.(command, args)) ?? null),
+	);
+	await render();
+	await click(button(/^README\.md/));
+	await click(button(/^file$/i));
+	expect(
+		Array.from(container.querySelectorAll("button")).some(
+			(item) => item.textContent === "Edit",
+		),
+	).toBe(false);
+	if (fallback) invokeMock.mockImplementation(fallback);
+});
+
 it("restores A's file tabs, selection, expanded folders, mode and width after B and remount", async () => {
 	await renderSession("A");
 	await act(async () => button(/^Files$/).click());
