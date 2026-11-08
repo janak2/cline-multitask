@@ -3,12 +3,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionFileDiff } from "@/lib/session-diff";
-import { ProjectFilesPanel } from "./project-files-panel";
 import {
 	FileViewStateProvider,
 	fileViewStorageKey,
 } from "@/lib/file-view-state";
+import type { SessionFileDiff } from "@/lib/session-diff";
+import { ProjectFilesPanel } from "./project-files-panel";
 
 const { invokeMock, sourceControlState } = vi.hoisted(() => {
 	const sourceControlState = {
@@ -729,6 +729,48 @@ describe("ProjectFilesPanel files view", () => {
 	async function showFiles() {
 		await click(button(/^Files$/));
 	}
+
+	it("routes image tabs to binary preview and restores them across sessions without text reads", async () => {
+		const previous = invokeMock.getMockImplementation()!;
+		URL.createObjectURL = vi.fn(() => "blob:panel-image");
+		URL.revokeObjectURL = vi.fn();
+		invokeMock.mockImplementation((async (
+			command: string,
+			args?: Record<string, unknown>,
+		) => {
+			if (command === "list_project_entries")
+				return {
+					entries: [
+						{ name: "chart.PNG", path: "/repo/chart.PNG", kind: "file" },
+					],
+					truncated: false,
+				};
+			if (command === "read_project_image")
+				return { contentBase64: btoa("fixture"), mimeType: "image/png" };
+			return previous(command, args);
+		}) as typeof previous);
+		try {
+			await renderSession("image-A");
+			await showFiles();
+			await click(button(/^chart\.PNG/));
+			expect(container.querySelector("img")?.src).toBe("blob:panel-image");
+			await renderSession("image-B");
+			expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:panel-image");
+			await renderSession("image-A");
+			expect(container.querySelector("img")?.alt).toBe("chart.PNG");
+			expect(invokeMock).toHaveBeenCalledWith("read_project_image", {
+				path: "/repo/chart.PNG",
+				workspaceRoot: "/repo",
+				environmentId: "local",
+			});
+			expect(invokeMock).not.toHaveBeenCalledWith(
+				"read_project_file",
+				expect.objectContaining({ path: "/repo/chart.PNG" }),
+			);
+		} finally {
+			invokeMock.mockImplementation(previous);
+		}
+	});
 
 	it("routes PDFs to the document viewer without reading them as text", async () => {
 		await render();

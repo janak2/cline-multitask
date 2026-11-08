@@ -73,6 +73,7 @@ import {
 } from "@/lib/workspace-paths";
 import { FileIcon, FolderIcon } from "./file-icons";
 import { CodeDiff, CodeFile } from "./highlighted-code";
+import { ImageFileViewer, isImageFile } from "./image-file-viewer";
 import { MarkdownFileViewer } from "./markdown-file-viewer";
 import { PdfViewer } from "./pdf-viewer";
 import {
@@ -962,7 +963,7 @@ export function ProjectFilesPanel({
 
 	useEffect(() => {
 		if (!activePath || effectiveMode !== "file") return;
-		if (/\.pdf$/i.test(activePath)) return;
+		if (/\.pdf$/i.test(activePath) || isImageFile(activePath)) return;
 		const existing = files.get(activePath);
 		// A read already in flight is left to finish; if a snapshot marked it
 		// stale meanwhile, it stays stale on completion and re-reads then.
@@ -1754,7 +1755,8 @@ export function ProjectFilesPanel({
 							ready={
 								effectiveMode === "diff"
 									? Boolean(activeGitDiff && !activeGitDiff.loading)
-									: Boolean(activeFileState && !activeFileState.loading)
+									: isImageFile(activePath) ||
+										Boolean(activeFileState && !activeFileState.loading)
 							}
 							className="cline-chat-selectable min-h-0 flex-1 overflow-auto"
 						>
@@ -1798,6 +1800,13 @@ export function ProjectFilesPanel({
 										);
 									})}
 								</div>
+							) : isImageFile(activePath) ? (
+								<ImageFileViewer
+									key={`${environmentId}:${activePath}`}
+									path={activePath}
+									environmentId={environmentId}
+									workspaceRoot={rootFor(activePath)}
+								/>
 							) : /\.pdf$/i.test(activePath) ? (
 								<PdfViewer
 									key={`${environmentId}:${activePath}`}

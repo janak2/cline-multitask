@@ -68,8 +68,92 @@ export function readLocalProjectImage(root: string, path: string) {
 				offset += size;
 			}
 		}
+		if (data.length >= 13 && /^GIF8[79]a$/.test(data.toString("ascii", 0, 6))) {
+			width = data.readUInt16LE(6);
+			height = data.readUInt16LE(8);
+			let offset = 13 + (data[10] & 0x80 ? 3 * (2 << (data[10] & 7)) : 0);
+			let frames = 0;
+			while (offset < data.length && data[offset] !== 0x3b) {
+				const block = data[offset++];
+				if (block === 0x2c) {
+					if (++frames > 1)
+						throw new Error("Animated GIF images are not supported");
+					if (offset + 9 > data.length) throw new Error("Invalid GIF image");
+					const frameWidth = data.readUInt16LE(offset + 4);
+					const frameHeight = data.readUInt16LE(offset + 6);
+					if (
+						data.readUInt16LE(offset) + frameWidth > width ||
+						data.readUInt16LE(offset + 2) + frameHeight > height
+					)
+						throw new Error("Invalid GIF dimensions");
+					const packed = data[offset + 8];
+					offset += 9 + (packed & 0x80 ? 3 * (2 << (packed & 7)) : 0) + 1;
+				} else if (block === 0x21) offset++;
+				else throw new Error("Invalid GIF image");
+				let size: number;
+				do {
+					if (offset >= data.length) throw new Error("Invalid GIF image");
+					size = data[offset++];
+					offset += size;
+				} while (size);
+			}
+			if (frames !== 1 || data[offset] !== 0x3b)
+				throw new Error("Invalid GIF image");
+			mimeType = "image/gif";
+		}
+		if (
+			data.length >= 30 &&
+			data.toString("ascii", 0, 4) === "RIFF" &&
+			data.toString("ascii", 8, 12) === "WEBP"
+		) {
+			if (data.readUInt32LE(4) + 8 !== data.length)
+				throw new Error("Invalid WebP image");
+			let frames = 0;
+			for (let offset = 12; offset < data.length; ) {
+				if (offset + 8 > data.length) throw new Error("Invalid WebP image");
+				const chunk = data.toString("ascii", offset, offset + 4);
+				const size = data.readUInt32LE(offset + 4);
+				const start = offset + 8;
+				if (start + size + (size & 1) > data.length)
+					throw new Error("Invalid WebP image");
+				let w = 0,
+					h = 0;
+				if (chunk === "ANIM" || chunk === "ANMF")
+					throw new Error("Animated WebP images are not supported");
+				if (chunk === "VP8X" && size === 10) {
+					if (data[start] & 2)
+						throw new Error("Animated WebP images are not supported");
+					w = 1 + data.readUIntLE(start + 4, 3);
+					h = 1 + data.readUIntLE(start + 7, 3);
+				} else if (
+					chunk === "VP8 " &&
+					size >= 10 &&
+					data
+						.subarray(start + 3, start + 6)
+						.equals(Buffer.from([0x9d, 1, 0x2a]))
+				) {
+					w = data.readUInt16LE(start + 6) & 0x3fff;
+					h = data.readUInt16LE(start + 8) & 0x3fff;
+					frames++;
+				} else if (chunk === "VP8L" && size >= 5 && data[start] === 0x2f) {
+					const bits = data.readUInt32LE(start + 1);
+					w = 1 + (bits & 0x3fff);
+					h = 1 + ((bits >>> 14) & 0x3fff);
+					frames++;
+				}
+				width = Math.max(width, w);
+				height = Math.max(height, h);
+				offset = start + size + (size & 1);
+			}
+			if (width * height > MAX_PIXELS || width > 8192 || height > 8192)
+				throw new Error("Image dimensions exceed the preview limit");
+			if (frames !== 1) throw new Error("Invalid WebP image");
+			mimeType = "image/webp";
+		}
 		if (!width || !height || !mimeType)
-			throw new Error("Only PNG and JPEG images are supported");
+			throw new Error(
+				"Only PNG, JPEG, static GIF and static WebP images are supported",
+			);
 		if (width * height > MAX_PIXELS || width > 8192 || height > 8192)
 			throw new Error("Image dimensions exceed the preview limit");
 		return { contentBase64: data.toString("base64"), mimeType };
