@@ -64,6 +64,10 @@ async function edit(text: string) {
 it.each([
 	"/repo/notes.txt",
 	"/repo/README.md",
+	"/repo/script.py",
+	"/repo/app.ts",
+	"/repo/config.json",
+	"/repo/Makefile",
 ])("saves UTF-8 edits for %s", async (path) => {
 	await render(path);
 	await edit("Updated café 📝\r\n");

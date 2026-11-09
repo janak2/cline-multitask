@@ -61,7 +61,11 @@ const { invokeMock, sourceControlState } = vi.hoisted(() => {
 								truncated: false,
 							};
 				case "read_project_file":
-					return { content: `// ${args?.path}\n`, truncated: false };
+					return {
+						content:
+							args?.path === "/repo/binary.bin" ? null : `// ${args?.path}\n`,
+						truncated: false,
+					};
 				case "get_source_control_state":
 					// A fresh object per call, as the transport would deliver.
 					return { ...sourceControlState };
@@ -220,6 +224,66 @@ it("offers editing for text files", async () => {
 	expect(
 		container.querySelector('textarea[aria-label="File contents"]'),
 	).not.toBeNull();
+});
+
+it.each([
+	"script.py",
+	"app.ts",
+	"config.json",
+	"Makefile",
+])("offers editing for %s in the file viewer", async (name) => {
+	const fallback = invokeMock.getMockImplementation();
+	invokeMock.mockImplementation(async (command, args) =>
+		command === "list_project_entries"
+			? {
+					entries: [{ name, path: `/repo/${name}`, kind: "file" }],
+					truncated: false,
+				}
+			: ((await fallback?.(command, args)) ?? null),
+	);
+	try {
+		await render();
+		await click(button(/^Files$/));
+		await click(button(new RegExp(`^${name.replace(/\./g, "\\.")}$`)));
+		await click(button(/^Edit$/));
+		expect(
+			container.querySelector('textarea[aria-label="File contents"]')
+				?.textContent,
+		).toContain(`/repo/${name}`);
+		await click(button(/^Cancel$/));
+		expect(
+			container.querySelector('textarea[aria-label="File contents"]'),
+		).toBeNull();
+	} finally {
+		if (fallback) invokeMock.mockImplementation(fallback);
+	}
+});
+
+it("keeps binary files read-only", async () => {
+	const fallback = invokeMock.getMockImplementation();
+	invokeMock.mockImplementation(async (command, args) =>
+		command === "list_project_entries"
+			? {
+					entries: [
+						{ name: "binary.bin", path: "/repo/binary.bin", kind: "file" },
+					],
+					truncated: false,
+				}
+			: ((await fallback?.(command, args)) ?? null),
+	);
+	try {
+		await render();
+		await click(button(/^Files$/));
+		await click(button(/^binary\.bin$/));
+		expect(container.textContent).toContain("Binary file");
+		expect(
+			Array.from(container.querySelectorAll("button")).some(
+				(item) => item.textContent === "Edit",
+			),
+		).toBe(false);
+	} finally {
+		if (fallback) invokeMock.mockImplementation(fallback);
+	}
 });
 
 it("keeps remote text files read-only", async () => {

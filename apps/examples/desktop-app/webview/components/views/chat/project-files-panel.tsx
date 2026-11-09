@@ -1828,9 +1828,7 @@ export function ProjectFilesPanel({
 								<ErrorText>{activeFileState.error}</ErrorText>
 							) : activeFileState.content === null ? (
 								<Centered>Binary file</Centered>
-							) : canEdit &&
-								!activeFileState.truncated &&
-								/\.(md|markdown|txt)$/i.test(activePath) ? (
+							) : canEdit && !activeFileState.truncated ? (
 								<TextFileEditor
 									key={`${environmentId}:${activePath}`}
 									path={activePath}
