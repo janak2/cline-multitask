@@ -2,6 +2,7 @@
 // environment and workspace. They are for browsing only: sessions still run
 // in the workspace folder.
 const STORAGE_KEY = "cline.code.project-folders.v1";
+export const PROJECT_FOLDERS_CHANGED_EVENT = "cline:project-folders-changed";
 
 function storageKey(environmentId: string, workspaceRoot: string): string {
 	return `${environmentId}\n${workspaceRoot}`;
@@ -41,6 +42,7 @@ export function writeProjectFolders(
 		if (folders.length > 0) store[key] = folders;
 		else delete store[key];
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+		window.dispatchEvent(new Event(PROJECT_FOLDERS_CHANGED_EVENT));
 	} catch {
 		// Not remembering the folders is harmless.
 	}

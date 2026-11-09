@@ -3904,7 +3904,10 @@ describe("ChatInputBar file and folder mentions", () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 	});
-	afterEach(() => vi.useRealTimers());
+	afterEach(() => {
+		vi.useRealTimers();
+		window.localStorage.removeItem("cline.code.project-folders.v1");
+	});
 
 	async function edit(value: string, cursor = value.length) {
 		const textarea = container.querySelector("textarea");
@@ -3946,6 +3949,63 @@ describe("ChatInputBar file and folder mentions", () => {
 				return [];
 			});
 	}
+
+	it("searches every attached folder and inserts an unambiguous outside path", async () => {
+		const { writeProjectFolders } = await import("@/lib/project-folders");
+		writeProjectFolders("local", "/workspace/cline", [
+			"/other/project",
+			"/third",
+		]);
+		const invoke = vi
+			.spyOn(desktopClient, "invoke")
+			.mockImplementation(async (command, args) => {
+				if (command !== "search_workspace_files") return [];
+				if (args?.workspaceRoot === "/third")
+					throw new Error("Unavailable folder");
+				return ["notes.md"];
+			});
+		await renderVoiceComposer();
+		await edit("@notes");
+		await settleSearch();
+		expect(
+			invoke.mock.calls
+				.filter(([command]) => command === "search_workspace_files")
+				.map(([, args]) => args?.workspaceRoot),
+		).toEqual(["/workspace/cline", "/other/project", "/third"]);
+		expect(container.querySelector("#mention-file-option-0")?.textContent).toBe(
+			"notes.md",
+		);
+		expect(container.querySelector("#mention-file-option-1")?.textContent).toBe(
+			"/other/project/notes.md",
+		);
+		await key("ArrowDown");
+		await key("Enter");
+		expect(container.querySelector("textarea")?.value).toBe(
+			"@/other/project/notes.md ",
+		);
+	});
+
+	it("refreshes an open search when attached folders change", async () => {
+		const { writeProjectFolders } = await import("@/lib/project-folders");
+		const invoke = mockSearch(async () => ["notes.md"]);
+		await renderVoiceComposer();
+		await edit("@notes");
+		await settleSearch();
+		await act(async () =>
+			writeProjectFolders("local", "/workspace/cline", ["/added"]),
+		);
+		await settleSearch();
+		expect(container.querySelector("#mention-file-option-1")?.textContent).toBe(
+			"/added/notes.md",
+		);
+		await act(async () => writeProjectFolders("local", "/workspace/cline", []));
+		await settleSearch();
+		expect(container.querySelector("#mention-file-option-1")).toBeNull();
+		expect(invoke).toHaveBeenCalledWith(
+			"search_workspace_files",
+			expect.objectContaining({ workspaceRoot: "/added" }),
+		);
+	});
 
 	it.each([
 		["Project Documents/Design Notes/Release Plan Draft.md", "Enter"],

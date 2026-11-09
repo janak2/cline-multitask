@@ -72,6 +72,10 @@ import {
 	writeModelSelectionStorageToWindow,
 	writeReasoningSelectionToWindow,
 } from "@/lib/model-selection";
+import {
+	PROJECT_FOLDERS_CHANGED_EVENT,
+	readProjectFolders,
+} from "@/lib/project-folders";
 import { subscribeToPromptInputFocus } from "@/lib/prompt-input-focus";
 import { normalizeProviderId } from "@/lib/provider-id";
 import {
@@ -318,8 +322,9 @@ export function buildWorkspaceFileSearchKey(
 	environmentId: string,
 	workspaceRoot: string,
 	query: string,
+	folders: readonly string[] = [],
 ): string {
-	return JSON.stringify([environmentId, workspaceRoot, query]);
+	return JSON.stringify([environmentId, workspaceRoot, query, ...folders]);
 }
 
 type ChatInputBarProps = {
@@ -689,6 +694,19 @@ function ChatInputBarImpl({
 	const [mentionLoading, setMentionLoading] = useState(false);
 	const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
 	const mentionResultsCacheRef = useRef(new Map<string, string[]>());
+	const [, refreshProjectFolders] = useState(0);
+	useEffect(() => {
+		const refresh = () => refreshProjectFolders((version) => version + 1);
+		window.addEventListener(PROJECT_FOLDERS_CHANGED_EVENT, refresh);
+		return () =>
+			window.removeEventListener(PROJECT_FOLDERS_CHANGED_EVENT, refresh);
+	}, []);
+	const mentionRootsKey = JSON.stringify([
+		...new Set([
+			workspaceRoot,
+			...readProjectFolders(environmentId, workspaceRoot),
+		]),
+	]);
 	const knownTokens = useKnownComposerTokens();
 
 	// ---- Slash command state ----
@@ -1002,6 +1020,7 @@ function ChatInputBarImpl({
 			environmentId,
 			workspaceRoot,
 			activeMention.query,
+			JSON.parse(mentionRootsKey),
 		);
 		const cached = mentionResultsCacheRef.current.get(requestKey);
 		if (cached) {
@@ -1017,19 +1036,42 @@ function ChatInputBarImpl({
 		let cancelled = false;
 		const timeoutId = window.setTimeout(async () => {
 			try {
-				const results = await desktopClient.invoke<string[]>(
-					"search_workspace_files",
-					{
-						environmentId,
-						workspaceRoot,
-						query: activeMention.query,
-						limit: 10,
-					},
+				const roots: string[] = JSON.parse(mentionRootsKey);
+				const results = await Promise.all(
+					roots.map(async (root) => {
+						try {
+							const paths = await desktopClient.invoke<string[]>(
+								"search_workspace_files",
+								{
+									environmentId,
+									workspaceRoot: root,
+									query: activeMention.query,
+									limit: 10,
+								},
+							);
+							return Array.isArray(paths)
+								? paths.map((path) => {
+										if (root === workspaceRoot) return path;
+										const separator =
+											root.includes("\\") && !root.includes("/") ? "\\" : "/";
+										return `${root.replace(/[\\/]+$/, "")}${separator}${path}`;
+									})
+								: [];
+						} catch {
+							return [];
+						}
+					}),
 				);
 				if (cancelled) {
 					return;
 				}
-				const nextResults = Array.isArray(results) ? results : [];
+				const matches = new Set<string>();
+				for (let index = 0; index < 10; index++) {
+					for (const paths of results) {
+						if (paths[index]) matches.add(paths[index]);
+					}
+				}
+				const nextResults = [...matches].slice(0, 10);
 				mentionResultsCacheRef.current.set(requestKey, nextResults);
 				setMentionFiles(nextResults);
 				addKnownMentionPaths(nextResults);
@@ -1050,7 +1092,13 @@ function ChatInputBarImpl({
 			cancelled = true;
 			window.clearTimeout(timeoutId);
 		};
-	}, [activeMention, environmentId, mentionOpen, workspaceRoot]);
+	}, [
+		activeMention,
+		environmentId,
+		mentionOpen,
+		workspaceRoot,
+		mentionRootsKey,
+	]);
 
 	const insertMentionFile = useCallback(
 		(filePath: string) => {
