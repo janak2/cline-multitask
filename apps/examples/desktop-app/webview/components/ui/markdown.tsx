@@ -22,6 +22,7 @@ import {
 	type LinkSafetyModalProps,
 	Streamdown,
 } from "streamdown";
+import { toast } from "@/hooks/use-toast";
 import { openExternalUrl } from "@/lib/desktop-client";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,12 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "./alert-dialog";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "./context-menu";
 import { CHIP_TOKEN_TAG, remarkChipTokens } from "./markdown-chip-tokens";
 
 /**
@@ -84,6 +91,37 @@ export function MarkdownLinkSafetyModal({
 }
 
 type MarkdownLinkProps = ComponentProps<"a"> & ExtraProps;
+
+function LinkContextMenu({
+	url,
+	children,
+}: {
+	url: string;
+	children: ReactNode;
+}) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem
+					onSelect={async () => {
+						try {
+							await navigator.clipboard.writeText(url);
+						} catch {
+							toast({
+								variant: "destructive",
+								title: "Copy failed",
+								description: "The link could not be copied to the clipboard.",
+							});
+						}
+					}}
+				>
+					Copy link address
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+}
 
 function extractLinkText(children: ReactNode): string {
 	if (typeof children === "string" || typeof children === "number") {
@@ -196,15 +234,17 @@ export function SafeMarkdownLink({
 
 	if (isAppLink) {
 		return (
-			<a
-				{...props}
-				className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
-				data-streamdown="link"
-				href={url}
-				title={title}
-			>
-				{children}
-			</a>
+			<LinkContextMenu url={url}>
+				<a
+					{...props}
+					className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
+					data-streamdown="link"
+					href={url}
+					title={title}
+				>
+					{children}
+				</a>
+			</LinkContextMenu>
 		);
 	}
 
@@ -221,20 +261,22 @@ export function SafeMarkdownLink({
 			openExternally();
 		};
 		return (
-			<a
-				{...props}
-				className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
-				data-streamdown="link"
-				href={externalUrl}
-				onAuxClick={(event) => {
-					if (event.button === 1) openDirectly(event);
-				}}
-				onClick={openDirectly}
-				rel="noreferrer"
-				title={title ?? externalUrl}
-			>
-				{children}
-			</a>
+			<LinkContextMenu url={externalUrl}>
+				<a
+					{...props}
+					className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
+					data-streamdown="link"
+					href={externalUrl}
+					onAuxClick={(event) => {
+						if (event.button === 1) openDirectly(event);
+					}}
+					onClick={openDirectly}
+					rel="noreferrer"
+					title={title ?? externalUrl}
+				>
+					{children}
+				</a>
+			</LinkContextMenu>
 		);
 	}
 
@@ -248,19 +290,21 @@ export function SafeMarkdownLink({
 
 	return (
 		<>
-			{/* biome-ignore lint/a11y/useValidAnchor: External Markdown retains native link semantics while confirmation withholds the live destination. */}
-			<a
-				{...props}
-				aria-haspopup="dialog"
-				className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
-				data-streamdown="link"
-				href="#confirm-external-link"
-				onAuxClick={confirmMiddleClick}
-				onClick={openConfirmation}
-				title={title ?? externalUrl}
-			>
-				{children}
-			</a>
+			<LinkContextMenu url={externalUrl}>
+				{/* biome-ignore lint/a11y/useValidAnchor: External Markdown retains native link semantics while confirmation withholds the live destination. */}
+				<a
+					{...props}
+					aria-haspopup="dialog"
+					className={`wrap-anywhere font-medium text-primary underline ${className ?? ""}`}
+					data-streamdown="link"
+					href="#confirm-external-link"
+					onAuxClick={confirmMiddleClick}
+					onClick={openConfirmation}
+					title={title ?? externalUrl}
+				>
+					{children}
+				</a>
+			</LinkContextMenu>
 			<MarkdownLinkSafetyModal
 				isOpen={isOpen}
 				onClose={() => setIsOpen(false)}

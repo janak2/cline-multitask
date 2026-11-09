@@ -168,6 +168,46 @@ function getButton(label: string): HTMLButtonElement {
 	return button as HTMLButtonElement;
 }
 
+describe("chat link context menu", () => {
+	test.each([
+		[
+			"[Website](https://example.com/page?q=1#section)",
+			"https://example.com/page?q=1#section",
+		],
+		[
+			"[**example.com**](https://different.example/path)",
+			"https://different.example/path",
+		],
+		["[Email](mailto:hello@example.com)", "mailto:hello@example.com"],
+		["[Notes](./notes.md)", "/notes.md"],
+	])("copies the destination of %s without opening it", async (content, destination) => {
+		await renderMarkdown({ content });
+		const link = container.querySelector("a");
+		expect(link).not.toBeNull();
+		if (!link) return;
+		await dispatchMouseEvent(
+			link.querySelector("strong") ?? link,
+			"contextmenu",
+			2,
+		);
+		const item = document.querySelector('[role="menuitem"]');
+		expect(item?.textContent).toBe("Copy link address");
+		expect(item).not.toBeNull();
+		if (!item) return;
+		await click(item);
+		expect(writeText).toHaveBeenCalledWith(destination);
+		expect(openWindow).not.toHaveBeenCalled();
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+	});
+
+	test("does not show a link menu for ordinary text", async () => {
+		await renderMarkdown({ content: "Just plain text" });
+		await dispatchMouseEvent(container, "contextmenu", 2);
+		expect(document.querySelector('[role="menuitem"]')).toBeNull();
+		expect(writeText).not.toHaveBeenCalled();
+	});
+});
+
 function getLabelledButton(label: string): HTMLButtonElement {
 	const button = document.querySelector<HTMLButtonElement>(
 		`button[aria-label="${label}"]`,
