@@ -224,6 +224,7 @@ import {
 import {
 	searchWorkspaceFiles,
 	withWorkspaceDirectories,
+	workspaceSearchQuery,
 } from "./session-data/search";
 import {
 	getCommitDetails,
@@ -1137,8 +1138,10 @@ async function searchRemoteWorkspaceFiles(
 		typeof args?.workspaceRoot === "string" && args.workspaceRoot.trim()
 			? args.workspaceRoot.trim()
 			: binding.workspaceRoot;
-	const query =
-		typeof args?.query === "string" ? args.query.trim().toLowerCase() : "";
+	const query = workspaceSearchQuery(
+		root,
+		typeof args?.query === "string" ? args.query : "",
+	);
 	const limit =
 		typeof args?.limit === "number" && Number.isFinite(args.limit)
 			? Math.max(1, Math.min(50, Math.trunc(args.limit)))

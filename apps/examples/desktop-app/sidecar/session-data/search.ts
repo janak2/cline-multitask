@@ -1,6 +1,22 @@
 import { getFileIndex } from "@cline/core";
 import type { SidecarContext } from "../types";
 
+export function workspaceSearchQuery(root: string, query: string): string {
+	const normalizedRoot = root
+		.replace(/\\/g, "/")
+		.replace(/\/+$/, "")
+		.toLowerCase();
+	const normalizedQuery = query.trim().replace(/\\/g, "/").toLowerCase();
+	const folderName = normalizedRoot.slice(normalizedRoot.lastIndexOf("/") + 1);
+	for (const prefix of [normalizedRoot, folderName]) {
+		if (normalizedQuery === prefix) return "";
+		if (prefix && normalizedQuery.startsWith(`${prefix}/`)) {
+			return normalizedQuery.slice(prefix.length + 1);
+		}
+	}
+	return normalizedQuery;
+}
+
 export function withWorkspaceDirectories(paths: Iterable<string>): Set<string> {
 	const entries = new Set(paths);
 	for (const path of paths) {
@@ -23,8 +39,10 @@ export function searchWorkspaceFiles(
 		typeof args?.workspaceRoot === "string" && args.workspaceRoot.trim()
 			? args.workspaceRoot.trim()
 			: ctx.localWorkspaceRoot;
-	const query =
-		typeof args?.query === "string" ? args.query.trim().toLowerCase() : "";
+	const query = workspaceSearchQuery(
+		root,
+		typeof args?.query === "string" ? args.query : "",
+	);
 	const limit =
 		typeof args?.limit === "number" && Number.isFinite(args.limit)
 			? Math.max(1, Math.min(50, Math.trunc(args.limit)))
