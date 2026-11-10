@@ -1,5 +1,37 @@
 import type { ChatMessage } from "@/lib/chat-schema";
 
+function sameHistoryValue(left: unknown, right: unknown): boolean {
+	if (left === right) return true;
+	if (!left || !right || typeof left !== "object" || typeof right !== "object")
+		return false;
+	const leftEntries = Object.entries(left);
+	const rightEntries = Object.entries(right);
+	return (
+		leftEntries.length === rightEntries.length &&
+		leftEntries.every(
+			([key, value]) =>
+				Object.hasOwn(right, key) &&
+				sameHistoryValue(value, Reflect.get(right, key)),
+		)
+	);
+}
+
+export function reuseUnchangedHistory(
+	current: ChatMessage[],
+	incoming: ChatMessage[],
+): ChatMessage[] {
+	if (current.length === 0) return incoming;
+	const byId = new Map(current.map((message) => [message.id, message]));
+	const next = incoming.map((message) => {
+		const previous = byId.get(message.id);
+		return previous && sameHistoryValue(previous, message) ? previous : message;
+	});
+	return next.length === current.length &&
+		next.every((message, index) => message === current[index])
+		? current
+		: next;
+}
+
 function latestRunCount(messages: ChatMessage[]): number {
 	let count = 0;
 	for (const message of messages) {

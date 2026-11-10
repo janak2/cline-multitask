@@ -34,7 +34,10 @@ import {
 	resolveCredentialError,
 	resolveCredentialFailureHint,
 } from "@/hooks/chat-session/helpers";
-import { canReplaceFailedTurn } from "@/hooks/chat-session/history-reconciliation";
+import {
+	canReplaceFailedTurn,
+	reuseUnchangedHistory,
+} from "@/hooks/chat-session/history-reconciliation";
 import type {
 	AgentChunkEvent,
 	AskQuestionRequestItem,
@@ -257,7 +260,7 @@ function mergeHydratedMessagesWithLive(options: {
 			preserveMessageIds?.has(message.id),
 	);
 	if (liveDuringHydration.length === 0) {
-		return hydrated;
+		return reuseUnchangedHistory(current, hydrated);
 	}
 	const messageKey = (message: ChatMessage) =>
 		`${message.role}\u0000${message.role === "user" ? comparableUserContent(message.content) : message.content}\u0000${message.reasoning ?? ""}`;
@@ -280,7 +283,10 @@ function mergeHydratedMessagesWithLive(options: {
 		}
 		return liveIds.has(message.id);
 	});
-	return sortMessagesChronologically([...hydrated, ...nonDuplicateLive]);
+	return reuseUnchangedHistory(
+		current,
+		sortMessagesChronologically([...hydrated, ...nonDuplicateLive]),
+	);
 }
 
 type CloudOptimisticState = {

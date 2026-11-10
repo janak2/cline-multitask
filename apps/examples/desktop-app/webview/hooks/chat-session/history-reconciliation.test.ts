@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "@/lib/chat-schema";
-import { canReplaceFailedTurn } from "./history-reconciliation";
+import {
+	canReplaceFailedTurn,
+	reuseUnchangedHistory,
+} from "./history-reconciliation";
 
 const row = (
 	id: string,
@@ -16,6 +19,25 @@ const row = (
 });
 
 describe("failed turn history reconciliation", () => {
+	it("reuses unchanged rows but applies content and nested metadata changes", () => {
+		const current = [row("u1", "user", 1), row("a1", "assistant")];
+		expect(reuseUnchangedHistory(current, structuredClone(current))).toBe(
+			current,
+		);
+		const updated = structuredClone(current);
+		updated[1].content = "new answer";
+		const result = reuseUnchangedHistory(current, updated);
+		expect(result[0]).toBe(current[0]);
+		expect(result[1]).toBe(updated[1]);
+		const metadata = structuredClone(current);
+		metadata[0].meta = { runCount: 2 };
+		expect(reuseUnchangedHistory(current, metadata)[0]).toBe(metadata[0]);
+		expect(reuseUnchangedHistory(current, [current[1], current[0]])).toEqual([
+			current[1],
+			current[0],
+		]);
+		expect(reuseUnchangedHistory(current, [])).toEqual([]);
+	});
 	it("rejects an earlier error while a repeated prompt has a new live failure", () => {
 		const old = [row("u1", "user", 4), row("e1", "error", 4)];
 		const current = [

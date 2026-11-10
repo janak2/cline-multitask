@@ -8318,6 +8318,20 @@ describe("retained chat history", () => {
 		expect(current.messages[0].content).toBe("updated elsewhere");
 	});
 
+	it("retains cached message identities when reopening unchanged history", async () => {
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? structuredClone([message]) : [],
+		);
+		await act(async () => current.hydrateSession(session));
+		const original = current.messages;
+		await act(async () => root.unmount());
+		root = createRoot(container);
+		await act(async () => root.render(<HookHarness />));
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages[0]).toBe(original[0]);
+		expect(current.messages).toBe(original);
+	});
+
 	it.each([
 		false,
 		true,
