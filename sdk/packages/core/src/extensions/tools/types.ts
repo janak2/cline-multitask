@@ -323,7 +323,7 @@ export interface DefaultToolsConfig {
 
 	/**
 	 * Timeout for bash command execution in milliseconds
-	 * @default 30000
+	 * @default 600000 (10 minutes)
 	 */
 	bashTimeoutMs?: number;
 

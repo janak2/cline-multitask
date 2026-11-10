@@ -36,6 +36,12 @@ import {
 } from "./output-limits";
 import type { RunCommandExecutionController } from "./run-command-execution-controller";
 
+/**
+ * Default limit for one shell command. Long enough for builds and test
+ * suites to finish in the foreground, so the model has no reason to push
+ * them into the background just to avoid the timeout.
+ */
+export const DEFAULT_SHELL_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_DETACHED_LOG_BYTES = 10 * 1024 * 1024;
 const DEFAULT_DETACHED_LOG_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_ACTIVE_COMMAND_POLL_INTERVAL_MS = 60_000;
@@ -393,7 +399,7 @@ export interface ShellExecutorOptions {
 
 	/**
 	 * Timeout for command execution in milliseconds
-	 * @default 30000 (30 seconds)
+	 * @default DEFAULT_SHELL_TIMEOUT_MS (10 minutes)
 	 */
 	timeoutMs?: number;
 
@@ -1135,7 +1141,7 @@ export function createShellExecutor(
 ): ShellExecutor {
 	const {
 		shell = getDefaultShell(process.platform),
-		timeoutMs = 30000,
+		timeoutMs = DEFAULT_SHELL_TIMEOUT_MS,
 		env = {},
 		combineOutput = true,
 		executionController,

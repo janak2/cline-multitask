@@ -16,7 +16,7 @@ import {
 	createShellTool,
 	createSkillsTool,
 } from "./definitions";
-import { CommandExitError } from "./executors/bash";
+import { CommandExitError, DEFAULT_SHELL_TIMEOUT_MS } from "./executors/bash";
 import { RUN_COMMAND_QUERY_PREVIEW_LIMIT, TimeoutError } from "./helpers";
 import { type EditFileInput, INPUT_ARG_CHAR_LIMIT } from "./schemas";
 import type { SkillsExecutorWithMetadata } from "./types";
@@ -531,6 +531,46 @@ describe("default apply_patch tool", () => {
 });
 
 describe("run_commands tool description", () => {
+	it("tells the model to keep commands in the foreground unless asked", () => {
+		for (const shell of ["/bin/bash", "pwsh"]) {
+			const description = buildRunCommandsDescription(shell, shell === "pwsh");
+			expect(description).not.toContain("run them in background");
+			expect(description).toContain(
+				"Only run a command in the background when the user asks for it",
+			);
+		}
+	});
+
+	it("gives commands a 10 minute default timeout", async () => {
+		expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(600_000);
+		const tool = createShellTool(vi.fn(async () => "ok"));
+		expect(tool.timeoutMs).toBe(DEFAULT_SHELL_TIMEOUT_MS * 2);
+		vi.useFakeTimers();
+		try {
+			const pending = Promise.resolve(
+				createShellTool(
+					vi.fn((): Promise<string> => new Promise<string>(() => {})),
+				).execute({ commands: ["sleep 999"] } as never, {
+					agentId: "agent-1",
+					conversationId: "conv-1",
+					iteration: 1,
+				}),
+			);
+			let settled = false;
+			void pending.then(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(31_000);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(DEFAULT_SHELL_TIMEOUT_MS);
+			const [result] = await pending;
+			expect(result?.success).toBe(false);
+			expect(result?.error).toContain("timed out after 600000ms");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it.each([
 		"powershell",
 		"powershell.exe",

@@ -16,7 +16,11 @@ import {
 	zodToJsonSchema,
 } from "@cline/shared";
 import { captureRunCommandsTimeout } from "../../services/telemetry/core-events";
-import { CommandExitError, CommandTerminationError } from "./executors/bash";
+import {
+	CommandExitError,
+	CommandTerminationError,
+	DEFAULT_SHELL_TIMEOUT_MS,
+} from "./executors/bash";
 import {
 	MAX_COMMAND_OUTPUT_CHARS,
 	MAX_READ_LINES,
@@ -434,6 +438,9 @@ const POWERSHELL_QUOTING_INSTRUCTIONS =
 	"Use cmdlets such as Remove-Item -LiteralPath instead of cmd /c; cmd re-parses the quotes, and a mis-quoted path can become extra targets such as the drive root. " +
 	"Before a recursive or forced delete, confirm the exact target, for example with -WhatIf. ";
 
+const FOREGROUND_COMMAND_INSTRUCTIONS =
+	"Run commands in the foreground and wait for them to finish, including builds and test suites. Only run a command in the background when the user asks for it, or when it never exits on its own (a dev server or file watcher).";
+
 /**
  * Build the run_commands tool description for the shell that will actually
  * execute the commands. Derive the edition and wrapper guidance from the
@@ -471,7 +478,8 @@ export function buildRunCommandsDescription(
 			`Write commands directly; do not wrap them in another ${wrapper} invocation. ` +
 			(shellKind === "powershell" ? POWERSHELL_QUOTING_INSTRUCTIONS : "") +
 			"Only start another shell when you intentionally need a different shell or a separate process. " +
-			"Include multiple commands in the same call when they are independent and safe to run concurrently. When independent reads, searches, or edits are also needed, call those tools in the same response."
+			"Include multiple commands in the same call when they are independent and safe to run concurrently. When independent reads, searches, or edits are also needed, call those tools in the same response. " +
+			FOREGROUND_COMMAND_INSTRUCTIONS
 		);
 	}
 
@@ -487,7 +495,7 @@ export function buildRunCommandsDescription(
 		environmentNote +
 		"Commands should be properly shell-escaped and targeted to avoid error or timeout. Include multiple commands in the same call when they are independent complete shell commands and safe to run concurrently; multiline scripts and heredocs must be a single command string. When independent reads, searches, or edits are also needed, call those tools in the same response. " +
 		`Output beyond ~${Math.round(MAX_COMMAND_OUTPUT_CHARS / 1000)}k characters is middle-truncated (start and end preserved); pipe through grep/head/tail when you need specific sections of large output. ` +
-		"For long-running commands, run them in background and redirect output to a tmp file that you can read from later."
+		FOREGROUND_COMMAND_INSTRUCTIONS
 	);
 }
 
@@ -512,7 +520,7 @@ export function createShellTool(
 		shell?: string | (() => string);
 	} = {},
 ): AgentTool<unknown, ToolOperationResult[]> {
-	const timeoutMs = config.bashTimeoutMs ?? 30000;
+	const timeoutMs = config.bashTimeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS;
 	const timeoutSource =
 		config.bashTimeoutMs === undefined
 			? "default_setting"
