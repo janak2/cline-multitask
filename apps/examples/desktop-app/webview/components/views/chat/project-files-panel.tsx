@@ -166,6 +166,9 @@ type NameDialog = {
 };
 
 const COLUMN_WIDTH = 280;
+const MIN_COLUMN_WIDTH = 180;
+/** The open file keeps at least this much room beside the column. */
+const MIN_VIEWER_WIDTH = 200;
 const TREE_DRAG_TYPE = "application/x-cline-project-path";
 const LOCAL_DIRECTORY_POLL_MS = 5_000;
 const REMOTE_DIRECTORY_POLL_MS = 15_000;
@@ -272,6 +275,15 @@ export function ProjectFilesPanel({
 		() => new Map(),
 	);
 	const [copied, setCopied] = useState(false);
+	const [columnWidth, setColumnWidth] = useFileViewState(
+		"columnWidth",
+		COLUMN_WIDTH,
+	);
+	const columnDragRef = useRef<{
+		startX: number;
+		startWidth: number;
+		maxWidth: number;
+	} | null>(null);
 	const [opening, setOpening] = useState(false);
 	const [pendingDiscard, setPendingDiscard] = useState<SourceControlFile[]>([]);
 	// Bumped per key whenever its cache entry is dropped, so a read that was
@@ -1349,9 +1361,55 @@ export function ProjectFilesPanel({
 			}}
 		>
 			<div
-				className="flex shrink-0 flex-col border-r border-border bg-sidebar/40"
-				style={{ width: COLUMN_WIDTH }}
+				className="relative flex shrink-0 flex-col border-r border-border bg-sidebar/40"
+				// A narrower panel shrinks the column too, so the file never vanishes.
+				style={{
+					width: columnWidth,
+					maxWidth: `calc(100% - ${MIN_VIEWER_WIDTH}px)`,
+				}}
 			>
+				<div
+					aria-hidden
+					className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize hover:bg-primary/30"
+					onDoubleClick={() => setColumnWidth(COLUMN_WIDTH)}
+					onPointerDown={(event) => {
+						if (event.button !== 0) return;
+						event.preventDefault();
+						const panel = event.currentTarget.closest("aside");
+						columnDragRef.current = {
+							startX: event.clientX,
+							startWidth: columnWidth,
+							maxWidth: Math.max(
+								MIN_COLUMN_WIDTH,
+								(panel?.getBoundingClientRect().width ?? 0) - MIN_VIEWER_WIDTH,
+							),
+						};
+						event.currentTarget.setPointerCapture(event.pointerId);
+					}}
+					onPointerMove={(event) => {
+						const drag = columnDragRef.current;
+						if (!drag) return;
+						setColumnWidth(
+							Math.round(
+								Math.min(
+									drag.maxWidth,
+									Math.max(
+										MIN_COLUMN_WIDTH,
+										drag.startWidth + event.clientX - drag.startX,
+									),
+								),
+							),
+						);
+					}}
+					onPointerUp={() => {
+						columnDragRef.current = null;
+					}}
+					onPointerCancel={() => {
+						columnDragRef.current = null;
+					}}
+					data-testid="files-column-resize"
+					title="Drag to resize; double-click to reset"
+				/>
 				<div className="shrink-0 border-b border-border/70 p-2">
 					<div
 						aria-label="Panel view"

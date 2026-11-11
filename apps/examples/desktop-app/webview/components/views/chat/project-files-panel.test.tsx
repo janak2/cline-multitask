@@ -315,6 +315,53 @@ it("does not offer editing for a truncated file", async () => {
 	if (fallback) invokeMock.mockImplementation(fallback);
 });
 
+it("resizes the Git and Files column and remembers the width", async () => {
+	await renderSession("A");
+	const handle = container.querySelector<HTMLElement>(
+		'[data-testid="files-column-resize"]',
+	) as HTMLElement;
+	const column = handle.parentElement as HTMLElement;
+	expect(column.style.width).toBe("280px");
+	vi.spyOn(
+		container.querySelector("#project-files-panel") as HTMLElement,
+		"getBoundingClientRect",
+	).mockReturnValue({ width: 900 } as DOMRect);
+	const pointer = (type: string, clientX: number) =>
+		act(async () => {
+			const event = new MouseEvent(type, { bubbles: true, clientX, button: 0 });
+			Object.assign(event, { pointerId: 1 });
+			handle.dispatchEvent(event);
+		});
+	await pointer("pointerdown", 300);
+	await pointer("pointermove", 420);
+	await pointer("pointerup", 420);
+	expect(column.style.width).toBe("400px");
+
+	// Clamped to the minimum, and to leave room for the open file.
+	await pointer("pointerdown", 400);
+	await pointer("pointermove", -500);
+	await pointer("pointerup", -500);
+	expect(column.style.width).toBe("180px");
+	await pointer("pointerdown", 0);
+	await pointer("pointermove", 5000);
+	await pointer("pointerup", 5000);
+	expect(column.style.width).toBe("700px");
+
+	await act(async () => {
+		handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+	});
+	expect(column.style.width).toBe("280px");
+	await pointer("pointerdown", 300);
+	await pointer("pointermove", 350);
+	await pointer("pointerup", 350);
+	await act(async () => root.render(null));
+	await renderSession("A");
+	const restored = container.querySelector<HTMLElement>(
+		'[data-testid="files-column-resize"]',
+	)?.parentElement;
+	expect(restored?.style.width).toBe("330px");
+});
+
 it("refreshes an open file from disk and ignores a slower earlier read", async () => {
 	const fallback = invokeMock.getMockImplementation();
 	let version = 1;
