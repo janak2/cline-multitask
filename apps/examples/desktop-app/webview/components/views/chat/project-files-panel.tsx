@@ -12,6 +12,7 @@ import {
 	Minus,
 	Pencil,
 	Plus,
+	RefreshCw,
 	Trash2,
 	Undo2,
 	X,
@@ -266,6 +267,7 @@ export function ProjectFilesPanel({
 	);
 	const [files, setFiles] = useState<Map<string, FileState>>(() => new Map());
 	const [imageRefreshVersion, setImageRefreshVersion] = useState(0);
+	const [pdfRefreshVersion, setPdfRefreshVersion] = useState(0);
 	const [gitDiffs, setGitDiffs] = useState<Map<string, GitDiffState>>(
 		() => new Map(),
 	);
@@ -1121,6 +1123,49 @@ export function ProjectFilesPanel({
 		}
 	}, [closeTab, pendingDiscard, runAction, toAbsolute]);
 
+	// Re-reads the open file now. The new read supersedes one already in
+	// flight, and the current contents stay on screen until it arrives.
+	const handleRefreshFile = useCallback(() => {
+		if (!activePath) return;
+		const path = activePath;
+		if (effectiveMode === "diff") {
+			if (gitDiffKey) {
+				const key = gitDiffKey;
+				setGitDiffs((current) => {
+					const entry = current.get(key);
+					return entry
+						? new Map(current).set(key, {
+								...entry,
+								loading: false,
+								stale: true,
+							})
+						: current;
+				});
+			}
+			void sourceControl.refresh();
+			return;
+		}
+		if (isImageFile(path)) {
+			setImageRefreshVersion((version) => version + 1);
+			return;
+		}
+		if (/\.pdf$/i.test(path)) {
+			setPdfRefreshVersion((version) => version + 1);
+			return;
+		}
+		setFiles((current) => {
+			const entry = current.get(path);
+			return entry
+				? new Map(current).set(path, {
+						...entry,
+						loading: false,
+						error: undefined,
+						stale: true,
+					})
+				: current;
+		});
+	}, [activePath, effectiveMode, gitDiffKey, sourceControl]);
+
 	const handleCopyPath = useCallback(async () => {
 		if (!activePath) return;
 		try {
@@ -1729,6 +1774,25 @@ export function ProjectFilesPanel({
 									</div>
 								) : null}
 								<Button
+									aria-label="Refresh file"
+									className="size-6"
+									disabled={Boolean(activeCommit)}
+									onClick={handleRefreshFile}
+									size="icon-sm"
+									title="Reload from disk"
+									type="button"
+									variant="ghost"
+								>
+									<RefreshCw
+										className={cn(
+											"size-3",
+											(effectiveMode === "diff"
+												? activeGitDiff?.loading
+												: activeFileState?.loading) && "animate-spin",
+										)}
+									/>
+								</Button>
+								<Button
 									aria-label="Copy file path"
 									className="size-6"
 									onClick={() => void handleCopyPath()}
@@ -1815,7 +1879,7 @@ export function ProjectFilesPanel({
 								/>
 							) : /\.pdf$/i.test(activePath) ? (
 								<PdfViewer
-									key={`${environmentId}:${activePath}`}
+									key={`${environmentId}:${activePath}:${pdfRefreshVersion}`}
 									path={activePath}
 									environmentId={environmentId}
 									workspaceRoot={rootFor(activePath)}

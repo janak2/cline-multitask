@@ -315,6 +315,49 @@ it("does not offer editing for a truncated file", async () => {
 	if (fallback) invokeMock.mockImplementation(fallback);
 });
 
+it("refreshes an open file from disk and ignores a slower earlier read", async () => {
+	const fallback = invokeMock.getMockImplementation();
+	let version = 1;
+	let releaseSlowRead: (() => void) | undefined;
+	invokeMock.mockImplementation(async (command, args) => {
+		if (command !== "read_project_file" || args?.path !== "/repo/README.md") {
+			return (await fallback?.(command, args)) ?? null;
+		}
+		const content = `version ${version}`;
+		if (version === 2) {
+			await new Promise<void>((resolve) => {
+				releaseSlowRead = resolve;
+			});
+		}
+		return { content, truncated: false };
+	});
+	try {
+		await render();
+		await click(button(/^README\.md/));
+		await click(button(/^file$/i));
+		expect(container.textContent).toContain("version 1");
+
+		version = 2;
+		await click(byLabel("Refresh file"));
+		expect(container.textContent).toContain("version 1");
+		version = 3;
+		await click(byLabel("Refresh file"));
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(container.textContent).toContain("version 3");
+
+		await act(async () => {
+			releaseSlowRead?.();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(container.textContent).toContain("version 3");
+		expect(container.textContent).not.toContain("version 2");
+	} finally {
+		if (fallback) invokeMock.mockImplementation(fallback);
+	}
+});
+
 it("restores A's file tabs, selection, expanded folders, mode and width after B and remount", async () => {
 	await renderSession("A");
 	await act(async () => button(/^Files$/).click());
