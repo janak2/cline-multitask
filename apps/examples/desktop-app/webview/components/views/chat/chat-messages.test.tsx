@@ -2336,6 +2336,67 @@ describe("ChatMessages transcript navigation", () => {
 });
 
 describe("ChatMessages work collapse", () => {
+	it.each([
+		"running",
+		"completed",
+	] as const)("keeps %s command output visible when another prompt starts a new turn", async (commandStatus) => {
+		const command: ChatMessage = {
+			id: "ongoing-command",
+			sessionId: "session-1",
+			role: "tool",
+			createdAt: 2000,
+			content: JSON.stringify({
+				toolName: "run_commands",
+				input: { commands: ["bun test"] },
+				result:
+					commandStatus === "completed"
+						? [{ result: "keep this output visible", success: true }]
+						: null,
+			}),
+			meta: {
+				toolName: "run_commands",
+				toolCallId: "ongoing",
+				hookEventName:
+					commandStatus === "completed"
+						? "history_tool_result"
+						: "tool_call_start",
+				toolOutput:
+					commandStatus === "completed"
+						? undefined
+						: "keep this output visible",
+			},
+		};
+		const messages: ChatMessage[] = [
+			{
+				id: "first-prompt",
+				sessionId: "session-1",
+				role: "user",
+				content: "Run tests",
+				createdAt: 1000,
+			},
+			command,
+		];
+		await renderMessages(messages, { status: "running" });
+		expect(
+			container.querySelector('[aria-label="Command output"]')?.textContent,
+		).toContain("keep this output visible");
+		await renderMessages(
+			[
+				...messages,
+				{
+					id: "next-prompt",
+					sessionId: "session-1",
+					role: "user",
+					content: "Check that error",
+					createdAt: 3000,
+				},
+			],
+			{ status: "running" },
+		);
+		expect(
+			container.querySelector('[aria-label="Command output"]')?.textContent,
+		).toContain("keep this output visible");
+	});
 	const completedRun: ChatMessage[] = [
 		{
 			id: "user-run",

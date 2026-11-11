@@ -165,6 +165,7 @@ const ToolCallRow = memo(function ToolCallRow({
 		Boolean(publishedFiles) ||
 		hasFileDiffs ||
 		Boolean(submitText) ||
+		Boolean(commandOutput) ||
 		summary.outputMedia.length > 0 ||
 		(inProgress && (Boolean(commandOutput) || canProceed));
 	const [open, setOpen] = useState(shouldAutoOpen);

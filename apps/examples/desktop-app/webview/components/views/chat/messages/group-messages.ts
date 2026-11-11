@@ -1,6 +1,8 @@
 import type { AgentMessageRole } from "@cline/ui/components/agent-chat";
 import type { ChatMessage } from "@/lib/chat-schema";
 import {
+	buildToolPresentation,
+	extractRunCommandOutput,
 	getPublishedArtifacts,
 	getReportedArtifacts,
 	isUxVerificationMessage,
@@ -340,6 +342,13 @@ export function collapseCompletedWork(
 				}
 				const messages: ChatMessage[] = [];
 				for (const message of item.messages) {
+					const presentation = buildToolPresentation(message);
+					const hasCommandOutput =
+						presentation.summary.kind === "command" &&
+						Boolean(
+							message.meta?.toolOutput ||
+								extractRunCommandOutput(presentation.payload?.result),
+						);
 					const files = getPublishedArtifacts(message);
 					const reportedIds = message.sessionId
 						? reportedArtifacts.get(message.sessionId)
@@ -348,7 +357,8 @@ export function collapseCompletedWork(
 						files?.some(
 							(file) => file.error || !reportedIds?.has(file.artifactId),
 						) ||
-						isUxVerificationMessage(message)
+						isUxVerificationMessage(message) ||
+						hasCommandOutput
 					) {
 						deliverables.push(message);
 					} else {
