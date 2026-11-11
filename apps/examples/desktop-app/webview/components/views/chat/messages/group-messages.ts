@@ -4,6 +4,7 @@ import {
 	buildToolPresentation,
 	extractRunCommandOutput,
 	getPublishedArtifacts,
+	getQuestionAnswer,
 	getReportedArtifacts,
 	isUxVerificationMessage,
 	parseToolPayload,
@@ -358,7 +359,10 @@ export function collapseCompletedWork(
 							(file) => file.error || !reportedIds?.has(file.artifactId),
 						) ||
 						isUxVerificationMessage(message) ||
-						hasCommandOutput
+						hasCommandOutput ||
+						// A question and the user's answer are part of the conversation,
+						// so they stay visible when the run's work folds away.
+						Boolean(getQuestionAnswer(presentation))
 					) {
 						deliverables.push(message);
 					} else {

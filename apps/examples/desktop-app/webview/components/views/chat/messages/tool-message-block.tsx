@@ -32,6 +32,8 @@ import {
 	extractSubmitSummaryText,
 	formatToolValue,
 	getPublishedArtifacts,
+	getQuestionAnswer,
+	getQuestionText,
 	isUxVerificationMessage,
 	type ReportedArtifacts,
 } from "./tool-summaries";
@@ -77,8 +79,12 @@ const ToolCallRow = memo(function ToolCallRow({
 	onExpandImage?: (image: ChatMessageImage) => void;
 	onProceedWhileRunning?: ProceedWhileRunningHandler;
 }) {
-	const { payload, toolName, inProgress, summary } =
-		buildToolPresentation(message);
+	const presentation = buildToolPresentation(message);
+	const { payload, toolName, inProgress, summary } = presentation;
+	// An answered question shows the question and the user's answer, instead
+	// of the option list and a raw output box.
+	const questionAnswer = getQuestionAnswer(presentation);
+	const questionText = questionAnswer ? getQuestionText(presentation) : "";
 	// A missing result can outlive its run. Only gate the running display;
 	// keep the message intact so a later result can still replace it.
 	const isRunning = inProgress && isRunActive;
@@ -165,6 +171,7 @@ const ToolCallRow = memo(function ToolCallRow({
 		Boolean(publishedFiles) ||
 		hasFileDiffs ||
 		Boolean(submitText) ||
+		Boolean(questionAnswer) ||
 		Boolean(commandOutput) ||
 		summary.outputMedia.length > 0 ||
 		(inProgress && (Boolean(commandOutput) || canProceed));
@@ -198,10 +205,12 @@ const ToolCallRow = memo(function ToolCallRow({
 
 	const hasError = Boolean(payload?.isError);
 	const Icon = getToolNameIcon(toolName);
-	const details = summary.details.map((detail, index) => ({
-		detail,
-		key: `${message.id}_${index}`,
-	}));
+	const details = (questionAnswer ? [] : summary.details).map(
+		(detail, index) => ({
+			detail,
+			key: `${message.id}_${index}`,
+		}),
+	);
 	const inputPreview =
 		IS_DEBUG && payload ? formatToolValue(payload.input) : "";
 	const hasExpandedSections =
@@ -209,6 +218,7 @@ const ToolCallRow = memo(function ToolCallRow({
 		details.length > 0 ||
 		fileDiffs.length > 0 ||
 		Boolean(submitText) ||
+		Boolean(questionAnswer) ||
 		Boolean(isCommand ? commandOutput : summary.outputText) ||
 		summary.outputMedia.length > 0 ||
 		Boolean(summary.errorText) ||
@@ -278,6 +288,16 @@ const ToolCallRow = memo(function ToolCallRow({
 					<AgentCommandOutput isRunning={isRunning} output={commandOutput}>
 						<Ansi>{commandOutput}</Ansi>
 					</AgentCommandOutput>
+				) : questionAnswer ? (
+					<div className="mt-1 min-w-0 max-w-full space-y-1 wrap-break-word text-foreground">
+						{questionText ? (
+							<div className="whitespace-pre-wrap">{questionText}</div>
+						) : null}
+						<div className="whitespace-pre-wrap" data-testid="question-answer">
+							<span className="text-muted-foreground">Answer: </span>
+							{questionAnswer}
+						</div>
+					</div>
 				) : submitText ? (
 					// The summary is the run's final answer: full foreground color,
 					// not the panel's muted tool-detail gray.

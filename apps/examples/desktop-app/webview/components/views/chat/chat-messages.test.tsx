@@ -1599,6 +1599,53 @@ describe("ChatMessages follow-up questions", () => {
 	});
 });
 
+describe("ChatMessages answered questions", () => {
+	it("shows the question and the chosen answer after the run finishes", async () => {
+		await renderMessages([
+			{
+				id: "user",
+				sessionId: "session-1",
+				role: "user",
+				content: "Pick",
+				createdAt: 1,
+			},
+			{
+				id: "question",
+				sessionId: "session-1",
+				role: "tool",
+				createdAt: 2,
+				content: JSON.stringify({
+					toolName: "ask_question",
+					input: { question: "Which branch?", options: ["main", "dev"] },
+					result: "dev",
+				}),
+			},
+			{
+				id: "read",
+				sessionId: "session-1",
+				role: "tool",
+				createdAt: 3,
+				content: JSON.stringify({
+					toolName: "read_files",
+					input: {},
+					result: "ok",
+				}),
+			},
+			{
+				id: "answer",
+				sessionId: "session-1",
+				role: "assistant",
+				content: "Used dev.",
+				createdAt: 4,
+			},
+		]);
+		expect(container.textContent).toContain("Which branch?");
+		expect(
+			container.querySelector('[data-testid="question-answer"]')?.textContent,
+		).toBe("Answer: dev");
+	});
+});
+
 describe("ChatMessages image attachments", () => {
 	it("renders persisted image blocks in the user message", async () => {
 		await renderMessages([

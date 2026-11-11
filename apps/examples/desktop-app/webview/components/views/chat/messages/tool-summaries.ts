@@ -106,6 +106,28 @@ export function extractSubmitSummaryText(payload: ToolPayload | null): string {
 	return recordString(input, "summary");
 }
 
+/**
+ * The user's chosen answer to a finished `ask_question` call, or "" when the
+ * row is not an answered question (still waiting, failed, or another tool).
+ */
+export function getQuestionAnswer(presentation: ToolPresentation): string {
+	if (
+		presentation.summary.kind !== "question" ||
+		presentation.inProgress ||
+		presentation.payload?.isError
+	)
+		return "";
+	return presentation.summary.outputText?.trim() ?? "";
+}
+
+/** The full question text of an `ask_question` row. */
+export function getQuestionText(presentation: ToolPresentation): string {
+	const item = presentation.summary.items.find(
+		(entry) => entry.type === "text",
+	);
+	return item?.type === "text" ? item.text : "";
+}
+
 export function parseToolPayload(raw: string): ToolPayload | null {
 	try {
 		return JSON.parse(raw) as ToolPayload;

@@ -281,6 +281,32 @@ describe("collapseCompletedWork", () => {
 		]);
 	});
 
+	it("keeps an answered question visible when the run collapses", () => {
+		const question = makeMessage({
+			id: "question",
+			role: "tool",
+			createdAt: 2_000,
+			content: JSON.stringify({
+				toolName: "ask_question",
+				input: { question: "Which branch?", options: ["main", "dev"] },
+				result: "dev",
+			}),
+		});
+		const ordinary = makeTool("ordinary", 3_000);
+		const answer = makeMessage({
+			id: "answer",
+			content: "Done",
+			createdAt: 4_000,
+		});
+		const items = collapse([question, ordinary, answer], true);
+		expect(items.map((item) => item.type)).toEqual([
+			"work",
+			"tools",
+			"message",
+		]);
+		expect(items[1]).toEqual({ type: "tools", messages: [question] });
+	});
+
 	it("groups a live run's working rows into a tight run item", () => {
 		const items = collapse(
 			[
