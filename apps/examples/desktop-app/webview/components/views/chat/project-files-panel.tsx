@@ -166,6 +166,8 @@ type NameDialog = {
 };
 
 const COLUMN_WIDTH = 280;
+/** Viewed tabs whose rendered view is kept while another tab is shown. */
+const MAX_KEPT_OPEN_TABS = 6;
 const MIN_COLUMN_WIDTH = 180;
 /** The open file keeps at least this much room beside the column. */
 const MIN_VIEWER_WIDTH = 200;
@@ -1330,8 +1332,25 @@ export function ProjectFilesPanel({
 	};
 
 	const activeFileState = activePath ? files.get(activePath) : undefined;
-	// Working-copy tabs (not past commits) keep their rendered view alive.
-	const keptOpenTabs = tabs.filter((tab) => !tab.commit);
+	// Only tabs viewed in this panel keep their rendered view alive, newest
+	// first and capped, so a chat with many saved tabs does not load them all
+	// at once when it opens.
+	const [viewedTabIds, setViewedTabIds] = useState<string[]>([]);
+	useEffect(() => {
+		if (!activeId || effectiveMode !== "file") return;
+		setViewedTabIds((current) =>
+			current[0] === activeId
+				? current
+				: [activeId, ...current.filter((id) => id !== activeId)].slice(
+						0,
+						MAX_KEPT_OPEN_TABS,
+					),
+		);
+	}, [activeId, effectiveMode]);
+	const keptOpenTabs = tabs.filter(
+		(tab) =>
+			!tab.commit && (tab.id === activeId || viewedTabIds.includes(tab.id)),
+	);
 	const imageVersionByTabRef = useRef(new Map<string, number>());
 	const renderFileContent = (
 		tabId: string,
