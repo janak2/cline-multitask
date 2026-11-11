@@ -27,6 +27,102 @@ beforeEach(() => {
 	resetSdkErrorRateLimiterForTests();
 });
 
+describe("immediate queued steering", () => {
+	it.each([
+		true,
+		false,
+	])("interrupts a running tool (honors cancellation: %s) and delivers the queued message once", async (honorsCancellation) => {
+		const started = Promise.withResolvers<void>();
+		const cancelled = vi.fn();
+		const secondTool = vi.fn(async () => "must not run");
+		let pending: string | undefined;
+		let toolSignal: AbortSignal | undefined;
+		const tool: AgentTool = {
+			name: "wait",
+			description: "Wait for cancellation",
+			inputSchema: { type: "object" },
+			execute: (_, context) =>
+				new Promise((_, reject) => {
+					toolSignal = context.signal;
+					context.signal?.addEventListener(
+						"abort",
+						() => {
+							cancelled();
+							if (honorsCancellation)
+								reject(new Error("Interrupted by user message"));
+						},
+						{ once: true },
+					);
+					started.resolve();
+				}),
+		};
+		const model = new ScriptedModel([
+			() => [
+				{
+					type: "tool-call-delta",
+					toolCallId: "wait-1",
+					toolName: "wait",
+					input: {},
+				},
+				{
+					type: "tool-call-delta",
+					toolCallId: "next-1",
+					toolName: "next",
+					input: {},
+				},
+				{ type: "finish", reason: "tool-calls" },
+			],
+			(request) => {
+				expect(request.messages.at(-1)).toMatchObject({
+					role: "user",
+					content: [{ type: "text", text: "Do this now" }],
+				});
+				return [
+					{ type: "text-delta", text: "Handling it now" },
+					{ type: "finish", reason: "stop" },
+				];
+			},
+		]);
+		const runtime = new AgentRuntime({
+			model,
+			tools: [
+				tool,
+				{
+					name: "next",
+					description: "Next tool",
+					inputSchema: { type: "object" },
+					execute: secondTool,
+				},
+			],
+			consumePendingUserMessage: () => {
+				const message = pending;
+				pending = undefined;
+				return message;
+			},
+		});
+		const running = runtime.run("Start");
+		await started.promise;
+		pending = "Do this now";
+		runtime.notifyPendingUserMessage();
+		expect(toolSignal?.aborted).toBe(true);
+		const result = await running;
+		expect(result.status).toBe("completed");
+		expect(result.outputText).toBe("Handling it now");
+		expect(cancelled).toHaveBeenCalledOnce();
+		expect(secondTool).not.toHaveBeenCalled();
+		expect(model.requests).toHaveLength(2);
+		expect(
+			result.messages.filter(
+				(message) =>
+					message.role === "user" &&
+					message.content.some(
+						(part) => part.type === "text" && part.text === "Do this now",
+					),
+			),
+		).toHaveLength(1);
+	});
+});
+
 class ScriptedModel implements AgentModel {
 	public readonly requests: AgentModelRequest[] = [];
 
@@ -3391,13 +3487,13 @@ describe("AgentRuntime", () => {
 		await runtime.run("Hi");
 
 		// Two chunks within a second report progress once.
-		expect(eventTypes.filter((type) => type === "tool-call-delta")).toHaveLength(
-			1,
-		);
+		expect(
+			eventTypes.filter((type) => type === "tool-call-delta"),
+		).toHaveLength(1);
 		const events = capture.mock.calls.map(([input]) => input);
-		expect(events.some((input) => input.event === "agent.tool-call-delta")).toBe(
-			false,
-		);
+		expect(
+			events.some((input) => input.event === "agent.tool-call-delta"),
+		).toBe(false);
 		expect(
 			events.find((input) => input.event === "agent.run-finished")?.properties,
 		).toEqual(expect.objectContaining({ maxIdleMs: 42, status: "completed" }));

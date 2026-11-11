@@ -612,6 +612,7 @@ export class AgentRuntime {
 	private initialization?: Promise<void>;
 	private abortController?: AbortController;
 	private modelSteerController?: AbortController;
+	private toolSteerController?: AbortController;
 	private readonly telemetryProviderId?: string;
 	private readonly telemetryModelId?: string;
 	private modelRequestId?: string;
@@ -642,9 +643,10 @@ export class AgentRuntime {
 		return this.execute(input);
 	}
 
-	/** Interrupt only the current model request; running tools finish normally. */
+	/** Interrupt the current model request or tool batch to deliver user steering. */
 	notifyPendingUserMessage(): void {
 		this.modelSteerController?.abort();
+		this.toolSteerController?.abort();
 	}
 
 	abort(reason?: unknown): void {
@@ -2370,6 +2372,17 @@ export class AgentRuntime {
 	private async executeToolCalls(
 		toolCalls: AgentToolCallPart[],
 	): Promise<AgentMessage[]> {
+		this.toolSteerController = new AbortController();
+		try {
+			return await this.executeToolBatch(toolCalls);
+		} finally {
+			this.toolSteerController = undefined;
+		}
+	}
+
+	private async executeToolBatch(
+		toolCalls: AgentToolCallPart[],
+	): Promise<AgentMessage[]> {
 		this.pendingHookContexts = [];
 		const prepared: PreparedToolExecution[] = [];
 		for (const toolCall of toolCalls) {
@@ -2586,7 +2599,15 @@ export class AgentRuntime {
 		});
 
 		let result: AgentToolResult;
-		if (prepared.skipReason) {
+		if (this.toolSteerController?.signal.aborted) {
+			result = {
+				output: {
+					error:
+						"Tool interrupted by a new user message. Follow the new message before running more tools.",
+				},
+				isError: true,
+			};
+		} else if (prepared.skipReason) {
 			result = {
 				output: { error: prepared.skipReason },
 				isError: true,
@@ -2597,18 +2618,36 @@ export class AgentRuntime {
 				isError: true,
 			};
 		} else {
+			const signal = AbortSignal.any([
+				...(this.abortController ? [this.abortController.signal] : []),
+				...(this.toolSteerController ? [this.toolSteerController.signal] : []),
+			]);
+			let removeAbortListener = () => {};
 			try {
-				const output = await prepared.tool.execute(prepared.input, {
+				const interrupted = new Promise<never>((_, reject) => {
+					const onAbort = () =>
+						reject(
+							new Error(
+								"Tool interrupted. Follow the latest user message before running more tools.",
+							),
+						);
+					signal.addEventListener("abort", onAbort, { once: true });
+					removeAbortListener = () =>
+						signal.removeEventListener("abort", onAbort);
+					if (signal.aborted) onAbort();
+				});
+				const execution = prepared.tool.execute(prepared.input, {
 					sessionId: this.config.sessionId,
 					agentId: this.state.agentId,
 					conversationId: this.config.conversationId,
 					runId: this.state.runId ?? createUID("run"),
 					iteration: this.state.iteration,
 					toolCallId: prepared.toolCall.toolCallId,
-					signal: this.abortController?.signal,
+					signal,
 					metadata: this.config.toolContextMetadata,
 					snapshot: this.snapshot(),
 					emitUpdate: (update: unknown) => {
+						if (signal.aborted) return;
 						void this.emit({
 							type: "tool-updated",
 							snapshot: this.snapshot(),
@@ -2618,6 +2657,7 @@ export class AgentRuntime {
 						});
 					},
 				});
+				const output = await Promise.race([execution, interrupted]);
 				result = { output };
 			} catch (error) {
 				result = {
@@ -2626,6 +2666,8 @@ export class AgentRuntime {
 					},
 					isError: true,
 				};
+			} finally {
+				removeAbortListener();
 			}
 		}
 
