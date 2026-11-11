@@ -12,12 +12,16 @@ export function parseTimestamp(value?: string | number | null): number {
 }
 
 type Activity = {
+	origin?: string;
 	lastActivityAt?: string | number;
 	endedAt?: string | number | null;
 	startedAt?: string | number;
 };
 
 export function sessionActivityTimestamp(session: Activity): number {
+	if (session.origin === "cloud") {
+		return parseTimestamp(session.lastActivityAt ?? session.startedAt);
+	}
 	// updatedAt includes renames and other metadata writes, not just chat activity.
 	return Math.max(
 		parseTimestamp(session.lastActivityAt),
