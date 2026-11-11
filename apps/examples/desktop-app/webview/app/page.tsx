@@ -3606,6 +3606,15 @@ function ChatThreadPane({
 				<TerminalPanel
 					cwd={activeWorkspaceCwd}
 					height={terminal.height}
+					onAddToChat={
+						isCloudSessionExpired || showingHistoryPreview
+							? undefined
+							: (text) => {
+									const draft = promptDrafts.get(threadId)?.text ?? "";
+									setPromptInput(draft ? `${draft}\n\n${text}` : text);
+									requestPromptInputFocus();
+								}
+					}
 					onClose={terminal.onClose}
 					onHeightChange={terminal.onHeightChange}
 				/>

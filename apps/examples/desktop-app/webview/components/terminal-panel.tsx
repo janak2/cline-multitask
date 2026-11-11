@@ -2,12 +2,13 @@
 
 import "@xterm/xterm/css/xterm.css";
 
-import { Plus, SquareTerminal, X } from "lucide-react";
+import { MessageSquarePlus, Plus, SquareTerminal, X } from "lucide-react";
 import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
 	useRef,
+	useState,
 	useSyncExternalStore,
 } from "react";
 import {
@@ -34,6 +35,7 @@ type TerminalPanelProps = {
 	height: number;
 	onHeightChange: (height: number) => void;
 	onClose: () => void;
+	onAddToChat?: (text: string) => void;
 };
 
 /**
@@ -55,6 +57,7 @@ function TerminalPanelForCwd({
 	height,
 	onHeightChange,
 	onClose,
+	onAddToChat,
 }: TerminalPanelProps) {
 	const tabs = useSyncExternalStore(
 		subscribeTerminalTabs,
@@ -67,6 +70,13 @@ function TerminalPanelForCwd({
 		() => null,
 	);
 	const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
+	const [selection, setSelection] = useState("");
+	useEffect(() => {
+		const update = () => setSelection(activeTab?.term.getSelection() ?? "");
+		update();
+		const subscription = activeTab?.term.onSelectionChange(update);
+		return () => subscription?.dispose();
+	}, [activeTab]);
 	const hostRef = useRef<HTMLDivElement>(null);
 	const hadTabsRef = useRef(false);
 	const onCloseRef = useRef(onClose);
@@ -222,6 +232,17 @@ function TerminalPanelForCwd({
 					</button>
 				</div>
 				<div className="mb-0.5 ml-auto flex shrink-0 items-center">
+					<button
+						className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+						disabled={!selection.trim() || !onAddToChat}
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => onAddToChat?.(selection)}
+						title="Add selected terminal text to the current chat"
+						type="button"
+					>
+						<MessageSquarePlus className="size-3.5" />
+						Add to chat
+					</button>
 					<button
 						aria-label="Hide terminal"
 						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
