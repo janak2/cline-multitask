@@ -437,6 +437,52 @@ describe("UnifiedSessionPersistenceService", () => {
 	);
 
 	sqliteIt(
+		"saves a running teammate's conversation into its chat before the task ends",
+		async () => {
+			const dbDir = mkdtempSync(join(tmpdir(), "teammate-live-db-"));
+			const sessionsDir = mkdtempSync(join(tmpdir(), "teammate-live-"));
+			tempDirs.push(dbDir, sessionsDir);
+			const store = new SqliteSessionStore({ sessionsDir: dbDir });
+			stores.push(store);
+			const service = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			const rootSessionId = "live-root";
+			await createRootSession(service, rootSessionId, "lead task");
+			await service.onTeamTaskStart(rootSessionId, "worker", "Do work");
+			const row = (await service.listSessions(10)).find((item) =>
+				item.sessionId.includes("__teamtask__worker__"),
+			);
+			const read = () =>
+				(
+					JSON.parse(readFileSync(row?.messagesPath as string, "utf8")) as {
+						messages: unknown[];
+					}
+				).messages;
+			expect(read()).toHaveLength(0);
+
+			await service.persistTeamTaskMessages(rootSessionId, "worker", [
+				{ role: "user", content: "Do work" },
+				{ role: "assistant", content: [{ type: "text", text: "Step one" }] },
+			]);
+			expect(read()).toHaveLength(2);
+			expect(
+				(await service.listSessions(10)).find(
+					(item) => item.sessionId === row?.sessionId,
+				)?.status,
+			).toBe("running");
+
+			// No running teammate: nothing is written.
+			await service.onTeamTaskEnd(rootSessionId, "worker", "completed");
+			await expect(
+				service.persistTeamTaskMessages(rootSessionId, "worker", [
+					{ role: "user", content: "late" },
+				]),
+			).resolves.toBeUndefined();
+		},
+	);
+
+	sqliteIt(
 		"rewrites a teammate status file with its final status",
 		async () => {
 			const dbDir = mkdtempSync(join(tmpdir(), "teammate-status-db-"));

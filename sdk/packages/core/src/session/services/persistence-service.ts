@@ -402,6 +402,18 @@ export class UnifiedSessionPersistenceService {
 		return this.teamChildren.activeTeamTaskSessionId(rootSessionId, agentId);
 	}
 
+	persistTeamTaskMessages(
+		rootSessionId: string,
+		agentId: string,
+		messages: LlmsProviders.MessageWithMetadata[],
+	): Promise<void> {
+		return this.teamChildren.persistTeamTaskMessages(
+			rootSessionId,
+			agentId,
+			messages,
+		);
+	}
+
 	onTeamTaskEnd(
 		rootSessionId: string,
 		agentId: string,

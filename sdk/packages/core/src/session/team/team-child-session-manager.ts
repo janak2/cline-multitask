@@ -396,6 +396,25 @@ export class TeamChildSessionManager {
 		this.teamTaskLastProgressLineBySession.delete(sessionId);
 	}
 
+	/**
+	 * Saves a running teammate's conversation into its own chat, so it can be
+	 * followed live instead of staying empty until the task ends.
+	 */
+	async persistTeamTaskMessages(
+		rootSessionId: string,
+		agentId: string,
+		messages: LlmsProviders.MessageWithMetadata[],
+	): Promise<void> {
+		const sessionId = this.activeTeamTaskSessionId(rootSessionId, agentId);
+		if (!sessionId) return;
+		const persistedMessages = this.toPersistedMessages(messages);
+		if (!persistedMessages) return;
+		await this.manifestStore.persistSessionMessages(
+			sessionId,
+			persistedMessages,
+		);
+	}
+
 	async onTeamTaskProgress(
 		rootSessionId: string,
 		agentId: string,

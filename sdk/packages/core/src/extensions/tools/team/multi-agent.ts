@@ -1449,6 +1449,11 @@ export class AgentTeamsRuntime {
 			.map((run) => ({ ...run }));
 	}
 
+	/** A teammate's conversation so far, for saving it while the run is live. */
+	getTeammateMessages(agentId: string): AgentResult["messages"] | undefined {
+		return this.members.get(agentId)?.agent?.getMessages();
+	}
+
 	getRun(runId: string): TeamRunRecord | undefined {
 		const run = this.runs.get(runId);
 		return run ? { ...run } : undefined;

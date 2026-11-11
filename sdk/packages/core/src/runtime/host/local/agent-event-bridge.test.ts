@@ -142,6 +142,73 @@ describe("teammate live conversation routing", () => {
 });
 
 describe("AgentEventBridge.dispatchAgentEvent", () => {
+	it("saves a running teammate's conversation after each step, at most every two seconds", async () => {
+		vi.useFakeTimers();
+		try {
+			const messages = [{ role: "user", content: "Do work" }];
+			const session = {
+				agent: { getAgentId: () => "lead" },
+				config: {},
+				runtime: {
+					teamRuntime: {
+						getTeammateMessages: () => messages,
+						getTeamId: () => "team",
+						getTeamName: () => "team",
+						exportState: () => ({
+							teamId: "team",
+							teamName: "team",
+							members: [],
+							tasks: [],
+							mailbox: [],
+							missionLog: [],
+							runs: [],
+							outcomes: [],
+							outcomeFragments: [],
+						}),
+					},
+				},
+				activeTeamRunIds: new Set(),
+			} as unknown as ActiveSession;
+			const invoke = vi.fn(async (_method: string, ..._args: unknown[]) => {});
+			const bridge = new AgentEventBridge({
+				getSession: () => session,
+				usageBySession: new Map(),
+				aggregateUsageBySession: new Map(),
+				persistMessages: vi.fn(),
+				enqueuePendingPrompt: vi.fn(),
+				emit: vi.fn(),
+				activeTeamTaskSessionId: async () => "child",
+				invokeBackendOptional: invoke,
+			});
+			const step = (iteration: number) =>
+				bridge.handleTeamEvent("parent", {
+					type: TeamMessageType.AgentEvent,
+					agentId: "worker",
+					event: {
+						type: "iteration_end",
+						iteration,
+						hadToolCalls: true,
+						toolCallCount: 1,
+					} as AgentEvent,
+				});
+			const saves = () =>
+				invoke.mock.calls.filter(
+					([method]) => method === "persistTeamTaskMessages",
+				);
+			await step(1);
+			expect(saves()).toEqual([
+				["persistTeamTaskMessages", "parent", "worker", messages],
+			]);
+			await step(2);
+			expect(saves()).toHaveLength(1);
+			vi.advanceTimersByTime(2_000);
+			await step(3);
+			expect(saves()).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("routes subagent deltas to its saved child session without changing parent routing", () => {
 		const { bridge, deps, config } = createDispatchFixture();
 		bridge.dispatchAgentEvent("session-1", config, {

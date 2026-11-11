@@ -45,6 +45,9 @@ export interface AgentEventBridgeDeps {
 export class AgentEventBridge {
 	constructor(private readonly deps: AgentEventBridgeDeps) {}
 	private readonly teamEventQueues = new Map<string, Promise<void>>();
+	/** Last time each teammate's live conversation was saved, by root::agent. */
+	private readonly lastTeammateSave = new Map<string, number>();
+	private static readonly TEAMMATE_SAVE_INTERVAL_MS = 2_000;
 
 	/**
 	 * Last agent identity stamped on each session's events while the session
@@ -156,6 +159,38 @@ export class AgentEventBridge {
 		return pending;
 	}
 
+	/**
+	 * A teammate's own chat is otherwise written only when its task ends, so it
+	 * looks idle while it works. Save its conversation after each step instead.
+	 */
+	private async saveTeammateProgress(
+		session: ActiveSession,
+		rootSessionId: string,
+		agentId: string,
+	): Promise<void> {
+		const key = `${rootSessionId}::${agentId}`;
+		const now = Date.now();
+		if (
+			now - (this.lastTeammateSave.get(key) ?? 0) <
+			AgentEventBridge.TEAMMATE_SAVE_INTERVAL_MS
+		)
+			return;
+		const messages = session.runtime.teamRuntime?.getTeammateMessages(agentId);
+		if (!messages?.length) return;
+		this.lastTeammateSave.set(key, now);
+		await this.deps
+			.invokeBackendOptional(
+				"persistTeamTaskMessages",
+				rootSessionId,
+				agentId,
+				messages,
+			)
+			.catch(() => {
+				// A failed live save is retried on the next step; the final save
+				// at task end still writes the whole conversation.
+			});
+	}
+
 	private async processTeamEvent(
 		rootSessionId: string,
 		event: TeamEvent,
@@ -182,6 +217,13 @@ export class AgentEventBridge {
 					rootSessionId,
 					event.agentId,
 				);
+				if (childSessionId && event.event.type === "iteration_end") {
+					await this.saveTeammateProgress(
+						session,
+						rootSessionId,
+						event.agentId,
+					);
+				}
 				if (
 					childSessionId &&
 					event.event.type !== "done" &&
