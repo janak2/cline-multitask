@@ -13,7 +13,7 @@ const terminal = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/terminal-sessions", () => ({
-	normalizeTerminalCwd: (cwd: string) => cwd,
+	terminalGroupKey: (chatKey: string, cwd: string) => `${chatKey}|${cwd}`,
 	subscribeTerminalTabs: () => () => {},
 	listTerminalTabs: () => terminal.tabs,
 	activeTerminalTabId: () => "terminal-1",
@@ -71,6 +71,7 @@ describe("terminal selection to chat", () => {
 		await act(async () =>
 			root.render(
 				<TerminalPanel
+					chatKey="chat-a"
 					cwd="/workspace"
 					height={280}
 					onClose={() => {}}

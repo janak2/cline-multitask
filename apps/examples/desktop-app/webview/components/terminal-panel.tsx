@@ -21,15 +21,17 @@ import {
 	createTerminalTab,
 	killTerminalTab,
 	listTerminalTabs,
-	normalizeTerminalCwd,
 	setActiveTerminalTab,
 	spawnTerminalTab,
 	subscribeTerminalTabs,
 	type TerminalTab,
+	terminalGroupKey,
 } from "@/lib/terminal-sessions";
 import { cn } from "@/lib/utils";
 
 type TerminalPanelProps = {
+	/** The chat these shells belong to; other chats never see them. */
+	chatKey: string;
 	/** Directory new shells start in; empty opens the home directory. */
 	cwd: string;
 	height: number;
@@ -40,33 +42,34 @@ type TerminalPanelProps = {
 
 /**
  * Bottom terminal drawer. Shell tabs are owned by `terminal-sessions` and
- * keyed by directory, so this component only decides which tab is visible
- * and keeps xterm sized to the panel.
+ * grouped by chat and directory, so this component only decides which tab is
+ * visible and keeps xterm sized to the panel.
  */
-export function TerminalPanel({ cwd, ...props }: TerminalPanelProps) {
-	const key = normalizeTerminalCwd(cwd);
-	// Remount per directory so "no tabs" means "fresh panel" and not "the
-	// last shell exited" when the workspace changes under an open panel.
-	return <TerminalPanelForCwd cwd={key} key={key} {...props} />;
+export function TerminalPanel(props: TerminalPanelProps) {
+	const group = terminalGroupKey(props.chatKey, props.cwd);
+	// Remount per group so "no tabs" means "fresh panel" and not "the last
+	// shell exited" when the chat or its workspace changes under the panel.
+	return <TerminalPanelForGroup group={group} key={group} {...props} />;
 }
 
 const noTabs: TerminalTab[] = [];
 
-function TerminalPanelForCwd({
+function TerminalPanelForGroup({
+	group,
 	cwd,
 	height,
 	onHeightChange,
 	onClose,
 	onAddToChat,
-}: TerminalPanelProps) {
+}: TerminalPanelProps & { group: string }) {
 	const tabs = useSyncExternalStore(
 		subscribeTerminalTabs,
-		() => listTerminalTabs(cwd),
+		() => listTerminalTabs(group),
 		() => noTabs,
 	);
 	const activeId = useSyncExternalStore(
 		subscribeTerminalTabs,
-		() => activeTerminalTabId(cwd),
+		() => activeTerminalTabId(group),
 		() => null,
 	);
 	const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
@@ -94,8 +97,8 @@ function TerminalPanelForCwd({
 		}
 		// Re-check the store: StrictMode replays this effect before the
 		// subscription has delivered the tab created by the first run.
-		if (listTerminalTabs(cwd).length === 0) createTerminalTab(cwd);
-	}, [cwd, tabs.length]);
+		if (listTerminalTabs(group).length === 0) createTerminalTab(group, cwd);
+	}, [cwd, group, tabs.length]);
 
 	useEffect(() => {
 		const host = hostRef.current;
@@ -217,14 +220,14 @@ function TerminalPanelForCwd({
 							active={tab.id === activeTab?.id}
 							key={tab.id}
 							onClose={() => void killTerminalTab(tab)}
-							onSelect={() => setActiveTerminalTab(cwd, tab.id)}
+							onSelect={() => setActiveTerminalTab(group, tab.id)}
 							tab={tab}
 						/>
 					))}
 					<button
 						aria-label="New terminal"
 						className="mb-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-						onClick={() => createTerminalTab(cwd)}
+						onClick={() => createTerminalTab(group, cwd)}
 						title="New terminal"
 						type="button"
 					>

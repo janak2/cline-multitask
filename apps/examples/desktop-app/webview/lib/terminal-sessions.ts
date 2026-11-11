@@ -6,12 +6,14 @@ import { isTauriAvailable } from "@/lib/desktop-client";
 import { isMacPlatform } from "@/lib/keybindings";
 
 /**
- * Terminal tabs live outside React, keyed by the directory they were opened
- * in, so switching sessions (which remounts the chat pane) reattaches the
- * same shell and scrollback instead of spawning a new one.
+ * Terminal tabs live outside React, grouped by the chat that opened them, so
+ * switching away and back reattaches the same shell and scrollback instead of
+ * spawning a new one, and one chat's shells never show in another chat.
  */
 export type TerminalTab = {
 	id: string;
+	/** The owning chat's group: its chat key and starting directory. */
+	group: string;
 	cwd: string;
 	label: string;
 	term: Terminal;
@@ -32,8 +34,8 @@ type PtyEvent =
 	| { type: "data"; data: string }
 	| { type: "exit"; code?: number };
 
-const tabsByCwd = new Map<string, TerminalTab[]>();
-const activeIdByCwd = new Map<string, string>();
+const tabsByGroup = new Map<string, TerminalTab[]>();
+const activeIdByGroup = new Map<string, string>();
 const listeners = new Set<() => void>();
 let nextTabNumber = 1;
 
@@ -61,20 +63,49 @@ export function normalizeTerminalCwd(cwd: string): string {
 
 const EMPTY: TerminalTab[] = [];
 
-export function listTerminalTabs(cwd: string): TerminalTab[] {
-	return tabsByCwd.get(normalizeTerminalCwd(cwd)) ?? EMPTY;
+/** One chat's shells in one directory; a chat that changes folder gets a new group. */
+export function terminalGroupKey(chatKey: string, cwd: string): string {
+	return `${chatKey}\u0000${normalizeTerminalCwd(cwd)}`;
 }
 
-export function activeTerminalTabId(cwd: string): string | null {
-	const key = normalizeTerminalCwd(cwd);
-	const tabs = tabsByCwd.get(key);
+/**
+ * Moves a chat's shells to its new key (a new chat gains its saved session id
+ * on its first message), so the shells it already opened stay with it.
+ */
+export function renameTerminalChat(
+	fromChatKey: string,
+	toChatKey: string,
+): void {
+	let moved = false;
+	for (const [group, tabs] of [...tabsByGroup]) {
+		const prefix = `${fromChatKey}\u0000`;
+		if (!group.startsWith(prefix)) continue;
+		const next = `${toChatKey}\u0000${group.slice(prefix.length)}`;
+		if (tabsByGroup.has(next)) continue;
+		for (const tab of tabs) tab.group = next;
+		tabsByGroup.set(next, tabs);
+		tabsByGroup.delete(group);
+		const active = activeIdByGroup.get(group);
+		if (active) activeIdByGroup.set(next, active);
+		activeIdByGroup.delete(group);
+		moved = true;
+	}
+	if (moved) emit();
+}
+
+export function listTerminalTabs(group: string): TerminalTab[] {
+	return tabsByGroup.get(group) ?? EMPTY;
+}
+
+export function activeTerminalTabId(group: string): string | null {
+	const tabs = tabsByGroup.get(group);
 	if (!tabs || tabs.length === 0) return null;
-	const active = activeIdByCwd.get(key);
+	const active = activeIdByGroup.get(group);
 	return tabs.some((tab) => tab.id === active) ? (active ?? null) : tabs[0].id;
 }
 
-export function setActiveTerminalTab(cwd: string, id: string): void {
-	activeIdByCwd.set(normalizeTerminalCwd(cwd), id);
+export function setActiveTerminalTab(group: string, id: string): void {
+	activeIdByGroup.set(group, id);
 	emit();
 }
 
@@ -162,9 +193,9 @@ function readMonoFontFamily(): string {
 	return value || "ui-monospace, Menlo, Consolas, monospace";
 }
 
-export function createTerminalTab(cwd: string): TerminalTab {
+export function createTerminalTab(group: string, cwd: string): TerminalTab {
 	const key = normalizeTerminalCwd(cwd);
-	const existing = tabsByCwd.get(key) ?? [];
+	const existing = tabsByGroup.get(group) ?? [];
 	const term = new Terminal({
 		allowProposedApi: true,
 		cursorBlink: true,
@@ -199,6 +230,7 @@ export function createTerminalTab(cwd: string): TerminalTab {
 	element.className = "h-full w-full";
 	const tab: TerminalTab = {
 		id: `term_${Date.now().toString(36)}_${nextTabNumber++}`,
+		group,
 		cwd: key,
 		label: tabLabel(key, existing),
 		term,
@@ -212,25 +244,25 @@ export function createTerminalTab(cwd: string): TerminalTab {
 	// cannot stack listeners and send every keystroke twice.
 	term.onData((data) => tab.pty?.write(data));
 	term.onResize(({ cols, rows }) => tab.pty?.resize(cols, rows));
-	tabsByCwd.set(key, [...existing, tab]);
-	activeIdByCwd.set(key, tab.id);
+	tabsByGroup.set(group, [...existing, tab]);
+	activeIdByGroup.set(group, tab.id);
 	emit();
 	return tab;
 }
 
 function removeTab(tab: TerminalTab): void {
-	const tabs = tabsByCwd.get(tab.cwd);
+	const tabs = tabsByGroup.get(tab.group);
 	if (!tabs) return;
 	const index = tabs.indexOf(tab);
 	if (index === -1) return;
 	const next = tabs.filter((candidate) => candidate !== tab);
 	if (next.length === 0) {
-		tabsByCwd.delete(tab.cwd);
-		activeIdByCwd.delete(tab.cwd);
+		tabsByGroup.delete(tab.group);
+		activeIdByGroup.delete(tab.group);
 	} else {
-		tabsByCwd.set(tab.cwd, next);
-		if (activeIdByCwd.get(tab.cwd) === tab.id) {
-			activeIdByCwd.set(tab.cwd, next[Math.min(index, next.length - 1)].id);
+		tabsByGroup.set(tab.group, next);
+		if (activeIdByGroup.get(tab.group) === tab.id) {
+			activeIdByGroup.set(tab.group, next[Math.min(index, next.length - 1)].id);
 		}
 	}
 	tab.term.dispose();
@@ -253,7 +285,7 @@ export async function killTerminalTab(tab: TerminalTab): Promise<void> {
 
 export function applyTerminalTheme(): void {
 	const theme = readTerminalTheme();
-	for (const tabs of tabsByCwd.values()) {
+	for (const tabs of tabsByGroup.values()) {
 		for (const tab of tabs) {
 			tab.term.options.theme = theme;
 		}

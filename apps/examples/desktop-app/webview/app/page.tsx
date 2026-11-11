@@ -177,9 +177,10 @@ import { readImportedFromTool } from "@/lib/session-import";
 import { resolveSessionHeaderStatus } from "@/lib/session-status";
 import {
 	clampTerminalPanelHeight,
-	readTerminalPanelState,
-	type TerminalPanelState,
-	writeTerminalPanelState,
+	readTerminalPanelsState,
+	setTerminalOpenForChat,
+	type TerminalPanelsState,
+	writeTerminalPanelsState,
 } from "@/lib/terminal-panel-state";
 import { syncHubAccent, syncHubTheme, watchSystemHubTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -474,52 +475,61 @@ function App() {
 	const [whatsNew, setWhatsNew] = useState<WhatsNewRelease | null>(null);
 	const [commandBarOpen, setCommandBarOpen] = useState(false);
 	const [exportDiagnosticsOpen, setExportDiagnosticsOpen] = useState(false);
-	// The terminal panel is app-level so it stays open across session
-	// switches; the PTY needs the native shell, so browser mode never offers it.
+	// The terminal panel opens per chat: opening it in one chat does not show
+	// it in others. Its height is shared. The PTY needs the native shell, so
+	// browser mode never offers it.
 	const [terminalAvailable, setTerminalAvailable] = useState(false);
-	const [terminalPanel, setTerminalPanel] = useState<TerminalPanelState>({
-		open: false,
+	const [terminalPanels, setTerminalPanels] = useState<TerminalPanelsState>({
+		openChats: [],
 		height: 280,
 	});
+	// Set below once the active chat is known; read by the shortcut handler.
+	const terminalChatKeyRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (isTauriAvailable()) {
 			void reapOrphanedTerminals().then(() => setTerminalAvailable(true));
 		}
-		const stored = readTerminalPanelState();
-		setTerminalPanel({
+		const stored = readTerminalPanelsState();
+		setTerminalPanels({
 			...stored,
 			height: clampTerminalPanelHeight(stored.height, window.innerHeight),
 		});
 	}, []);
-	const updateTerminalPanel = useCallback(
-		(patch: Partial<TerminalPanelState>) => {
-			setTerminalPanel((current) => {
-				const next = { ...current, ...patch };
-				writeTerminalPanelState(next);
+	const updateTerminalPanels = useCallback(
+		(update: (current: TerminalPanelsState) => TerminalPanelsState) => {
+			setTerminalPanels((current) => {
+				const next = update(current);
+				writeTerminalPanelsState(next);
 				return next;
 			});
 		},
 		[],
 	);
 	const handleToggleTerminal = useCallback(() => {
-		setTerminalPanel((current) => {
-			const next = { ...current, open: !current.open };
-			writeTerminalPanelState(next);
-			if (!next.open) requestPromptInputFocus();
-			return next;
+		const chatKey = terminalChatKeyRef.current;
+		if (!chatKey) return;
+		updateTerminalPanels((current) => {
+			const open = !current.openChats.includes(chatKey);
+			if (!open) requestPromptInputFocus();
+			return setTerminalOpenForChat(current, chatKey, open);
 		});
-	}, []);
+	}, [updateTerminalPanels]);
 	const handleCloseTerminal = useCallback(() => {
-		updateTerminalPanel({ open: false });
+		const chatKey = terminalChatKeyRef.current;
+		if (!chatKey) return;
+		updateTerminalPanels((current) =>
+			setTerminalOpenForChat(current, chatKey, false),
+		);
 		requestPromptInputFocus();
-	}, [updateTerminalPanel]);
+	}, [updateTerminalPanels]);
 	const handleTerminalHeightChange = useCallback(
 		(height: number) => {
-			updateTerminalPanel({
+			updateTerminalPanels((current) => ({
+				...current,
 				height: clampTerminalPanelHeight(height, window.innerHeight),
-			});
+			}));
 		},
-		[updateTerminalPanel],
+		[updateTerminalPanels],
 	);
 	// Shared by the sidebar search icon and the Cmd/Ctrl+P shortcut.
 	const handleOpenCommandBar = useCallback(() => setCommandBarOpen(true), []);
@@ -953,6 +963,43 @@ function App() {
 					environmentId: activeThread.environmentId,
 				})
 			: null;
+	// The chat the terminal panel belongs to: its saved session once it has
+	// one, otherwise the new chat's own thread id.
+	const terminalChatKey =
+		activeHistorySessionId ??
+		(activeThread ? `thread:${activeThread.id}` : null);
+	terminalChatKeyRef.current = terminalChatKey;
+	const terminalOpenForChat = Boolean(
+		terminalChatKey && terminalPanels.openChats.includes(terminalChatKey),
+	);
+	// A new chat gains its session id on its first message; keep its open
+	// terminal by moving it from the thread key to the session key.
+	const activeThreadKey = activeThread ? `thread:${activeThread.id}` : null;
+	useEffect(() => {
+		if (
+			!activeThreadKey ||
+			!activeHistorySessionId ||
+			!terminalPanels.openChats.includes(activeThreadKey)
+		)
+			return;
+		// Loaded on demand: the shell store pulls in xterm, which the terminal
+		// panel already loads lazily.
+		void import("@/lib/terminal-sessions").then((sessions) =>
+			sessions.renameTerminalChat(activeThreadKey, activeHistorySessionId),
+		);
+		updateTerminalPanels((current) =>
+			setTerminalOpenForChat(
+				setTerminalOpenForChat(current, activeThreadKey, false),
+				activeHistorySessionId,
+				true,
+			),
+		);
+	}, [
+		activeHistorySessionId,
+		activeThreadKey,
+		terminalPanels.openChats,
+		updateTerminalPanels,
+	]);
 	const activeLocationRef = useRef(appState.navigation.current);
 	activeLocationRef.current = appState.navigation.current;
 	const handleHome = useCallback(() => {
@@ -1379,8 +1426,9 @@ function App() {
 											terminal={
 												terminalAvailable
 													? {
-															open: terminalPanel.open,
-															height: terminalPanel.height,
+															open: terminalOpenForChat,
+															chatKey: terminalChatKey ?? "",
+															height: terminalPanels.height,
 															shortcut: keybindings["toggle-terminal"].key
 																? formatAccelerator(
 																		keybindings["toggle-terminal"].key,
@@ -1559,6 +1607,8 @@ function ChatThreadPane({
 	/** Absent when the integrated terminal cannot run (browser mode). */
 	terminal?: {
 		open: boolean;
+		/** The chat the panel's shells belong to. */
+		chatKey: string;
 		height: number;
 		/** Display form of the toggle shortcut; undefined when unbound. */
 		shortcut?: string;
@@ -3606,6 +3656,7 @@ function ChatThreadPane({
 			</AttachmentDropZone>
 			{terminalEnabled && terminal?.open ? (
 				<TerminalPanel
+					chatKey={terminal.chatKey}
 					cwd={activeWorkspaceCwd}
 					height={terminal.height}
 					onAddToChat={
