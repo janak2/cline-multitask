@@ -8329,6 +8329,41 @@ describe("LocalRuntimeHost", () => {
 			await host.manager.dispose();
 		});
 
+		it("delivers a teammate result that finishes while idle after Multitask is turned off", async () => {
+			const host = createMultitaskHost();
+			await host.start();
+			host.setRespond(async () => {
+				host.emit({
+					type: TeamMessageType.RunStarted,
+					run: makeRun("run_1", "running"),
+				});
+				return createResult();
+			});
+			await host.manager.runTurn({
+				sessionId: host.sessionId,
+				prompt: "download the dataset",
+				multitask: true,
+			});
+			await host.manager.updateSession(host.sessionId, {
+				metadata: { multitask: false },
+			});
+			host.setRespond(async () => createResult());
+
+			host.emit({
+				type: TeamMessageType.RunCompleted,
+				run: makeRun("run_1", "completed", "Download finished."),
+			});
+
+			await vi.waitFor(() => expect(host.turn).toHaveBeenCalledTimes(2));
+			expect(host.prompts[1]).toContain(
+				"System-delivered teammate async run updates:",
+			);
+			expect(host.prompts[1]).toContain("Download finished.");
+			expect(host.prompts[1]).toContain("Multitask mode is off");
+			await vi.waitFor(() => expect(host.session().status).toBe("idle"));
+			await host.manager.dispose();
+		});
+
 		it("delivers a result that finishes during a turn after that turn", async () => {
 			const host = createMultitaskHost();
 			await host.start();

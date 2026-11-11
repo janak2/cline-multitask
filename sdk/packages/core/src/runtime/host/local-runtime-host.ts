@@ -768,7 +768,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 					heldTeamEvents.push(event);
 				} else {
 					void this.eventBridge.handleTeamEvent(sessionId, event);
-					this.deliverMultitaskTeamRunUpdates(sessionId);
+					this.deliverTeamRunUpdates(sessionId);
 				}
 				bootstrap.config.onTeamEvent?.(event);
 			},
@@ -1169,7 +1169,7 @@ export class LocalRuntimeHost implements RuntimeHost {
 		}
 		// With a start prompt, its turn delivers them when it completes.
 		if (!startInput.prompt?.trim()) {
-			this.deliverMultitaskTeamRunUpdates(sessionId);
+			this.deliverTeamRunUpdates(sessionId);
 		}
 		if (resumedArtifacts) {
 			// The stale-session check treats a dead recorded pid as a crashed run,
@@ -1471,12 +1471,14 @@ export class LocalRuntimeHost implements RuntimeHost {
 
 	/**
 	 * Queues finished teammate runs as a system-delivered prompt, so the lead
-	 * reports them after any turn already running or queued.
+	 * reports them after any turn already running or queued. With Multitask
+	 * off, a running turn picks them up itself; an idle session gets them now.
 	 */
-	private deliverMultitaskTeamRunUpdates(sessionId: string): void {
+	private deliverTeamRunUpdates(sessionId: string): void {
 		const session = this.sessions.get(sessionId);
 		if (
-			!session?.multitask ||
+			!session ||
+			(!session.multitask && session.status === "running") ||
 			session.stoppingTeammates ||
 			session.pendingTeamRunUpdates.length === 0
 		) {
@@ -2193,8 +2195,8 @@ export class LocalRuntimeHost implements RuntimeHost {
 		session.lastInteractiveTurnFinishReason = finishReason;
 		await this.markTurnIdle(session);
 		session.aborting = false;
-		// Flushes runs that finished while the mode was off.
-		this.deliverMultitaskTeamRunUpdates(session.sessionId);
+		// Flushes runs that finished during the turn.
+		this.deliverTeamRunUpdates(session.sessionId);
 	}
 
 	private resolveInteractiveStopStatus(session: ActiveSession): SessionStatus {
