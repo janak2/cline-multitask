@@ -36,6 +36,7 @@ import {
 } from "@/hooks/chat-session/helpers";
 import {
 	canReplaceFailedTurn,
+	preserveInFlightToolOutput,
 	reuseUnchangedHistory,
 } from "@/hooks/chat-session/history-reconciliation";
 import type {
@@ -245,12 +246,13 @@ function mergeHydratedMessagesWithLive(options: {
 	preserveMessageIds?: ReadonlySet<string>;
 }): ChatMessage[] {
 	const {
-		hydrated,
+		hydrated: incoming,
 		current,
 		sessionId,
 		hydrationStartedAt,
 		preserveMessageIds,
 	} = options;
+	const hydrated = preserveInFlightToolOutput(current, incoming);
 	const sessionMessages = current.filter(
 		(message) => message.sessionId === sessionId,
 	);

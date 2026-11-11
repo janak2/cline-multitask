@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "@/lib/chat-schema";
 import {
 	canReplaceFailedTurn,
+	preserveInFlightToolOutput,
 	reuseUnchangedHistory,
 } from "./history-reconciliation";
 
@@ -19,6 +20,41 @@ const row = (
 });
 
 describe("failed turn history reconciliation", () => {
+	it("keeps streamed output across canonical ID changes without reviving detach controls", () => {
+		const live: ChatMessage = {
+			...row("live", "tool"),
+			meta: {
+				toolCallId: "call",
+				toolOutput: "stdout\nstderr\n",
+				toolOutputTruncated: true,
+				toolDetachable: true,
+			},
+		};
+		const saved: ChatMessage = {
+			...row("saved", "tool"),
+			meta: {
+				toolCallId: "call",
+				hookEventName: "history_tool_use",
+			},
+		};
+		const [result] = preserveInFlightToolOutput([live], [saved]);
+		expect(result.id).toBe("saved");
+		expect(result.meta?.toolOutput).toBe(live.meta?.toolOutput);
+		expect(result.meta?.toolOutputTruncated).toBe(true);
+		expect(result.meta?.toolDetachable).toBeUndefined();
+		expect(saved.meta?.toolOutput).toBeUndefined();
+		for (const incoming of [
+			{
+				...saved,
+				meta: { ...saved.meta, hookEventName: "history_tool_result" },
+			},
+			{ ...saved, meta: { ...saved.meta, toolOutput: "new saved output" } },
+			{ ...saved, meta: { ...saved.meta, toolCallId: "different" } },
+			{ ...saved, sessionId: "different-session" },
+		]) {
+			expect(preserveInFlightToolOutput([live], [incoming])[0]).toBe(incoming);
+		}
+	});
 	it("reuses unchanged rows but applies content and nested metadata changes", () => {
 		const current = [row("u1", "user", 1), row("a1", "assistant")];
 		expect(reuseUnchangedHistory(current, structuredClone(current))).toBe(

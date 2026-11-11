@@ -8271,6 +8271,73 @@ describe("cloud snapshot replay", () => {
 });
 
 describe("retained chat history", () => {
+	it("keeps streamed command output after switching away and refreshing history", async () => {
+		const savedTool: ChatMessage = {
+			id: "saved-tool",
+			sessionId: "cached-chat",
+			role: "tool",
+			createdAt: 1,
+			content: JSON.stringify({
+				toolName: "run_commands",
+				input: { commands: ["bun test"] },
+				result: null,
+			}),
+			meta: {
+				toolName: "run_commands",
+				toolCallId: "running-command",
+				hookEventName: "history_tool_use",
+			},
+		};
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? structuredClone([savedTool]) : [],
+		);
+		await act(async () =>
+			current.hydrateSession({ ...session, status: "running" }),
+		);
+		const handler = subscribeMock.mock.calls.find(
+			([name]) => name === "chat_event",
+		)?.[1];
+		await act(async () => {
+			handler?.({
+				sessionId: session.sessionId,
+				stream: "chat_tool_call_update",
+				index: 1,
+				ts: Date.now(),
+				chunk: JSON.stringify({
+					toolCallId: "running-command",
+					update: { stream: "stdout", chunk: "first output\n" },
+				}),
+			});
+			await new Promise((resolve) => setTimeout(resolve, 60));
+		});
+		expect(current.messages[0].meta?.toolOutput).toBe("first output\n");
+		await act(async () => root.unmount());
+		root = createRoot(container);
+		await act(async () => root.render(<HookHarness />));
+		await act(async () =>
+			current.hydrateSession({ ...session, status: "running" }),
+		);
+		expect(current.messages[0].meta?.toolOutput).toBe("first output\n");
+		const resumedHandler = subscribeMock.mock.calls
+			.filter(([name]) => name === "chat_event")
+			.at(-1)?.[1];
+		await act(async () => {
+			resumedHandler?.({
+				sessionId: session.sessionId,
+				stream: "chat_tool_call_update",
+				index: 2,
+				ts: Date.now(),
+				chunk: JSON.stringify({
+					toolCallId: "running-command",
+					update: { stream: "stdout", chunk: "second output\n" },
+				}),
+			});
+			await new Promise((resolve) => setTimeout(resolve, 60));
+		});
+		expect(current.messages[0].meta?.toolOutput).toBe(
+			"first output\nsecond output\n",
+		);
+	});
 	const session = {
 		sessionId: "cached-chat",
 		provider: "cline",

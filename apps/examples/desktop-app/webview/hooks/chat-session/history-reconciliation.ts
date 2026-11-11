@@ -1,5 +1,47 @@
 import type { ChatMessage } from "@/lib/chat-schema";
 
+export function preserveInFlightToolOutput(
+	current: ChatMessage[],
+	incoming: ChatMessage[],
+): ChatMessage[] {
+	const streamed = new Map(
+		current
+			.filter(
+				(message) =>
+					message.role === "tool" &&
+					message.meta?.toolCallId &&
+					message.meta.toolOutput,
+			)
+			.map((message) => [message.meta?.toolCallId, message]),
+	);
+	if (streamed.size === 0) return incoming;
+	const next = incoming.map((message) => {
+		if (
+			message.role !== "tool" ||
+			message.meta?.hookEventName !== "history_tool_use"
+		)
+			return message;
+		const previous = streamed.get(message.meta.toolCallId);
+		if (
+			!previous ||
+			previous.sessionId !== message.sessionId ||
+			message.meta.toolOutput
+		)
+			return message;
+		return {
+			...message,
+			meta: {
+				...message.meta,
+				toolOutput: previous.meta?.toolOutput,
+				toolOutputTruncated: previous.meta?.toolOutputTruncated,
+			},
+		};
+	});
+	return next.every((message, index) => message === incoming[index])
+		? incoming
+		: next;
+}
+
 function sameHistoryValue(left: unknown, right: unknown): boolean {
 	if (left === right) return true;
 	if (!left || !right || typeof left !== "object" || typeof right !== "object")
