@@ -3,13 +3,13 @@ import { captureSdkError } from "@cline/shared";
 import type { DesktopTransportRequest } from "../webview/lib/desktop-transport";
 import { MAX_DESKTOP_TRANSPORT_PAYLOAD_BYTES } from "../webview/lib/voice-input-limits";
 import { handleCommand } from "./commands";
+import { abandonComposioConnectsForOwner } from "./composio";
 import {
 	cancelSidecarToolApprovalsForOwner,
 	encodeSidecarEvent,
 	sendEvent,
 	syncSidecarApprovalReadiness,
 } from "./context";
-import { abandonComposioConnectsForOwner } from "./composio";
 import { fetchMarketplaceCatalog } from "./marketplace";
 import { cancelMcpOAuthAuthorizationsForOwner } from "./mcp-oauth";
 import { cancelProviderOAuthLoginsForOwner } from "./oauth-login";
@@ -354,9 +354,18 @@ export function createFetchHandler(
 	};
 }
 
+/** Output Bun may queue per client before dropping sends. */
+export const DESKTOP_TRANSPORT_BACKPRESSURE_LIMIT_BYTES = 1024 * 1024 * 1024;
+
 export function createWebSocketHandler(ctx: SidecarContext) {
 	return {
 		maxPayloadLength: MAX_DESKTOP_TRANSPORT_PAYLOAD_BYTES,
+		// Bun silently drops sends once this much output is queued for a client
+		// (default 16 MB). A few PDF previews (up to ~27 MB each as base64) can
+		// exceed that, and every response after them, such as folder listings,
+		// was then lost and left the panel loading until its 2-minute timeout.
+		backpressureLimit: DESKTOP_TRANSPORT_BACKPRESSURE_LIMIT_BYTES,
+		closeOnBackpressureLimit: false,
 		open(ws: SidecarWebSocketClient) {
 			ctx.wsClients.add(ws);
 			void syncSidecarApprovalReadiness(ctx).catch(() => {});

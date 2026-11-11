@@ -3,6 +3,7 @@ import {
 	MAX_RECORDED_AUDIO_BASE64_BYTES,
 	MAX_RECORDED_AUDIO_BYTES,
 } from "../webview/lib/voice-input-limits";
+import { PROJECT_PDF_LIMIT_BYTES } from "./project-files";
 import { createFetchHandler, createWebSocketHandler } from "./server";
 import type { SidecarContext } from "./types";
 
@@ -37,6 +38,16 @@ describe("sidecar WebSocket payload limit", () => {
 		expect(MAX_RECORDED_AUDIO_BYTES).toBe(25 * 1024 * 1024);
 		expect(handler.maxPayloadLength).toBeGreaterThan(
 			MAX_RECORDED_AUDIO_BASE64_BYTES,
+		);
+	});
+
+	it("queues several PDF previews without dropping later responses", () => {
+		const handler = createWebSocketHandler({} as SidecarContext);
+		// Bun drops sends past this limit; four maximum-size PDFs (20 MB each,
+		// about 27 MB as base64) must fit with room for the replies after them.
+		expect(handler.closeOnBackpressureLimit).toBe(false);
+		expect(handler.backpressureLimit).toBeGreaterThan(
+			4 * Math.ceil((4 * PROJECT_PDF_LIMIT_BYTES) / 3),
 		);
 	});
 });
