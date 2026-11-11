@@ -193,6 +193,50 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
+describe("AgentSidebar session ID", () => {
+	it("copies a session's own ID from its context menu", async () => {
+		const writeText = vi.fn(async () => {});
+		Object.assign(navigator, { clipboard: { writeText } });
+		const thread = {
+			...makeThread("alpha", 1),
+			id: JSON.stringify(["local", "session_1794395829750_rzllq"]),
+			sessionId: "session_1794395829750_rzllq",
+		};
+		const history = makeSessionHistory([thread], vi.fn());
+		await act(async () => {
+			root.render(
+				<SidebarProvider>
+					<AgentSidebar
+						onHome={vi.fn()}
+						onSettingsSectionChange={vi.fn()}
+						sessionHistory={history}
+						setView={vi.fn()}
+						settingsSection="General"
+						view="chat"
+					/>
+				</SidebarProvider>,
+			);
+		});
+		await act(async () => {
+			buttonWithText(thread.title).dispatchEvent(
+				new MouseEvent("contextmenu", {
+					bubbles: true,
+					cancelable: true,
+					button: 2,
+				}),
+			);
+		});
+		const copy = [...document.querySelectorAll('[role="menuitem"]')].find(
+			(element) => element.textContent?.includes("Copy session ID"),
+		);
+		if (!copy) throw new Error("Missing Copy session ID menu item");
+		await click(copy);
+		expect(writeText).toHaveBeenCalledExactlyOnceWith(
+			"session_1794395829750_rzllq",
+		);
+	});
+});
+
 describe("AgentSidebar collapse", () => {
 	it("hides the sidebar from its own button and brings it back", async () => {
 		const history = makeSessionHistory([makeThread("alpha", 1)], vi.fn());

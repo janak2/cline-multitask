@@ -46,6 +46,44 @@ describe("AgentHeader title bar", () => {
 	});
 });
 
+describe("AgentHeader session menu", () => {
+	it("copies the open session's ID", async () => {
+		const writeText = vi.fn(async () => {});
+		Object.assign(navigator, { clipboard: { writeText } });
+		await act(async () => {
+			root.render(
+				<AgentHeader
+					sessionId="session_1794395829750_rzllq"
+					status="completed"
+					title="A session"
+				/>,
+			);
+		});
+		const trigger = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Session actions"]',
+		);
+		await act(async () => {
+			trigger?.dispatchEvent(
+				new MouseEvent("pointerdown", {
+					bubbles: true,
+					cancelable: true,
+					button: 0,
+				}),
+			);
+		});
+		const copy = [...document.querySelectorAll('[role="menuitem"]')].find(
+			(element) => element.textContent?.includes("Copy session ID"),
+		);
+		if (!copy) throw new Error("Missing Copy session ID menu item");
+		await act(async () => {
+			(copy as HTMLElement).click();
+		});
+		expect(writeText).toHaveBeenCalledExactlyOnceWith(
+			"session_1794395829750_rzllq",
+		);
+	});
+});
+
 describe("AgentHeader title editor", () => {
 	it.each([
 		{ title: "test", displayedWidth: 36, editorWidth: 240 },

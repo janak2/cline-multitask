@@ -7,6 +7,7 @@ import {
 	Check,
 	ChevronRight,
 	Clock3,
+	Copy,
 	CornerUpLeft,
 	FileDiff,
 	FolderTree,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { type CSSProperties, memo, useEffect, useMemo, useState } from "react";
 import type { ChatSessionStatus } from "@/lib/chat-schema";
+import { copySessionId } from "@/lib/copy-session-id";
 import {
 	agentEntryState,
 	describeAgentActivity,
@@ -72,6 +74,8 @@ type AgentHeaderProps = {
 	onOpenAgentSession?: (agentSessionId: string) => void | Promise<void>;
 	/** Set when the open session is itself a child agent run. */
 	parentSession?: { sessionId: string; title?: string };
+	/** The open session's unique id, offered for copying in the session menu. */
+	sessionId?: string | null;
 	onOpenParentSession?: (parentSessionId: string) => void | Promise<void>;
 	/** Shown only where a terminal can run (local sessions in the desktop app). */
 	onToggleTerminal?: () => void;
@@ -81,6 +85,7 @@ type AgentHeaderProps = {
 };
 
 function AgentHeaderImpl({
+	sessionId,
 	title,
 	canEditTitle,
 	renamingTitle,
@@ -326,6 +331,12 @@ function AgentHeaderImpl({
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="w-44">
+					{sessionId ? (
+						<DropdownMenuItem onClick={() => void copySessionId(sessionId)}>
+							<Copy className="size-4" />
+							<span>Copy session ID</span>
+						</DropdownMenuItem>
+					) : null}
 					<DropdownMenuItem
 						className="text-destructive focus:text-destructive"
 						disabled={!canDeleteSession || deletingSession}

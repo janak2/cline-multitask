@@ -15,6 +15,7 @@ import {
 	CircleUserRound,
 	Clock3,
 	Cloud,
+	Copy,
 	Cpu,
 	Filter,
 	FolderTree,
@@ -107,6 +108,7 @@ import {
 	isBetaVersion,
 	productNameForVersion,
 } from "@/lib/app-channel";
+import { copySessionId } from "@/lib/copy-session-id";
 import { desktopClient } from "@/lib/desktop-client";
 import { formatAccelerator, useKeybindings } from "@/lib/keybindings";
 import {
@@ -1720,6 +1722,7 @@ function ThreadItem({
 				onTogglePin={onTogglePin}
 				pendingAction={pendingAction}
 				pinned={Boolean(thread.pinned)}
+				sessionId={thread.sessionId}
 			/>
 		</ContextMenu>
 	);
@@ -1813,6 +1816,7 @@ function SessionContextMenuContent({
 	allowPin,
 	allowFork,
 	pinned,
+	sessionId,
 	onRename,
 	onTogglePin,
 	onFork,
@@ -1822,6 +1826,7 @@ function SessionContextMenuContent({
 	allowPin: boolean;
 	allowFork: boolean;
 	pinned: boolean;
+	sessionId?: string;
 	onRename: () => void;
 	onTogglePin: () => void;
 	onFork: () => void;
@@ -1830,7 +1835,7 @@ function SessionContextMenuContent({
 }) {
 	const pending = pendingAction !== null;
 	return (
-		<ContextMenuContent className="w-40">
+		<ContextMenuContent className="w-44">
 			{allowPin ? (
 				<ContextMenuItem disabled={pending} onSelect={onTogglePin}>
 					<Pin className={cn("size-4", pinned && "fill-current")} />
@@ -1853,6 +1858,12 @@ function SessionContextMenuContent({
 						<GitFork className="size-4" />
 					)}
 					{pendingAction === "fork" ? "Forking..." : "Fork"}
+				</ContextMenuItem>
+			) : null}
+			{sessionId ? (
+				<ContextMenuItem onSelect={() => void copySessionId(sessionId)}>
+					<Copy className="size-4" />
+					Copy session ID
 				</ContextMenuItem>
 			) : null}
 			<ContextMenuItem

@@ -42,6 +42,8 @@ type CliDiscoveredSession = Omit<SessionHistoryItem, "status"> & {
 
 export interface SessionThread {
 	id: string;
+	/** The session's own unique id, without the environment prefix of `id`. */
+	sessionId?: string;
 	origin?: "local" | "cloud";
 	repoUrl?: string;
 	title: string;
@@ -290,6 +292,7 @@ function toThread(session: SessionHistoryItem): SessionThread {
 	const schedule = getSessionMetadataSchedule(session.metadata);
 	return {
 		id: sessionKey(session),
+		sessionId: session.sessionId,
 		origin: session.origin,
 		repoUrl: session.repoUrl,
 		title: toTitle(session),

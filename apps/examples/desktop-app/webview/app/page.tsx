@@ -3459,6 +3459,7 @@ function ChatThreadPane({
 								deletingSession={deletingSession}
 								diff={isCloudSession ? undefined : headerDiff}
 								onDeleteSession={requestDeleteSession}
+								sessionId={activeSessionForTitle}
 								onNewThread={onNewThread}
 								onToggleFiles={canBrowseFiles ? toggleFilesPanel : undefined}
 								filesOpen={filesPanelVisible}
