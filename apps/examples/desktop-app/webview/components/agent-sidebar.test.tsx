@@ -193,6 +193,37 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 });
 
+describe("AgentSidebar collapse", () => {
+	it("hides the sidebar from its own button and brings it back", async () => {
+		const history = makeSessionHistory([makeThread("alpha", 1)], vi.fn());
+		await act(async () => {
+			root.render(
+				<SidebarProvider>
+					<AgentSidebar
+						onHome={vi.fn()}
+						onSettingsSectionChange={vi.fn()}
+						sessionHistory={history}
+						setView={vi.fn()}
+						settingsSection="General"
+						view="chat"
+					/>
+				</SidebarProvider>,
+			);
+		});
+		const wrapper = () =>
+			container.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]');
+		expect(wrapper()?.dataset.state).toBe("expanded");
+		await click(
+			container.querySelector('[aria-label="Collapse sidebar"]') as Element,
+		);
+		expect(wrapper()?.dataset.state).toBe("collapsed");
+		await click(
+			container.querySelector('[aria-label="Expand sidebar"]') as Element,
+		);
+		expect(wrapper()?.dataset.state).toBe("expanded");
+	});
+});
+
 describe("AgentSidebar session organization", () => {
 	it("preserves row context-menu rename focus, Escape, and Enter through the shared row", async () => {
 		const thread = makeThread("alpha", 1);

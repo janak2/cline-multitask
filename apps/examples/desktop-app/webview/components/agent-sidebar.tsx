@@ -25,6 +25,7 @@ import {
 	Loader2,
 	Mic,
 	Network,
+	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
 	Pin,
@@ -989,6 +990,16 @@ export function AgentSidebar({
 								variant="sidebarItem"
 							>
 								<Search className="size-4" />
+							</Button>
+							<Button
+								aria-label="Collapse sidebar"
+								className="size-8 shrink-0 justify-center px-0"
+								onClick={() => setOpen(false)}
+								title={`Collapse sidebar (${formatAccelerator("CmdOrCtrl+B")})`}
+								type="button"
+								variant="sidebarItem"
+							>
+								<PanelLeftClose className="size-4" />
 							</Button>
 						</div>
 					) : null}
