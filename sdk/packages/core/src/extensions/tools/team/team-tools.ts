@@ -512,13 +512,20 @@ export function createAgentTeamsTools(
 								validatedInput.continueConversation || undefined,
 						},
 					);
+					// A run starts at once when a slot is free; otherwise it waits.
+					// Say which, so the lead does not report waiting work as started.
+					const ahead = options.runtime.countQueuedRunsBefore(run.id);
+					const waiting = ahead !== undefined;
 					return validateWithZod(TeamRunTaskToolResultSchema, {
 						agentId: validatedInput.agentId,
 						mode: "async",
-						status: "queued",
+						status: waiting ? "queued" : "running",
 						dispatched: true,
-						message: `Task dispatched to ${validatedInput.agentId} and queued as ${run.id}.`,
+						message: waiting
+							? `Task for ${validatedInput.agentId} is waiting as ${run.id}: the teammate limit is reached and ${ahead} other run(s) are ahead of it. It has not started; tell the user it is waiting, not launched.`
+							: `Task dispatched to ${validatedInput.agentId} and started as ${run.id}.`,
 						runId: run.id,
+						...(waiting ? { queuedAhead: ahead } : {}),
 					});
 				}
 

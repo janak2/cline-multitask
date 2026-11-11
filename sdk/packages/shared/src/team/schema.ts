@@ -339,6 +339,8 @@ export const TeamRunTaskToolResultSchema = z.object({
 	message: z.string(),
 	deduped: z.boolean().optional(),
 	runId: z.string().optional(),
+	/** For a waiting async run: how many queued runs start before it. */
+	queuedAhead: z.number().optional(),
 	text: z.string().optional(),
 	iterations: z.number().optional(),
 });

@@ -904,6 +904,7 @@ describe("createAgentTeamsTools runtime behavior", () => {
 	it("returns explicit dispatch state for async team_run_task calls", async () => {
 		const runtime = {
 			startTeammateRun: vi.fn(() => ({ id: "run_00001" })),
+			countQueuedRunsBefore: vi.fn(() => 3),
 			getMemberRole: vi.fn(() => "lead"),
 		} as unknown as AgentTeamsRuntime;
 
@@ -932,7 +933,9 @@ describe("createAgentTeamsTools runtime behavior", () => {
 		expect(result.runId).toBe("run_00001");
 		expect(result.status).toBe("queued");
 		expect(result.dispatched).toBe(true);
-		expect(result.message).toContain("queued as run_00001");
+		expect(result.message).toContain("waiting as run_00001");
+		expect(result.message).toContain("3 other run(s) are ahead");
+		expect(result.message).toContain("not launched");
 	});
 
 	it("allows concurrent sync team_run_task calls to different agents", async () => {

@@ -178,11 +178,14 @@ export type TeamEvent =
 	  }
 	| { type: TeamMessageType.OutcomeFinalized; outcome: TeamOutcome };
 
+export const DEFAULT_MAX_CONCURRENT_RUNS = 10;
+
 export interface AgentTeamsRuntimeOptions {
 	teamName: string;
 	leadAgentId?: string;
 	missionLogIntervalSteps?: number;
 	missionLogIntervalMs?: number;
+	/** Teammate runs allowed at once; the rest wait in order. Default 10. */
 	maxConcurrentRuns?: number;
 	onTeamEvent?: (event: TeamEvent) => void;
 	/**
@@ -649,7 +652,10 @@ export class AgentTeamsRuntime {
 			1000,
 			options.missionLogIntervalMs ?? 120000,
 		);
-		this.maxConcurrentRuns = Math.max(1, options.maxConcurrentRuns ?? 2);
+		this.maxConcurrentRuns = Math.max(
+			1,
+			options.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS,
+		);
 		const leadAgentId = options.leadAgentId ?? "lead";
 		this.members.set(leadAgentId, {
 			agentId: leadAgentId,
@@ -1313,6 +1319,18 @@ export class AgentTeamsRuntime {
 		}
 		clearTimeout(this.queuedRunDispatchTimer);
 		this.queuedRunDispatchTimer = undefined;
+	}
+
+	/** How many waiting runs start before this one; undefined once it is no longer waiting. */
+	countQueuedRunsBefore(runId: string): number | undefined {
+		const target = this.runs.get(runId);
+		if (!target || target.status !== "queued") return undefined;
+		let ahead = 0;
+		for (const id of this.runQueue) {
+			if (id === runId) return ahead;
+			if (this.runs.get(id)?.status === "queued") ahead++;
+		}
+		return ahead;
 	}
 
 	private countActiveRuns(): number {

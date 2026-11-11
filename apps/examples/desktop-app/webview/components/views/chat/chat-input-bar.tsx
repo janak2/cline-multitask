@@ -35,6 +35,16 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SpeechInput } from "@/components/ai-elements/speech-input";
 import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -345,6 +355,8 @@ type ChatInputBarProps = {
 	onDisableMultitask?: () => void;
 	/** Queued and running teammate runs of this session. */
 	activeTeammateRuns?: number;
+	/** Of those, runs still waiting for a free teammate slot. */
+	waitingTeammateRuns?: number;
 	thinking: ChatSessionConfig["thinking"];
 	reasoningEffort: ChatSessionConfig["reasoningEffort"];
 	/** Branch name, "no-git" for a non-repo folder, null while discovery is pending. */
@@ -391,6 +403,22 @@ type ChatInputBarProps = {
 // provider/model pickers collapse into a menu.
 const COMPACT_COMPOSER_WIDTH = 512;
 
+/** Says what turning Multitask off does to the teammates it would affect. */
+export function describeMultitaskOff(running: number, waiting: number): string {
+	const parts: string[] = [];
+	if (waiting > 0) {
+		parts.push(
+			`${waiting} waiting teammate${waiting === 1 ? "" : "s"} will be cancelled and never start.`,
+		);
+	}
+	if (running > 0) {
+		parts.push(
+			`${running} running teammate${running === 1 ? "" : "s"} will keep going and report back.`,
+		);
+	}
+	return parts.join(" ");
+}
+
 function ChatInputBarImpl({
 	sessionId,
 	environmentId,
@@ -408,6 +436,7 @@ function ChatInputBarImpl({
 	multitaskEnabled = false,
 	onDisableMultitask,
 	activeTeammateRuns = 0,
+	waitingTeammateRuns = 0,
 	thinking,
 	reasoningEffort,
 	gitBranch,
@@ -442,6 +471,11 @@ function ChatInputBarImpl({
 	// compact menu's full-screen click-away layer.
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const [compact, setCompact] = useState(false);
+	const [confirmMultitaskOff, setConfirmMultitaskOff] = useState(false);
+	const disableMultitask = () => {
+		if (onDisableMultitask) onDisableMultitask();
+		else onSend("/multitask off");
+	};
 	useEffect(() => {
 		const element = composerRef.current;
 		if (!element || typeof ResizeObserver === "undefined") return;
@@ -1746,8 +1780,9 @@ function ChatInputBarImpl({
 							disabled={readOnly}
 							onClick={(event) => {
 								event.stopPropagation();
-								if (onDisableMultitask) onDisableMultitask();
-								else onSend("/multitask off");
+								// Turning off drops waiting teammates, so confirm first.
+								if (activeTeammateRuns > 0) setConfirmMultitaskOff(true);
+								else disableMultitask();
 							}}
 							title="Turn off Multitask mode"
 							type="button"
@@ -1764,6 +1799,37 @@ function ChatInputBarImpl({
 							Stop teammates ({activeTeammateRuns})
 						</button>
 					)}
+					{multitaskEnabled && waitingTeammateRuns > 0 && (
+						<span
+							className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+							data-testid="waiting-teammates"
+							title="These teammates start when a running one finishes."
+						>
+							{waitingTeammateRuns} waiting
+						</span>
+					)}
+					<AlertDialog
+						onOpenChange={setConfirmMultitaskOff}
+						open={confirmMultitaskOff}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Turn off Multitask?</AlertDialogTitle>
+								<AlertDialogDescription>
+									{describeMultitaskOff(
+										activeTeammateRuns - waitingTeammateRuns,
+										waitingTeammateRuns,
+									)}
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Keep Multitask on</AlertDialogCancel>
+								<AlertDialogAction onClick={disableMultitask}>
+									Turn off
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 					<div className="min-w-56 flex-1 group-data-[compact]/composer:min-w-0 group-data-[compact]/composer:flex-none">
 						<ModelSelector
 							key={executionTarget}

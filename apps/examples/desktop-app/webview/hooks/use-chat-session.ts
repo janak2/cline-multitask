@@ -678,7 +678,7 @@ export function useChatSession(environmentId: string) {
 		Record<string, boolean>
 	>({});
 	const [teammateRunsBySession, setTeammateRunsBySession] = useState<
-		Record<string, number>
+		Record<string, { running: number; waiting: number }>
 	>({});
 	const queueRevisionRef = useRef(0);
 	const setPromptsInQueue = useCallback(
@@ -1766,12 +1766,25 @@ export function useChatSession(environmentId: string) {
 		return subscribeToEnvironment("team_progress", (payload) => {
 			const record = payload as {
 				sessionId?: string;
-				summary?: { runs?: { activeRunIds?: string[] } };
+				summary?: {
+					runs?: {
+						activeRunIds?: string[];
+						byStatus?: { queued?: number };
+					};
+				};
 			};
 			if (!record?.sessionId) return;
 			const id = record.sessionId;
-			const count = record.summary?.runs?.activeRunIds?.length ?? 0;
-			setTeammateRunsBySession((prev) => ({ ...prev, [id]: count }));
+			// Active runs include those still waiting for a free teammate slot.
+			const active = record.summary?.runs?.activeRunIds?.length ?? 0;
+			const waiting = Math.min(
+				active,
+				record.summary?.runs?.byStatus?.queued ?? 0,
+			);
+			setTeammateRunsBySession((prev) => ({
+				...prev,
+				[id]: { running: active - waiting, waiting },
+			}));
 		});
 	}, [subscribeToEnvironment]);
 
@@ -4647,7 +4660,13 @@ export function useChatSession(environmentId: string) {
 		multitaskEnabled: sessionId
 			? multitaskBySession[sessionId] === true
 			: false,
-		activeTeammateRuns: sessionId ? (teammateRunsBySession[sessionId] ?? 0) : 0,
+		activeTeammateRuns: sessionId
+			? (teammateRunsBySession[sessionId]?.running ?? 0) +
+				(teammateRunsBySession[sessionId]?.waiting ?? 0)
+			: 0,
+		waitingTeammateRuns: sessionId
+			? (teammateRunsBySession[sessionId]?.waiting ?? 0)
+			: 0,
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,

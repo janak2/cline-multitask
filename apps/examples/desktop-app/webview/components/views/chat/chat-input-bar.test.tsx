@@ -215,6 +215,7 @@ async function renderVoiceComposer({
 	multitaskEnabled,
 	onDisableMultitask,
 	activeTeammateRuns,
+	waitingTeammateRuns,
 	mode = "act",
 	onModeToggle = vi.fn(),
 	onReasoningChange = vi.fn(),
@@ -239,6 +240,7 @@ async function renderVoiceComposer({
 	multitaskEnabled?: boolean;
 	onDisableMultitask?: () => void;
 	activeTeammateRuns?: number;
+	waitingTeammateRuns?: number;
 	mode?: "act" | "plan";
 	onModeToggle?: () => void;
 	onReasoningChange?: Parameters<typeof ChatInputBar>[0]["onReasoningChange"];
@@ -264,6 +266,7 @@ async function renderVoiceComposer({
 						multitaskEnabled={multitaskEnabled}
 						onDisableMultitask={onDisableMultitask}
 						activeTeammateRuns={activeTeammateRuns}
+						waitingTeammateRuns={waitingTeammateRuns}
 						model={model}
 						onAbort={onAbort}
 						onAttachFiles={onAttachFiles}
@@ -1097,6 +1100,37 @@ describe("ChatInputBar", () => {
 		expect(badge?.disabled).toBe(true);
 		await act(async () => badge?.click());
 		expect(onSend).not.toHaveBeenCalled();
+	});
+
+	it("shows waiting teammates and confirms before turning Multitask off", async () => {
+		const onDisableMultitask = vi.fn();
+		await renderVoiceComposer({
+			multitaskEnabled: true,
+			activeTeammateRuns: 6,
+			waitingTeammateRuns: 4,
+			onDisableMultitask,
+		});
+		expect(
+			container.querySelector('[data-testid="waiting-teammates"]')?.textContent,
+		).toBe("4 waiting");
+		const badge = () =>
+			container.querySelector<HTMLButtonElement>(
+				'button[aria-label="Turn off Multitask mode"]',
+			);
+		const dialogButton = (text: string) =>
+			Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+				(button) => button.textContent === text,
+			);
+		await act(async () => badge()?.click());
+		expect(onDisableMultitask).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain(
+			"4 waiting teammates will be cancelled and never start. 2 running teammates will keep going and report back.",
+		);
+		await act(async () => dialogButton("Keep Multitask on")?.click());
+		expect(onDisableMultitask).not.toHaveBeenCalled();
+		await act(async () => badge()?.click());
+		await act(async () => dialogButton("Turn off")?.click());
+		expect(onDisableMultitask).toHaveBeenCalledExactlyOnceWith();
 	});
 
 	it("offers Stop teammates only while teammate runs are active", async () => {

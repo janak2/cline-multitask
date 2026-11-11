@@ -130,6 +130,24 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 		expect(execute).toHaveBeenCalledTimes(3);
 	});
 
+	it("runs up to ten teammates at once and reports the place of each waiting run", () => {
+		const runtime = new AgentTeamsRuntime({ teamName: "queue-limit" });
+		const runs = [];
+		for (let index = 0; index < 12; index++) {
+			mockNextSessionRuntime({
+				run: vi.fn(() => new Promise<AgentResult>(() => {})),
+			});
+			spawnTestTeammate(runtime, `worker-${index}`);
+			runs.push(runtime.startTeammateRun(`worker-${index}`, "work"));
+		}
+		const statuses = runtime.listRuns().map((run) => run.status);
+		expect(statuses.filter((status) => status === "running")).toHaveLength(10);
+		expect(statuses.filter((status) => status === "queued")).toHaveLength(2);
+		expect(runtime.countQueuedRunsBefore(runs[0].id)).toBeUndefined();
+		expect(runtime.countQueuedRunsBefore(runs[10].id)).toBe(0);
+		expect(runtime.countQueuedRunsBefore(runs[11].id)).toBe(1);
+	});
+
 	it("cancels undispatched work on off without aborting a running teammate", async () => {
 		let finish!: (result: AgentResult) => void;
 		const running = new Promise<AgentResult>((resolve) => {

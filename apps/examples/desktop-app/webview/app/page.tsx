@@ -1589,6 +1589,7 @@ function ChatThreadPane({
 		promptsInQueue,
 		multitaskEnabled,
 		activeTeammateRuns,
+		waitingTeammateRuns,
 		pendingToolApprovals,
 		pendingAskQuestions,
 		setConfig,
@@ -3326,6 +3327,7 @@ function ChatThreadPane({
 			mode={config.mode}
 			multitaskEnabled={multitaskEnabled}
 			activeTeammateRuns={activeTeammateRuns}
+			waitingTeammateRuns={waitingTeammateRuns}
 			promptsInQueue={promptsInQueue}
 			promptDraft={promptDraft}
 			provider={config.provider}
