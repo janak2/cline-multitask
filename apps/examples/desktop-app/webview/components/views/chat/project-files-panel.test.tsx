@@ -95,11 +95,19 @@ vi.mock("@/lib/desktop-client", () => ({
 	desktopClient: { invoke: invokeMock },
 }));
 
-vi.mock("./pdf-viewer", () => ({
-	PdfViewer: ({ path }: { path: string }) => (
-		<div data-testid="pdf-preview">{path}</div>
-	),
-}));
+const pdfMounts = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("./pdf-viewer", async () => {
+	const { useEffect } = await import("react");
+	return {
+		PdfViewer: ({ path }: { path: string }) => {
+			useEffect(() => {
+				pdfMounts.count += 1;
+			}, []);
+			return <div data-testid="pdf-preview">{path}</div>;
+		},
+	};
+});
 
 // Plain rendering keeps shiki out of jsdom; highlighted-code.test.tsx covers
 // the highlighter wiring.
@@ -1072,6 +1080,53 @@ describe("ProjectFilesPanel files view", () => {
 			"read_project_file",
 			expect.objectContaining({ path: "/repo/report.PDF" }),
 		);
+	});
+
+	it("keeps opened files rendered when switching between tabs", async () => {
+		await render();
+		const previous = invokeMock.getMockImplementation();
+		invokeMock.mockImplementation(async (command, args) =>
+			command === "list_project_entries" && args?.path === "/repo"
+				? {
+						entries: [
+							{ name: "a.pdf", path: "/repo/a.pdf", kind: "file" },
+							{ name: "b.pdf", path: "/repo/b.pdf", kind: "file" },
+							{ name: "README.md", path: "/repo/README.md", kind: "file" },
+						],
+						truncated: false,
+					}
+				: ((await previous?.(command, args)) ?? null),
+		);
+		try {
+			await showFiles();
+			pdfMounts.count = 0;
+			await click(button(/^a\.pdf/));
+			await click(button(/^b\.pdf/));
+			await click(button(/^README\.md/));
+			const readsBefore = invokeMock.mock.calls.filter(
+				([command]) => command === "read_project_file",
+			).length;
+			expect(pdfMounts.count).toBe(2);
+			for (const name of [/^a\.pdf/, /^README\.md/, /^b\.pdf/, /^a\.pdf/]) {
+				await click(button(name));
+			}
+			// Switching back shows the views already drawn: no new PDF loads and
+			// no new file reads.
+			expect(pdfMounts.count).toBe(2);
+			expect(
+				invokeMock.mock.calls.filter(
+					([command]) => command === "read_project_file",
+				).length,
+			).toBe(readsBefore);
+			const visible = [
+				...container.querySelectorAll<HTMLElement>("[data-file-tab]"),
+			].filter((element) => !element.hasAttribute("inert"));
+			expect(visible.map((element) => element.dataset.fileTab)).toEqual([
+				"/repo/a.pdf",
+			]);
+		} finally {
+			if (previous) invokeMock.mockImplementation(previous);
+		}
 	});
 
 	it("lists the workspace root and expands folders on demand", async () => {

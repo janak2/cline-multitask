@@ -270,7 +270,9 @@ export function ProjectFilesPanel({
 	);
 	const [files, setFiles] = useState<Map<string, FileState>>(() => new Map());
 	const [imageRefreshVersion, setImageRefreshVersion] = useState(0);
-	const [pdfRefreshVersion, setPdfRefreshVersion] = useState(0);
+	const [pdfRefreshVersions, setPdfRefreshVersions] = useState<
+		Record<string, number>
+	>({});
 	const [gitDiffs, setGitDiffs] = useState<Map<string, GitDiffState>>(
 		() => new Map(),
 	);
@@ -1162,7 +1164,10 @@ export function ProjectFilesPanel({
 			return;
 		}
 		if (/\.pdf$/i.test(path)) {
-			setPdfRefreshVersion((version) => version + 1);
+			setPdfRefreshVersions((current) => ({
+				...current,
+				[path]: (current[path] ?? 0) + 1,
+			}));
 			return;
 		}
 		setFiles((current) => {
@@ -1325,6 +1330,92 @@ export function ProjectFilesPanel({
 	};
 
 	const activeFileState = activePath ? files.get(activePath) : undefined;
+	// Working-copy tabs (not past commits) keep their rendered view alive.
+	const keptOpenTabs = tabs.filter((tab) => !tab.commit);
+	const imageVersionByTabRef = useRef(new Map<string, number>());
+	const renderFileContent = (
+		tabId: string,
+		shown: boolean,
+		path: string,
+		state: FileState | undefined,
+	) => {
+		if (shown || !imageVersionByTabRef.current.has(tabId))
+			imageVersionByTabRef.current.set(tabId, imageRefreshVersion);
+		const imageVersion =
+			imageVersionByTabRef.current.get(tabId) ?? imageRefreshVersion;
+		return isImageFile(path) ? (
+			<ImageFileViewer
+				key={`${environmentId}:${path}`}
+				path={path}
+				environmentId={environmentId}
+				workspaceRoot={rootFor(path)}
+				refreshVersion={imageVersion}
+			/>
+		) : /\.pdf$/i.test(path) ? (
+			<PdfViewer
+				key={`${environmentId}:${path}:${pdfRefreshVersions[path] ?? 0}`}
+				path={path}
+				environmentId={environmentId}
+				workspaceRoot={rootFor(path)}
+			/>
+		) : !state || (state.loading && state.content === undefined) ? (
+			<Spinner />
+		) : state.error ? (
+			<ErrorText>{state.error}</ErrorText>
+		) : state.content === null ? (
+			<Centered>Binary file</Centered>
+		) : canEdit && !state.truncated ? (
+			<TextFileEditor
+				key={`${environmentId}:${path}`}
+				path={path}
+				content={state.content ?? ""}
+				environmentId={environmentId}
+				workspaceRoot={rootFor(path)}
+				onSaved={() => {
+					invalidateReads([path]);
+					setFiles((current) => {
+						const next = new Map(current);
+						next.delete(path);
+						return next;
+					});
+					setGitDiffs((current) => markStale(current));
+					void sourceControl.refresh();
+				}}
+			>
+				{/\.(md|markdown)$/i.test(path) ? (
+					<MarkdownFileViewer
+						content={state.content ?? ""}
+						path={path}
+						workspaceRoot={rootFor(path)}
+						environmentId={environmentId}
+						onOpenFile={openFile}
+					/>
+				) : (
+					<CodeFile contents={state.content ?? ""} path={path} />
+				)}
+			</TextFileEditor>
+		) : /\.(md|markdown)$/i.test(path) ? (
+			<MarkdownFileViewer
+				key={`${environmentId}:${path}`}
+				content={state.content ?? ""}
+				path={path}
+				workspaceRoot={rootFor(path)}
+				environmentId={environmentId}
+				truncated={state.truncated}
+				onOpenFile={openFile}
+			/>
+		) : (
+			<>
+				<CodeFile contents={state.content ?? ""} path={path} />
+				{state.truncated ? (
+					<div className="border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+						File truncated to the first 1 MB.
+					</div>
+				) : null}
+			</>
+		);
+	};
+
 	const activeGitDiff = gitDiffKey ? gitDiffs.get(gitDiffKey) : undefined;
 	const activeChangeFile =
 		activeScope && activeChange ? activeChange[activeScope] : undefined;
@@ -1877,136 +1968,85 @@ export function ProjectFilesPanel({
 								</Button>
 							</span>
 						</div>
-						<FileViewScrollArea
-							stateId={`fileScroll:${activeId}:${effectiveMode}`}
-							ready={
-								effectiveMode === "diff"
-									? Boolean(activeGitDiff && !activeGitDiff.loading)
-									: isImageFile(activePath) ||
-										Boolean(activeFileState && !activeFileState.loading)
-							}
-							className="cline-chat-selectable min-h-0 flex-1 overflow-auto"
-						>
-							{effectiveMode === "diff" && (activeScope || activeCommit) ? (
-								!activeGitDiff ||
-								(activeGitDiff.loading &&
-									activeGitDiff.newText === undefined) ? (
-									<Spinner />
-								) : activeGitDiff.error ? (
-									<ErrorText>{activeGitDiff.error}</ErrorText>
-								) : activeGitDiff.binary ? (
-									<Centered>Binary file</Centered>
-								) : activeGitDiff.truncated ? (
-									<Centered className="p-6 text-center">
-										This file is larger than 1 MB; open it in your editor to
-										review the change.
-									</Centered>
-								) : (
-									<CodeDiff
-										newText={activeGitDiff.newText ?? ""}
-										oldText={activeGitDiff.oldText}
-										path={activePath}
-									/>
-								)
-							) : effectiveMode === "diff" && activeSessionDiff ? (
-								<div className="flex flex-col gap-2">
-									{activeSessionDiff.hunks.map((hunk, index) => {
-										const isCompleteNewContents =
-											hunk.old.length === 0 &&
-											hunk.oldStart === 1 &&
-											hunk.newStart === 1;
-										return (
+						<div className="relative min-h-0 flex-1">
+							{effectiveMode === "diff" ? (
+								<FileViewScrollArea
+									stateId={`fileScroll:${activeId}:diff`}
+									ready={Boolean(activeGitDiff && !activeGitDiff.loading)}
+									className="cline-chat-selectable absolute inset-0 overflow-auto"
+								>
+									{activeScope || activeCommit ? (
+										!activeGitDiff ||
+										(activeGitDiff.loading &&
+											activeGitDiff.newText === undefined) ? (
+											<Spinner />
+										) : activeGitDiff.error ? (
+											<ErrorText>{activeGitDiff.error}</ErrorText>
+										) : activeGitDiff.binary ? (
+											<Centered>Binary file</Centered>
+										) : activeGitDiff.truncated ? (
+											<Centered className="p-6 text-center">
+												This file is larger than 1 MB; open it in your editor to
+												review the change.
+											</Centered>
+										) : (
 											<CodeDiff
-												fragment={!isCompleteNewContents}
-												// biome-ignore lint/suspicious/noArrayIndexKey: hunks never reorder within a file
-												key={`${activePath}-${index}-${hunk.oldStart}-${hunk.newStart}`}
-												newText={hunk.new}
-												oldText={isCompleteNewContents ? undefined : hunk.old}
+												newText={activeGitDiff.newText ?? ""}
+												oldText={activeGitDiff.oldText}
 												path={activePath}
 											/>
-										);
-									})}
-								</div>
-							) : isImageFile(activePath) ? (
-								<ImageFileViewer
-									key={`${environmentId}:${activePath}`}
-									path={activePath}
-									environmentId={environmentId}
-									workspaceRoot={rootFor(activePath)}
-									refreshVersion={imageRefreshVersion}
-								/>
-							) : /\.pdf$/i.test(activePath) ? (
-								<PdfViewer
-									key={`${environmentId}:${activePath}:${pdfRefreshVersion}`}
-									path={activePath}
-									environmentId={environmentId}
-									workspaceRoot={rootFor(activePath)}
-								/>
-							) : !activeFileState ||
-								(activeFileState.loading &&
-									activeFileState.content === undefined) ? (
-								<Spinner />
-							) : activeFileState.error ? (
-								<ErrorText>{activeFileState.error}</ErrorText>
-							) : activeFileState.content === null ? (
-								<Centered>Binary file</Centered>
-							) : canEdit && !activeFileState.truncated ? (
-								<TextFileEditor
-									key={`${environmentId}:${activePath}`}
-									path={activePath}
-									content={activeFileState.content ?? ""}
-									environmentId={environmentId}
-									workspaceRoot={rootFor(activePath)}
-									onSaved={() => {
-										invalidateReads([activePath]);
-										setFiles((current) => {
-											const next = new Map(current);
-											next.delete(activePath);
-											return next;
-										});
-										setGitDiffs((current) => markStale(current));
-										void sourceControl.refresh();
-									}}
-								>
-									{/\.(md|markdown)$/i.test(activePath) ? (
-										<MarkdownFileViewer
-											content={activeFileState.content ?? ""}
-											path={activePath}
-											workspaceRoot={rootFor(activePath)}
-											environmentId={environmentId}
-											onOpenFile={openFile}
-										/>
-									) : (
-										<CodeFile
-											contents={activeFileState.content ?? ""}
-											path={activePath}
-										/>
-									)}
-								</TextFileEditor>
-							) : /\.(md|markdown)$/i.test(activePath) ? (
-								<MarkdownFileViewer
-									key={`${environmentId}:${activePath}`}
-									content={activeFileState.content ?? ""}
-									path={activePath}
-									workspaceRoot={rootFor(activePath)}
-									environmentId={environmentId}
-									truncated={activeFileState.truncated}
-									onOpenFile={openFile}
-								/>
-							) : (
-								<>
-									<CodeFile
-										contents={activeFileState.content ?? ""}
-										path={activePath}
-									/>
-									{activeFileState.truncated ? (
-										<div className="border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
-											File truncated to the first 1 MB.
+										)
+									) : effectiveMode === "diff" && activeSessionDiff ? (
+										<div className="flex flex-col gap-2">
+											{activeSessionDiff.hunks.map((hunk, index) => {
+												const isCompleteNewContents =
+													hunk.old.length === 0 &&
+													hunk.oldStart === 1 &&
+													hunk.newStart === 1;
+												return (
+													<CodeDiff
+														fragment={!isCompleteNewContents}
+														// biome-ignore lint/suspicious/noArrayIndexKey: hunks never reorder within a file
+														key={`${activePath}-${index}-${hunk.oldStart}-${hunk.newStart}`}
+														newText={hunk.new}
+														oldText={
+															isCompleteNewContents ? undefined : hunk.old
+														}
+														path={activePath}
+													/>
+												);
+											})}
 										</div>
 									) : null}
-								</>
-							)}
-						</FileViewScrollArea>
+								</FileViewScrollArea>
+							) : null}
+							{/* Each opened file keeps its rendered view, hidden while another tab
+							    is shown, so switching back does not load and draw it again. */}
+							{keptOpenTabs.map((tab) => {
+								const shown = tab.id === activeId && effectiveMode === "file";
+								const state = files.get(tab.path);
+								return (
+									<FileViewScrollArea
+										aria-hidden={shown ? undefined : true}
+										className={cn(
+											"cline-chat-selectable absolute inset-0 overflow-auto",
+											!shown && "hidden",
+										)}
+										data-file-tab={tab.id}
+										inert={shown ? undefined : true}
+										key={tab.id}
+										ready={
+											isImageFile(tab.path) ||
+											/\.pdf$/i.test(tab.path) ||
+											Boolean(state && !state.loading)
+										}
+										stateId={`fileScroll:${tab.id}:file`}
+									>
+										{renderFileContent(tab.id, shown, tab.path, state)}
+									</FileViewScrollArea>
+								);
+							})}
+						</div>
 					</>
 				) : (
 					<Centered className="p-6 text-center">
