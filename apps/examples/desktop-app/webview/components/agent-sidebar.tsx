@@ -1128,7 +1128,9 @@ export function AgentSidebar({
 								)}
 							/>
 							<ScrollArea
-								className="h-full min-h-0 w-full min-w-0"
+								// Radix wraps content in a table that grows to fit long
+								// project names, pushing row times past the sidebar edge.
+								className="h-full min-h-0 w-full min-w-0 [&_[data-slot=scroll-area-viewport]>div]:block!"
 								onScrollCapture={(event) => {
 									const target = event.target as HTMLElement | null;
 									if (target?.dataset.slot === "scroll-area-viewport") {
