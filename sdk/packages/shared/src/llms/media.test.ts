@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	createMediaBudgetState,
+	DEFAULT_MAX_IMAGE_DIMENSION_PX,
 	GeneratedMediaSchema,
 	imageBase64DecodedByteLength,
 	imageBase64LengthForDecodedBytes,
+	imageTooLargePlaceholder,
 	isCanonicalBase64,
+	oversizedImageDimensions,
+	readImageDimensions,
 	validateAndReserveBase64Media,
 	validateAndReserveImageMedia,
 	validateImageMedia,
@@ -210,4 +214,76 @@ it.each([
 		source: { type: "url", url },
 	});
 	expect(result.success).toBe(false);
+});
+
+describe("image dimensions", () => {
+	function pngHeader(width: number, height: number): Buffer {
+		const header = Buffer.alloc(33);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header);
+		header.writeUInt32BE(13, 8);
+		header.write("IHDR", 12, "ascii");
+		header.writeUInt32BE(width, 16);
+		header.writeUInt32BE(height, 20);
+		return header;
+	}
+
+	function jpegHeader(width: number, height: number): Buffer {
+		// SOI, an APP0 segment to skip, then a baseline start-of-frame.
+		const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x04, 0x00, 0x00]);
+		const sof = Buffer.alloc(11);
+		sof.writeUInt16BE(0xffc0, 0);
+		sof.writeUInt16BE(8, 2);
+		sof[4] = 8;
+		sof.writeUInt16BE(height, 5);
+		sof.writeUInt16BE(width, 7);
+		return Buffer.concat([
+			Buffer.from([0xff, 0xd8]),
+			app0,
+			sof,
+			Buffer.alloc(4),
+		]);
+	}
+
+	it("reads PNG, JPEG, GIF and WebP sizes from raw bytes and base64", () => {
+		expect(readImageDimensions(pngHeader(4400, 3400))).toEqual({
+			width: 4400,
+			height: 3400,
+		});
+		expect(readImageDimensions(pngHeader(800, 600).toString("base64"))).toEqual(
+			{ width: 800, height: 600 },
+		);
+		expect(
+			readImageDimensions(
+				`data:image/png;base64,${pngHeader(10, 20).toString("base64")}`,
+			),
+		).toEqual({ width: 10, height: 20 });
+		expect(readImageDimensions(jpegHeader(4200, 450))).toEqual({
+			width: 4200,
+			height: 450,
+		});
+		const gif = Buffer.alloc(10);
+		gif.write("GIF89a", 0, "ascii");
+		gif.writeUInt16LE(320, 6);
+		gif.writeUInt16LE(240, 8);
+		expect(readImageDimensions(gif)).toEqual({ width: 320, height: 240 });
+		const webp = Buffer.alloc(30);
+		webp.write("RIFF", 0, "ascii");
+		webp.write("WEBP", 8, "ascii");
+		webp.write("VP8X", 12, "ascii");
+		webp.writeUIntLE(3999, 24, 3);
+		webp.writeUIntLE(99, 27, 3);
+		expect(readImageDimensions(webp)).toEqual({ width: 4000, height: 100 });
+		expect(readImageDimensions(Buffer.from("not an image"))).toBeUndefined();
+	});
+
+	it("flags only images whose longest side exceeds the limit", () => {
+		expect(oversizedImageDimensions(pngHeader(2000, 2000))).toBeUndefined();
+		expect(oversizedImageDimensions(pngHeader(2001, 10))).toEqual({
+			width: 2001,
+			height: 10,
+		});
+		expect(oversizedImageDimensions(Buffer.from("unknown"))).toBeUndefined();
+		expect(imageTooLargePlaceholder(4400, 3400)).toContain("4400x3400");
+		expect(DEFAULT_MAX_IMAGE_DIMENSION_PX).toBe(2000);
+	});
 });

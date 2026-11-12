@@ -14,10 +14,12 @@ import {
 	createMediaBudgetState,
 	IMAGE_OMITTED_PLACEHOLDER,
 	type ImageContent,
+	imageTooLargePlaceholder,
 	type MediaBudgetOptions,
 	type MediaBudgetState,
 	type Message,
 	normalizeUserInput,
+	oversizedImageDimensions,
 	type ResolvedMediaBudget,
 	resolveMediaBudget,
 	type TextContent,
@@ -1537,6 +1539,16 @@ export class MessageBuilder {
 	): ImageContent | TextContent {
 		if (!isImageContentWithData(image)) {
 			return { type: "text", text: IMAGE_OMITTED_PLACEHOLDER };
+		}
+		// An image larger than the provider's pixel limit fails the whole
+		// request, and history resends it every turn; send a note instead.
+		// The stored history keeps the image.
+		const oversized = oversizedImageDimensions(image.data);
+		if (oversized) {
+			return {
+				type: "text",
+				text: imageTooLargePlaceholder(oversized.width, oversized.height),
+			};
 		}
 
 		const validation = validateAndReserveImageMedia(

@@ -84,6 +84,165 @@ export const DEFAULT_MAX_IMAGE_ENCODED_BYTES = DEFAULT_MAX_IMAGE_BASE64_BYTES;
 export const DEFAULT_MAX_IMAGE_DECODED_BYTES = 6 * 1024 * 1024;
 export const DEFAULT_MAX_TOTAL_MEDIA_BYTES = 8 * 1024 * 1024;
 
+/**
+ * Longest side, in pixels, of an image sent to a model. Providers reject
+ * larger images once a request carries many of them, and because history is
+ * resent every turn, one such image fails every later turn of the session.
+ */
+export const DEFAULT_MAX_IMAGE_DIMENSION_PX = 2000;
+
+/**
+ * Text sent in place of an image whose longest side exceeds
+ * {@link DEFAULT_MAX_IMAGE_DIMENSION_PX}.
+ */
+export function imageTooLargePlaceholder(
+	width: number,
+	height: number,
+	maxDimension = DEFAULT_MAX_IMAGE_DIMENSION_PX,
+): string {
+	return `[image omitted: ${width}x${height} px is larger than the ${maxDimension} px limit; render it smaller to view it]`;
+}
+
+const BASE64_VALUES = (() => {
+	const table = new Int16Array(128).fill(-1);
+	const alphabet =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	for (let i = 0; i < alphabet.length; i++) {
+		table[alphabet.charCodeAt(i)] = i;
+	}
+	return table;
+})();
+
+/** Decodes up to `maxBytes` bytes from the start of a base64 string. */
+function decodeBase64Prefix(base64: string, maxBytes: number): Uint8Array {
+	const out = new Uint8Array(maxBytes);
+	let length = 0;
+	let buffer = 0;
+	let bits = 0;
+	for (let i = 0; i < base64.length && length < maxBytes; i++) {
+		const code = base64.charCodeAt(i);
+		const value = code < 128 ? BASE64_VALUES[code] : -1;
+		if (value === undefined || value < 0) {
+			if (code === 61) break;
+			continue;
+		}
+		buffer = (buffer << 6) | value;
+		bits += 6;
+		if (bits >= 8) {
+			bits -= 8;
+			out[length++] = (buffer >> bits) & 0xff;
+		}
+	}
+	return out.subarray(0, length);
+}
+
+/** JPEG headers (EXIF, colour profiles) can push the size marker this far in. */
+const IMAGE_HEADER_SCAN_BYTES = 256 * 1024;
+
+/**
+ * Reads an image's pixel size from its header without decoding the image.
+ * Accepts raw bytes or base64 (optionally a data URL). Returns undefined for
+ * formats or headers it cannot read.
+ */
+export function readImageDimensions(
+	image: Uint8Array | string,
+): { width: number; height: number } | undefined {
+	let bytes: Uint8Array;
+	if (typeof image === "string") {
+		const comma = image.startsWith("data:") ? image.indexOf(",") : -1;
+		const base64 = comma === -1 ? image : image.slice(comma + 1);
+		bytes = decodeBase64Prefix(base64, IMAGE_HEADER_SCAN_BYTES);
+	} else {
+		bytes = image;
+	}
+	const at = (i: number) => bytes[i] ?? 0;
+	const u16be = (i: number) => (at(i) << 8) | at(i + 1);
+	const u16le = (i: number) => at(i) | (at(i + 1) << 8);
+	const u24le = (i: number) => at(i) | (at(i + 1) << 8) | (at(i + 2) << 16);
+	const u32be = (i: number) =>
+		((at(i) << 24) | (at(i + 1) << 16) | (at(i + 2) << 8) | at(i + 3)) >>> 0;
+	const ascii = (i: number, text: string) =>
+		[...text].every((char, k) => at(i + k) === char.charCodeAt(0));
+
+	// PNG: the IHDR chunk always comes first.
+	if (at(0) === 0x89 && ascii(1, "PNG") && ascii(12, "IHDR")) {
+		return { width: u32be(16), height: u32be(20) };
+	}
+	// GIF: logical screen size.
+	if (ascii(0, "GIF8")) {
+		return { width: u16le(6), height: u16le(8) };
+	}
+	// WebP: lossy, lossless, or extended.
+	if (ascii(0, "RIFF") && ascii(8, "WEBP")) {
+		if (ascii(12, "VP8 ")) {
+			return { width: u16le(26) & 0x3fff, height: u16le(28) & 0x3fff };
+		}
+		if (ascii(12, "VP8L")) {
+			const b0 = at(21);
+			const b1 = at(22);
+			const b2 = at(23);
+			const b3 = at(24);
+			return {
+				width: 1 + (((b1 & 0x3f) << 8) | b0),
+				height: 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)),
+			};
+		}
+		if (ascii(12, "VP8X")) {
+			return { width: 1 + u24le(24), height: 1 + u24le(27) };
+		}
+		return undefined;
+	}
+	// JPEG: walk the markers to the first start-of-frame.
+	if (at(0) === 0xff && at(1) === 0xd8) {
+		let i = 2;
+		while (i + 9 < bytes.length) {
+			if (at(i) !== 0xff) {
+				i += 1;
+				continue;
+			}
+			const marker = at(i + 1);
+			if (marker === 0xff) {
+				i += 1;
+				continue;
+			}
+			if (
+				marker === 0xd8 ||
+				marker === 0x01 ||
+				(marker >= 0xd0 && marker <= 0xd7)
+			) {
+				i += 2;
+				continue;
+			}
+			const isStartOfFrame =
+				marker >= 0xc0 &&
+				marker <= 0xcf &&
+				marker !== 0xc4 &&
+				marker !== 0xc8 &&
+				marker !== 0xcc;
+			if (isStartOfFrame) {
+				return { width: u16be(i + 7), height: u16be(i + 5) };
+			}
+			i += 2 + u16be(i + 2);
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The pixel size of an image whose longest side exceeds `maxDimension`, or
+ * undefined when it fits or its size cannot be read.
+ */
+export function oversizedImageDimensions(
+	image: Uint8Array | string,
+	maxDimension = DEFAULT_MAX_IMAGE_DIMENSION_PX,
+): { width: number; height: number } | undefined {
+	const dimensions = readImageDimensions(image);
+	if (!dimensions) return undefined;
+	return Math.max(dimensions.width, dimensions.height) > maxDimension
+		? dimensions
+		: undefined;
+}
+
 export interface ImageMediaLimits {
 	maxEncodedBytes?: number;
 	maxDecodedBytes?: number;

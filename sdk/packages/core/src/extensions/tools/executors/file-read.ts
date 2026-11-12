@@ -9,7 +9,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
-import type { AgentToolContext } from "@cline/shared";
+import {
+	type AgentToolContext,
+	DEFAULT_MAX_IMAGE_DIMENSION_PX,
+	oversizedImageDimensions,
+} from "@cline/shared";
 import { resolveExistingFilePath } from "@cline/shared/storage";
 import {
 	TOOL_RESULT_CACHE_MISS,
@@ -255,6 +259,14 @@ export function createFileReadExecutor(
 				throw new Error("Current model does not support image input");
 			}
 			const data = await fs.readFile(resolvedPath);
+			// Refuse here, while the agent can still act on it, rather than
+			// letting the image into history where it fails later turns.
+			const oversized = oversizedImageDimensions(data);
+			if (oversized) {
+				throw new Error(
+					`Image is ${oversized.width}x${oversized.height} px; images sent to the model must be at most ${DEFAULT_MAX_IMAGE_DIMENSION_PX} px on the longest side. Render a smaller copy (for example \`pdftoppm -png -scale-to ${DEFAULT_MAX_IMAGE_DIMENSION_PX}\` for a PDF page, or crop to the region you need) and read that instead.`,
+				);
+			}
 			return [
 				{
 					type: "text",

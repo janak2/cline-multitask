@@ -1050,6 +1050,54 @@ describe("MessageBuilder with structured ToolOperationResult content", () => {
 		expect(serialized).not.toContain("...[truncated");
 	});
 
+	it("sends a note instead of an image larger than the pixel limit, keeping history intact", () => {
+		const header = Buffer.alloc(33);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header);
+		header.writeUInt32BE(13, 8);
+		header.write("IHDR", 12, "ascii");
+		header.writeUInt32BE(4400, 16);
+		header.writeUInt32BE(3400, 20);
+		const bigImage = header.toString("base64");
+		const smallImage = imageData(16);
+		const builder = new MessageBuilder({
+			maxToolResultChars: 50_000,
+			maxTotalTextBytes: 1_000_000,
+		});
+		const messages: Message[] = [
+			toolUseMessage("call_1", "read_files", {
+				files: [{ path: "/tmp/sheet.png" }, { path: "/tmp/small.png" }],
+			}),
+			structuredToolResultMessage("call_1", "read_files", [
+				{
+					query: "/tmp/sheet.png",
+					result: [
+						"Successfully read image",
+						{ type: "image", data: bigImage, mediaType: "image/png" },
+					],
+					success: true,
+				},
+				{
+					query: "/tmp/small.png",
+					result: [
+						"Successfully read image",
+						{ type: "image", data: smallImage, mediaType: "image/png" },
+					],
+					success: true,
+				},
+			]),
+		];
+		const original = JSON.stringify(messages);
+
+		const serialized = JSON.stringify(builder.buildForApi(messages));
+
+		expect(serialized).not.toContain(bigImage);
+		expect(serialized).toContain(
+			"4400x3400 px is larger than the 2000 px limit",
+		);
+		expect(serialized).toContain(smallImage);
+		expect(JSON.stringify(messages)).toBe(original);
+	});
+
 	it("keeps valid small read_files images as native provider media", () => {
 		const smallImage = imageData(16);
 		const builder = new MessageBuilder({

@@ -324,6 +324,35 @@ describe("createFileReadExecutor", () => {
 		}
 	});
 
+	it("refuses an image larger than the pixel limit and says how to shrink it", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-file-read-"));
+		const filePath = path.join(dir, "sheet.png");
+		const header = Buffer.alloc(33);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header);
+		header.writeUInt32BE(13, 8);
+		header.write("IHDR", 12, "ascii");
+		header.writeUInt32BE(4400, 16);
+		header.writeUInt32BE(3400, 20);
+		await fs.writeFile(filePath, header);
+
+		try {
+			const readFile = createFileReadExecutor();
+			await expect(
+				readFile(
+					{ path: filePath },
+					{
+						agentId: "agent-1",
+						conversationId: "conv-1",
+						iteration: 1,
+						metadata: { modelSupportsImages: true },
+					},
+				),
+			).rejects.toThrow(/4400x3400 px.*at most 2000 px.*-scale-to 2000/);
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("returns image blocks for gif files when the model supports images", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-file-read-"));
 		const filePath = path.join(dir, "example.gif");
