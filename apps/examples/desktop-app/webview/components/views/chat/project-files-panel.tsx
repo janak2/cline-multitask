@@ -168,6 +168,8 @@ type NameDialog = {
 const COLUMN_WIDTH = 280;
 /** Viewed tabs whose rendered view is kept while another tab is shown. */
 const MAX_KEPT_OPEN_TABS = 6;
+/** Open tabs beyond this close, least recently viewed first. */
+const MAX_OPEN_TABS = 5;
 const MIN_COLUMN_WIDTH = 180;
 /** The open file keeps at least this much room beside the column. */
 const MIN_VIEWER_WIDTH = 200;
@@ -948,6 +950,42 @@ export function ProjectFilesPanel({
 		},
 		[activeId, invalidateReads, tabs, setActiveId, setTabs],
 	);
+
+	// Tab ids, most recently viewed first. Saved with the tabs so the order
+	// survives switching chats.
+	const [recentTabIds, setRecentTabIds] = useFileViewState<string[]>(
+		"recentTabIds",
+		[],
+	);
+	useEffect(() => {
+		if (!activeId) return;
+		setRecentTabIds((current) =>
+			current[0] === activeId
+				? current
+				: [activeId, ...current.filter((id) => id !== activeId)],
+		);
+	}, [activeId, setRecentTabIds]);
+	// Only the most recent tabs stay open. Tabs never viewed here (restored
+	// from an older save) rank by opening order, newest first.
+	useEffect(() => {
+		if (tabs.length <= MAX_OPEN_TABS) return;
+		const rank = (tab: Tab, index: number) => {
+			const recent = recentTabIds.indexOf(tab.id);
+			return recent === -1 ? recentTabIds.length + tabs.length - index : recent;
+		};
+		const keep = new Set(
+			tabs
+				.map((tab, index) => ({ id: tab.id, rank: rank(tab, index) }))
+				.sort((a, b) => a.rank - b.rank)
+				.slice(0, MAX_OPEN_TABS)
+				.map((item) => item.id),
+		);
+		if (activeId) keep.add(activeId);
+		for (const tab of tabs) {
+			if (!keep.has(tab.id)) closeTab(tab.id);
+		}
+		setRecentTabIds((current) => current.filter((id) => keep.has(id)));
+	}, [activeId, closeTab, recentTabIds, setRecentTabIds, tabs]);
 
 	const tabStripRef = useRef<HTMLDivElement | null>(null);
 	// A tab opened past the strip's edge would otherwise stay out of sight.

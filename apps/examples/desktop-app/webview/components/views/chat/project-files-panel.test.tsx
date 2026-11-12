@@ -1082,6 +1082,42 @@ describe("ProjectFilesPanel files view", () => {
 		);
 	});
 
+	it("keeps only the five most recently viewed tabs open", async () => {
+		await render();
+		const names = ["a", "b", "c", "d", "e", "f", "g"].map((n) => `${n}.txt`);
+		const previous = invokeMock.getMockImplementation();
+		invokeMock.mockImplementation(async (command, args) =>
+			command === "list_project_entries" && args?.path === "/repo"
+				? {
+						entries: names.map((name) => ({
+							name,
+							path: `/repo/${name}`,
+							kind: "file",
+						})),
+						truncated: false,
+					}
+				: ((await previous?.(command, args)) ?? null),
+		);
+		try {
+			await showFiles();
+			for (const name of names.slice(0, 5)) {
+				await click(button(new RegExp(`^${name.replace(".", "\\.")}`)));
+			}
+			// Revisiting a.txt makes it recent, so b.txt is now the oldest.
+			await click(button(/^a\.txt/));
+			await click(button(/^f\.txt/));
+			await click(button(/^g\.txt/));
+			const open = [
+				...container.querySelectorAll<HTMLElement>("[data-tab-id]"),
+			].map((element) => element.dataset.tabId);
+			expect(open.sort()).toEqual(
+				["a", "d", "e", "f", "g"].map((n) => `/repo/${n}.txt`),
+			);
+		} finally {
+			if (previous) invokeMock.mockImplementation(previous);
+		}
+	});
+
 	it("keeps opened files rendered when switching between tabs", async () => {
 		await render();
 		const previous = invokeMock.getMockImplementation();
