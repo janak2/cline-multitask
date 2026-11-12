@@ -44,7 +44,7 @@ import {
 	selectSession,
 	sendMessage,
 } from "./server/sessions";
-import { HubContext } from "./server/state";
+import { HubContext, SESSION_PAGE_SIZE } from "./server/state";
 import { broadcastHubState, hubStatusPayload } from "./server/state-payloads";
 import type { BrowserFrame, BrowserPeer } from "./server/types";
 
@@ -185,6 +185,10 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 						await initializePeer(ctx, peer, syncClientsAndSessions);
 					} else if (frame.type === "loadModels") {
 						await loadModels(ctx, peer, frame.providerId);
+					} else if (frame.type === "loadMoreSessions") {
+						ctx.sessionListLimit += SESSION_PAGE_SIZE;
+						await syncHubClientsAndSessions(ctx);
+						broadcastHubState(ctx);
 					} else if (frame.type === "loadProviderCatalog") {
 						await sendProviderCatalog(ctx, peer);
 					} else if (frame.type === "saveProviderSettings") {

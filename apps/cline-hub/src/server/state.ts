@@ -12,6 +12,9 @@ import type {
 	TrackedSession,
 } from "./types";
 
+/** How many sessions the list loads at first, and how many each "Show more" adds. */
+export const SESSION_PAGE_SIZE = 50;
+
 /**
  * Shared mutable runtime state for the Cline Hub server. A single instance is
  * created in `server.ts` and threaded through the feature modules, replacing
@@ -33,6 +36,8 @@ export class HubContext {
 	coreVersion: string | undefined = CORE_BUILD_VERSION;
 	lastSessionContext: SessionContext | undefined;
 	initialHubEventEmitted = false;
+	sessionListLimit = SESSION_PAGE_SIZE;
+	sessionListHasMore = false;
 
 	send(peer: BrowserPeer, payload: unknown): void {
 		peer.socket.send(JSON.stringify(payload));

@@ -628,7 +628,9 @@ function HomeView({
 											{[
 												client.clientType,
 												client.version ? `v${client.version}` : undefined,
-												client.pid !== undefined ? `pid ${client.pid}` : undefined,
+												client.pid !== undefined
+													? `pid ${client.pid}`
+													: undefined,
 											]
 												.filter(Boolean)
 												.join(" · ")}
@@ -744,12 +746,18 @@ function HomeView({
 }
 
 function SessionsView({
+	hasMore = false,
+	loadingMore = false,
 	onDeleteSession,
+	onLoadMore,
 	onOpenSession,
 	onRenameSession,
 	sessions,
 }: {
+	hasMore?: boolean;
+	loadingMore?: boolean;
 	onDeleteSession: (sessionId: string) => Promise<void> | void;
+	onLoadMore?: () => void;
 	onOpenSession: (sessionId: string) => void;
 	onRenameSession: (sessionId: string, title: string) => Promise<void> | void;
 	sessions: WebviewSessionSummary[];
@@ -1201,6 +1209,18 @@ function SessionsView({
 					})}
 				</div>
 			</section>
+			{hasMore && onLoadMore ? (
+				<div className="flex justify-center py-4">
+					<Button
+						disabled={loadingMore}
+						onClick={onLoadMore}
+						type="button"
+						variant="outline"
+					>
+						{loadingMore ? "Loading…" : "Show more"}
+					</Button>
+				</div>
+			) : null}
 			<AlertDialog
 				open={deleteSessionCandidate !== null}
 				onOpenChange={(open) => {
@@ -1270,6 +1290,8 @@ function App() {
 	const [recentSessions, setRecentSessions] = useState<WebviewSessionSummary[]>(
 		[],
 	);
+	const [hasMoreSessions, setHasMoreSessions] = useState(false);
+	const [loadingMoreSessions, setLoadingMoreSessions] = useState(false);
 
 	useEffect(() => {
 		syncHubTheme();
@@ -1305,11 +1327,18 @@ function App() {
 			}
 			if (message.type === "sessions") {
 				setRecentSessions(message.sessions);
+				setHasMoreSessions(message.hasMore === true);
+				setLoadingMoreSessions(false);
 			}
 		};
 		window.addEventListener("message", handleMessage);
 		postToHost({ type: "ready" });
 		return () => window.removeEventListener("message", handleMessage);
+	}, []);
+
+	const loadMoreSessions = useCallback(() => {
+		setLoadingMoreSessions(true);
+		postToHost({ type: "loadMoreSessions" });
 	}, []);
 
 	const restartHub = useCallback(() => {
@@ -1383,7 +1412,10 @@ function App() {
 		if (view === "sessions") {
 			return (
 				<SessionsView
+					hasMore={hasMoreSessions}
+					loadingMore={loadingMoreSessions}
 					onDeleteSession={deleteSession}
+					onLoadMore={loadMoreSessions}
 					onOpenSession={openSession}
 					onRenameSession={renameSession}
 					sessions={recentSessions}
@@ -1484,6 +1516,9 @@ function App() {
 	}, [
 		hubState,
 		deleteSession,
+		hasMoreSessions,
+		loadMoreSessions,
+		loadingMoreSessions,
 		navigate,
 		openSession,
 		recentSessions,

@@ -27,7 +27,13 @@ export type WebviewProviderModel = Pick<
 
 export type WebviewProviderCatalogItem = ProviderListItem;
 
-export type WebviewReasonLevel = "none" | "low" | "medium" | "high";
+export type WebviewReasonLevel =
+	| "none"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
 
 export type WebviewToolEvent = {
 	toolCallId?: string;
@@ -261,6 +267,7 @@ export type WebviewInboundMessage =
 			reason?: string;
 	  }
 	| { type: "loadModels"; providerId: string }
+	| { type: "loadMoreSessions" }
 	| { type: "loadProviderCatalog" }
 	| {
 			type: "saveProviderSettings";
@@ -308,6 +315,8 @@ export type WebviewOutboundMessage =
 			status?: string;
 			providerId?: string;
 			modelId?: string;
+			/** The session's saved thinking level, when it has one. */
+			reasonLevel?: WebviewReasonLevel;
 			messages: WebviewChatMessage[];
 	  }
 	| { type: "assistant_delta"; text: string }
@@ -349,7 +358,12 @@ export type WebviewOutboundMessage =
 			accessTokenPresent: boolean;
 	  }
 	| { type: "models"; providerId: string; models: WebviewProviderModel[] }
-	| { type: "sessions"; sessions: WebviewSessionSummary[] }
+	| {
+			type: "sessions";
+			sessions: WebviewSessionSummary[];
+			/** True when older sessions exist beyond the loaded list. */
+			hasMore?: boolean;
+	  }
 	| WebviewHubState
 	| { type: "defaults"; defaults: WebviewDefaults }
 	| { type: "reset_done" }

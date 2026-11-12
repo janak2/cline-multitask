@@ -35,9 +35,29 @@ function asWebviewReasonLevel(value: unknown): WebviewReasonLevel | undefined {
 	return value === "none" ||
 		value === "low" ||
 		value === "medium" ||
-		value === "high"
+		value === "high" ||
+		value === "xhigh" ||
+		value === "max"
 		? value
 		: undefined;
+}
+
+/**
+ * Reads a session's saved thinking level. Hub sessions store `reasonLevel`;
+ * desktop sessions store `reasoning: { thinking, reasoningEffort }`.
+ */
+export function readSessionReasonLevel(
+	metadata: unknown,
+): WebviewReasonLevel | undefined {
+	if (!metadata || typeof metadata !== "object") return undefined;
+	const record = metadata as Record<string, unknown>;
+	const direct = asWebviewReasonLevel(record.reasonLevel);
+	if (direct) return direct;
+	const reasoning = record.reasoning;
+	if (!reasoning || typeof reasoning !== "object") return undefined;
+	const { thinking, reasoningEffort } = reasoning as Record<string, unknown>;
+	if (thinking === false) return "none";
+	return asWebviewReasonLevel(reasoningEffort);
 }
 
 export function resolveLaunchContext(
@@ -193,6 +213,7 @@ export async function selectSession(
 	peer.selectedSessionId = sessionId;
 	const tracked = ctx.sessions.get(sessionId);
 	const history = await loadHistoryFor(ctx, sessionId);
+	const record = await ctx.cline?.get(sessionId).catch(() => undefined);
 	ctx.send(peer, { type: "session_started", sessionId });
 	ctx.send(peer, {
 		type: "session_hydrated",
@@ -200,6 +221,7 @@ export async function selectSession(
 		status: tracked?.status,
 		providerId: tracked?.provider,
 		modelId: tracked?.model,
+		reasonLevel: readSessionReasonLevel(record?.metadata),
 		messages: mapHistoryToWebviewMessages(history),
 	});
 }
@@ -261,6 +283,36 @@ export async function createSession(
 	});
 }
 
+async function applySessionReasonLevel(
+	ctx: HubContext,
+	sessionId: string,
+	reasonLevel: WebviewReasonLevel,
+): Promise<void> {
+	if (!ctx.cline) return;
+	try {
+		// Takes effect from the next turn of the running session.
+		await ctx.cline.updateSessionConnection(
+			sessionId,
+			toRuntimeReasoningOptions(reasonLevel),
+		);
+	} catch (error) {
+		console.warn(`updateSessionConnection(${sessionId}) failed:`, error);
+	}
+	try {
+		// Saved so the level survives a restart and shows when the session reopens.
+		const session = await ctx.cline.get(sessionId);
+		const metadata =
+			session?.metadata && typeof session.metadata === "object"
+				? (session.metadata as Record<string, unknown>)
+				: {};
+		await ctx.cline.update(sessionId, {
+			metadata: { ...metadata, reasonLevel },
+		});
+	} catch (error) {
+		console.warn(`Saving thinking level for ${sessionId} failed:`, error);
+	}
+}
+
 export async function sendMessage(
 	ctx: HubContext,
 	peer: BrowserPeer,
@@ -272,6 +324,15 @@ export async function sendMessage(
 	if (!peer.selectedSessionId) {
 		await createSession(ctx, peer, text, config, attachments);
 		return;
+	}
+	// The browser only sends a thinking level when the user changed it for this
+	// session, so a level set elsewhere is never silently overwritten.
+	if (config?.reasonLevel !== undefined) {
+		await applySessionReasonLevel(
+			ctx,
+			peer.selectedSessionId,
+			config.reasonLevel,
+		);
 	}
 	await ctx.cline.send({
 		sessionId: peer.selectedSessionId,

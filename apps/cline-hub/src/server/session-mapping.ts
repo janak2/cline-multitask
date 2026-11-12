@@ -579,6 +579,7 @@ export function webviewSessionsPayload(
 		sessions: [...ctx.sessions.values()]
 			.sort((a, b) => b.updatedAt - a.updatedAt)
 			.map(toWebviewSessionSummary),
+		hasMore: ctx.sessionListHasMore,
 	};
 }
 

@@ -770,6 +770,9 @@ export default function Chat({
 	const [maxIterations, setMaxIterations] = useState("");
 	const [mode, setMode] = useState<"act" | "plan">("act");
 	const [reasonLevel, setReasonLevel] = useState<WebviewReasonLevel>("none");
+	// Set when the user picks a level for the open session; only then is the
+	// level sent, so opening a session never overwrites its saved level.
+	const [reasonLevelChanged, setReasonLevelChanged] = useState(false);
 	const [enableTools, setEnableTools] = useState(true);
 	const [enableSpawn, setEnableSpawn] = useState(false);
 	const [enableTeams, setEnableTeams] = useState(true);
@@ -958,6 +961,8 @@ export default function Chat({
 					setSessionId(message.sessionId);
 					setHydratingSessionId(undefined);
 					setSending(message.status === "running");
+					setReasonLevel(message.reasonLevel ?? "none");
+					setReasonLevelChanged(false);
 					if (message.providerId) {
 						setProvider(message.providerId);
 					}
@@ -1067,6 +1072,7 @@ export default function Chat({
 					);
 					return;
 				case "reset_done":
+					setReasonLevelChanged(false);
 					sessionIdRef.current = undefined;
 					hydratingSessionIdRef.current = undefined;
 					setSessionId(undefined);
@@ -1489,13 +1495,19 @@ export default function Chat({
 								model: model || undefined,
 								mode,
 								provider: provider || undefined,
-								reasonLevel: effectiveReasonLevel,
+								reasonLevel:
+									!sessionId || reasonLevelChanged
+										? effectiveReasonLevel
+										: undefined,
 								systemPrompt: systemPrompt.trim() || undefined,
 							},
 						});
 					}}
 					onSystemPromptChange={setSystemPrompt}
-					onReasonLevelChange={setReasonLevel}
+					onReasonLevelChange={(value) => {
+						setReasonLevel(value);
+						setReasonLevelChanged(true);
+					}}
 					provider={provider}
 					providers={providers}
 					sending={sending}

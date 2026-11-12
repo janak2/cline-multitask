@@ -55,7 +55,7 @@ export async function syncHubClientsAndSessions(
 	if (!ctx.uiClient) return;
 	const [knownClients, knownSessions] = await Promise.all([
 		ctx.uiClient.listClients(),
-		ctx.uiClient.listSessions(10),
+		ctx.uiClient.listSessions(ctx.sessionListLimit),
 	]);
 	ctx.clients.clear();
 	for (const client of knownClients) {
@@ -68,6 +68,8 @@ export async function syncHubClientsAndSessions(
 			...clientMetadata(client.metadata),
 		});
 	}
+	// A full page means the hub may hold older sessions than were loaded.
+	ctx.sessionListHasMore = knownSessions.length >= ctx.sessionListLimit;
 	ctx.sessions.clear();
 	for (const session of knownSessions) {
 		const tracked = trackSession(session);

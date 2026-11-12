@@ -1,12 +1,10 @@
 import {
+	BrainIcon,
 	CheckIcon,
 	HatGlassesIcon,
 	PaperclipIcon,
 	PlayIcon,
 	Settings2Icon,
-	SignalHigh,
-	SignalLow,
-	SignalMedium,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -282,19 +280,18 @@ function Toggle({
 	);
 }
 
-const ReasonLevel = {
-	None: "none",
-	Low: "low",
-	Medium: "medium",
-	High: "high",
-} as const;
-
-const reasonLevels = [
-	{ value: ReasonLevel.None, label: "Thinking Off", icon: SignalHigh },
-	{ value: ReasonLevel.Low, label: "Low", icon: SignalLow },
-	{ value: ReasonLevel.Medium, label: "Medium", icon: SignalMedium },
-	{ value: ReasonLevel.High, label: "High", icon: SignalHigh },
+const reasonLevels: { value: WebviewReasonLevel; label: string }[] = [
+	{ value: "none", label: "Off" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+	{ value: "xhigh", label: "Extra high" },
+	{ value: "max", label: "Max" },
 ];
+
+function isReasonLevel(value: string): value is WebviewReasonLevel {
+	return reasonLevels.some((item) => item.value === value);
+}
 
 export function Composer({
 	autoApproveTools,
@@ -368,12 +365,9 @@ export function Composer({
 	const attachments = usePromptInputAttachments();
 	const selectedModel = models.find((item) => item.id === model);
 	const thinkingSupported = selectedModel?.supportsThinking === true;
-	const activeReasonLevel = thinkingSupported ? reasonLevel : ReasonLevel.None;
-	const reasonLevelOption = Math.max(
-		reasonLevels.findIndex((item) => item.value === activeReasonLevel),
-		0,
-	);
-	const ReasonIcon = reasonLevels[reasonLevelOption].icon;
+	const activeReasonLevel: WebviewReasonLevel = thinkingSupported
+		? reasonLevel
+		: "none";
 
 	return (
 		<div className="border-t bg-background">
@@ -475,25 +469,37 @@ export function Composer({
 								variant={settingsOpen ? "default" : "ghost"}
 							>
 								<Settings2Icon className="size-3" />
-								<span>
+								<span className="max-w-28 truncate sm:max-w-none">
 									{provider}:{model}
 								</span>
 							</PromptInputButton>
-							<PromptInputButton
-								disabled={disabled || !thinkingSupported}
-								onClick={() => {
-									const nextOption =
-										(reasonLevelOption + 1) % reasonLevels.length;
-									onReasonLevelChange(reasonLevels[nextOption].value);
-								}}
-								type="button"
-								title={reasonLevels[reasonLevelOption].label}
-								variant={
-									activeReasonLevel !== ReasonLevel.None ? "default" : "ghost"
+							<label
+								className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+								title={
+									thinkingSupported
+										? "Thinking effort"
+										: "This model does not support thinking"
 								}
 							>
-								<ReasonIcon className="size-3" />
-							</PromptInputButton>
+								<BrainIcon className="size-3" />
+								<select
+									aria-label="Thinking effort"
+									className="h-7 rounded-md border bg-background px-1.5 text-xs text-foreground disabled:opacity-50"
+									disabled={disabled || !thinkingSupported}
+									onChange={(event) => {
+										if (isReasonLevel(event.target.value)) {
+											onReasonLevelChange(event.target.value);
+										}
+									}}
+									value={activeReasonLevel}
+								>
+									{reasonLevels.map((item) => (
+										<option key={item.value} value={item.value}>
+											{item.label}
+										</option>
+									))}
+								</select>
+							</label>
 							<PromptInputButton
 								disabled={disabled}
 								onClick={() => onModeChange(mode === "act" ? "plan" : "act")}
