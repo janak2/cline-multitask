@@ -21,6 +21,8 @@ const {
 	listTerminalTabs,
 	renameTerminalChat,
 	terminalGroupKey,
+	terminalGroupSessionId,
+	terminalText,
 } = await import("./terminal-sessions");
 
 describe("terminal tabs per chat", () => {
@@ -62,5 +64,39 @@ describe("terminal tabs per chat", () => {
 		expect(listTerminalTabs(terminalGroupKey("session-1", "/repo"))).toEqual(
 			[],
 		);
+	});
+});
+
+describe("terminal text shared with Cline Hub", () => {
+	it("links a terminal to its chat's saved session id", () => {
+		expect(
+			terminalGroupSessionId(
+				terminalGroupKey(JSON.stringify(["local", "session_1"]), "/repo"),
+			),
+		).toBe("session_1");
+		expect(
+			terminalGroupSessionId(terminalGroupKey("thread:new", "/repo")),
+		).toBeUndefined();
+	});
+
+	it("joins wrapped rows and drops trailing blank lines", () => {
+		const rows = [
+			{ text: "$ echo long", isWrapped: false },
+			{ text: "aaaa", isWrapped: false },
+			{ text: "bbbb", isWrapped: true },
+			{ text: "", isWrapped: false },
+		];
+		const term = {
+			buffer: {
+				active: {
+					length: rows.length,
+					getLine: (i: number) => ({
+						isWrapped: rows[i].isWrapped,
+						translateToString: () => rows[i].text,
+					}),
+				},
+			},
+		} as unknown as Parameters<typeof terminalText>[0];
+		expect(terminalText(term)).toBe("$ echo long\naaaabbbb");
 	});
 });

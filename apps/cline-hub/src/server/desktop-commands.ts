@@ -47,6 +47,7 @@ import { handleRoutineScheduleCommand } from "./schedules";
 import { toWebviewSessionSummary } from "./session-mapping";
 import type { HubContext } from "./state";
 import { broadcastHubState } from "./state-payloads";
+import { listSessionTerminals } from "./terminal-snapshots";
 import type { JsonRecord } from "./types";
 import { listUserInstructionConfigs } from "./user-instructions";
 import { openExternalUrl, readProviderSettingsUpdate } from "./utils";
@@ -265,6 +266,9 @@ export async function handleDesktopCommand(
 		command === "list_discovered_sessions"
 	) {
 		return [...ctx.sessions.values()].map(toWebviewSessionSummary);
+	}
+	if (command === "list_session_terminals") {
+		return await listSessionTerminals(String(args?.sessionId ?? ""));
 	}
 	if (command === "search_sessions") {
 		if (!ctx.uiClient) throw new Error("Hub is not connected");

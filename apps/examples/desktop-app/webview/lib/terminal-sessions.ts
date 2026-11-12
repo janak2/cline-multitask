@@ -2,7 +2,7 @@
 
 import { FitAddon } from "@xterm/addon-fit";
 import { type ITheme, Terminal } from "@xterm/xterm";
-import { isTauriAvailable } from "@/lib/desktop-client";
+import { desktopClient, isTauriAvailable } from "@/lib/desktop-client";
 import { isMacPlatform } from "@/lib/keybindings";
 
 /**
@@ -41,6 +41,90 @@ let nextTabNumber = 1;
 
 function emit(): void {
 	for (const listener of listeners) listener();
+}
+
+/** How often a busy terminal's text is re-saved for Cline Hub. */
+const SNAPSHOT_INTERVAL_MS = 1_000;
+/** Lines of scrollback shared with Cline Hub. */
+const SNAPSHOT_MAX_LINES = 2_000;
+const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * The saved session id behind a terminal group, if the chat has one. Chat
+ * keys are `sessionKey()` JSON (`["local","session_…"]`); a chat not yet
+ * saved uses a `thread:` key and has no session id.
+ */
+export function terminalGroupSessionId(group: string): string | undefined {
+	const chatKey = group.split("\u0000")[0] ?? "";
+	if (!chatKey.startsWith("[")) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(chatKey);
+		return Array.isArray(parsed) && typeof parsed[1] === "string"
+			? parsed[1]
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The last lines of a terminal as plain text, trailing blank lines dropped. */
+export function terminalText(term: Terminal): string {
+	const buffer = term.buffer.active;
+	const start = Math.max(0, buffer.length - SNAPSHOT_MAX_LINES);
+	const lines: string[] = [];
+	for (let i = start; i < buffer.length; i++) {
+		const line = buffer.getLine(i);
+		if (!line) continue;
+		const text = line.translateToString(true);
+		// A wrapped row continues the line above it.
+		if (line.isWrapped && lines.length > 0) {
+			lines[lines.length - 1] += text;
+		} else {
+			lines.push(text);
+		}
+	}
+	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	return lines.join("\n");
+}
+
+/**
+ * Saves a tab's visible text for Cline Hub to show read-only on the phone,
+ * at most once a second however fast output arrives.
+ */
+function scheduleSnapshot(tab: TerminalTab): void {
+	if (!isTauriAvailable() || snapshotTimers.has(tab.id)) return;
+	snapshotTimers.set(
+		tab.id,
+		setTimeout(() => {
+			snapshotTimers.delete(tab.id);
+			if (tab.status === "exited") return;
+			void desktopClient
+				.invoke("publish_terminal_snapshot", {
+					id: tab.id,
+					sessionId: terminalGroupSessionId(tab.group),
+					label: tab.label,
+					cwd: tab.cwd,
+					// Exited tabs return above; a tab still starting already has output.
+					status: "running",
+					text: terminalText(tab.term),
+				})
+				.catch(() => {
+					// Best effort: the phone view just shows older text.
+				});
+		}, SNAPSHOT_INTERVAL_MS),
+	);
+}
+
+function dropSnapshot(tab: TerminalTab): void {
+	const timer = snapshotTimers.get(tab.id);
+	if (timer) clearTimeout(timer);
+	snapshotTimers.delete(tab.id);
+	if (!isTauriAvailable()) return;
+	void desktopClient
+		.invoke("remove_terminal_snapshot", { id: tab.id })
+		.catch(() => {
+			// Cleared on the next app start anyway.
+		});
 }
 
 export function subscribeTerminalTabs(listener: () => void): () => void {
@@ -82,7 +166,11 @@ export function renameTerminalChat(
 		if (!group.startsWith(prefix)) continue;
 		const next = `${toChatKey}\u0000${group.slice(prefix.length)}`;
 		if (tabsByGroup.has(next)) continue;
-		for (const tab of tabs) tab.group = next;
+		for (const tab of tabs) {
+			tab.group = next;
+			// Re-save so Cline Hub links the shell to the chat's new session id.
+			scheduleSnapshot(tab);
+		}
 		tabsByGroup.set(next, tabs);
 		tabsByGroup.delete(group);
 		const active = activeIdByGroup.get(group);
@@ -265,6 +353,7 @@ function removeTab(tab: TerminalTab): void {
 			activeIdByGroup.set(tab.group, next[Math.min(index, next.length - 1)].id);
 		}
 	}
+	dropSnapshot(tab);
 	tab.term.dispose();
 	tab.element.remove();
 	emit();
@@ -326,6 +415,7 @@ export async function spawnTerminalTab(tab: TerminalTab): Promise<void> {
 	channel.onmessage = (event) => {
 		if (event.type === "data") {
 			tab.term.write(event.data);
+			scheduleSnapshot(tab);
 			return;
 		}
 		if (tab.status === "exited") return;

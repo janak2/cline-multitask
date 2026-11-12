@@ -400,6 +400,8 @@ let terminalReap: Promise<void> | null = null;
 function reapOrphanedTerminals(): Promise<void> {
 	terminalReap ??= import("@tauri-apps/api/core")
 		.then(({ invoke }) => invoke("terminal_kill_all"))
+		// Shells from an earlier run are gone; so is their text in Cline Hub.
+		.then(() => desktopClient.invoke("clear_terminal_snapshots"))
 		.then(
 			() => undefined,
 			() => undefined,

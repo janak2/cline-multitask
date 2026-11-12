@@ -27,6 +27,17 @@ export type WebviewProviderModel = Pick<
 
 export type WebviewProviderCatalogItem = ProviderListItem;
 
+/** A desktop app terminal tab's text, shown read-only in the Hub. */
+export type WebviewTerminalSnapshot = {
+	id: string;
+	sessionId?: string;
+	label: string;
+	cwd: string;
+	status: "running" | "exited";
+	text: string;
+	updatedAt: number;
+};
+
 export type WebviewReasonLevel =
 	| "none"
 	| "low"

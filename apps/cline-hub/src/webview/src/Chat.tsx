@@ -10,6 +10,7 @@ import {
 	GitBranchIcon,
 	Loader2Icon,
 	PlusIcon,
+	SquareTerminalIcon,
 	Trash2Icon,
 	XIcon,
 } from "lucide-react";
@@ -65,6 +66,7 @@ import type {
 	WebviewToolEvent,
 } from "../../webview-protocol";
 import { Composer } from "./components/Composer";
+import { SessionTerminals } from "./components/SessionTerminals";
 import { getVsCodeApi, postToHost } from "./vscode";
 
 type ChatMessage = WebviewChatMessage;
@@ -748,6 +750,7 @@ export default function Chat({
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [status, setStatus] = useState("Waiting for RPC initialization...");
 	const [sessionId, setSessionId] = useState<string>();
+	const [terminalsOpen, setTerminalsOpen] = useState(false);
 	const [hydratingSessionId, setHydratingSessionId] = useState<string>();
 	const [sending, setSending] = useState(false);
 	const [providers, setProviders] = useState<ProviderOption[]>([]);
@@ -1268,6 +1271,18 @@ export default function Chat({
 						) : null}
 					</div>
 					<div className="flex items-center gap-2">
+						{sessionId ? (
+							<Button
+								onClick={() => setTerminalsOpen(true)}
+								size="icon-sm"
+								title="Terminals"
+								type="button"
+								variant="ghost"
+							>
+								<SquareTerminalIcon className="size-4" />
+								<span className="sr-only">Terminals</span>
+							</Button>
+						) : null}
 						<Button
 							disabled={isHydrating}
 							onClick={() => {
@@ -1284,6 +1299,22 @@ export default function Chat({
 						</Button>
 					</div>
 				</div>
+				{sessionId ? (
+					<button
+						aria-label="Terminals"
+						className="fixed top-2 right-14 z-30 hidden size-10 items-center justify-center rounded-full border bg-background shadow-md outline-none focus-visible:ring-2 focus-visible:ring-ring max-[720px]:flex"
+						onClick={() => setTerminalsOpen(true)}
+						type="button"
+					>
+						<SquareTerminalIcon className="size-5" />
+					</button>
+				) : null}
+				{terminalsOpen && sessionId ? (
+					<SessionTerminals
+						onClose={() => setTerminalsOpen(false)}
+						sessionId={sessionId}
+					/>
+				) : null}
 				{/* Phones hide the row above, so New chat moves to a round button. */}
 				<button
 					aria-label="New chat"

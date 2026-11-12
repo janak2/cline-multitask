@@ -224,6 +224,11 @@ import {
 	parseSourceControlAction,
 	runSourceControlAction,
 } from "./source-control";
+import {
+	clearTerminalSnapshots,
+	publishTerminalSnapshot,
+	removeTerminalSnapshot,
+} from "./terminal-snapshots";
 import type {
 	ChatSessionCommandRequest,
 	JsonRecord,
@@ -1975,6 +1980,19 @@ export async function handleCommand(
 	if (command === "retry_hub") {
 		ctx.hubStartup?.start();
 		return ctx.hubStartup?.status ?? null;
+	}
+	// Terminal text shared with Cline Hub; local files only, no Hub needed.
+	if (command === "publish_terminal_snapshot") {
+		await publishTerminalSnapshot(args);
+		return null;
+	}
+	if (command === "remove_terminal_snapshot") {
+		await removeTerminalSnapshot(args?.id);
+		return null;
+	}
+	if (command === "clear_terminal_snapshots") {
+		await clearTerminalSnapshots();
+		return null;
 	}
 	// The transport is published before the Hub is ready. Hold Hub-backed
 	// commands until startup settles, as they waited for the transport before.
