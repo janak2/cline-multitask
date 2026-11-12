@@ -10,6 +10,7 @@ import {
 	FunnelIcon,
 	HomeIcon,
 	LinkIcon,
+	MenuIcon,
 	MessageSquareIcon,
 	MoreHorizontal,
 	PencilIcon,
@@ -405,6 +406,9 @@ function Shell({
 		label: string;
 		icon: typeof HomeIcon;
 	}>;
+	// Phones get a round button at the top left instead of the full-width
+	// header; it opens the same navigation as a popup.
+	const [menuOpen, setMenuOpen] = useState(false);
 
 	const renderNavButton = (
 		item: (typeof navItems | typeof customizationNavItems)[number],
@@ -420,7 +424,10 @@ function Shell({
 						: "text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
 				}`}
 				key={item.view}
-				onClick={() => onNavigate(item.view)}
+				onClick={() => {
+					setMenuOpen(false);
+					onNavigate(item.view);
+				}}
 				type="button"
 			>
 				<Icon className="size-4 shrink-0" />
@@ -430,11 +437,35 @@ function Shell({
 	};
 
 	return (
-		<div className="grid h-screen min-h-screen grid-cols-[14.5rem_minmax(0,1fr)] bg-background text-foreground max-[720px]:grid-cols-1 max-[720px]:grid-rows-[auto_minmax(0,1fr)]">
-			<aside className="flex min-h-0 flex-col border-r bg-sidebar p-4 text-sidebar-foreground max-[720px]:border-b max-[720px]:border-r-0 max-[720px]:p-3">
+		<div className="grid h-screen min-h-screen grid-cols-[14.5rem_minmax(0,1fr)] bg-background text-foreground max-[720px]:grid-cols-1">
+			<button
+				aria-expanded={menuOpen}
+				aria-label="Open navigation"
+				className="fixed top-2 left-2 z-50 hidden size-10 items-center justify-center rounded-full border bg-sidebar text-sidebar-foreground shadow-md outline-none focus-visible:ring-2 focus-visible:ring-ring max-[720px]:flex"
+				onClick={() => setMenuOpen((open) => !open)}
+				type="button"
+			>
+				<MenuIcon className="size-5" />
+			</button>
+			{menuOpen ? (
+				<button
+					aria-label="Close navigation"
+					className="fixed inset-0 z-40 hidden bg-black/30 max-[720px]:block"
+					onClick={() => setMenuOpen(false)}
+					type="button"
+				/>
+			) : null}
+			<aside
+				className={`flex min-h-0 flex-col border-r bg-sidebar p-4 text-sidebar-foreground max-[720px]:fixed max-[720px]:top-14 max-[720px]:left-2 max-[720px]:z-50 max-[720px]:max-h-[calc(100vh-4.5rem)] max-[720px]:w-60 max-[720px]:rounded-xl max-[720px]:border max-[720px]:p-3 max-[720px]:shadow-lg ${
+					menuOpen ? "" : "max-[720px]:hidden"
+				}`}
+			>
 				<button
 					className="mb-5 flex min-w-0 items-center gap-2 rounded-md px-0 py-1 text-left text-lg font-semibold outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar max-[720px]:mb-2"
-					onClick={() => onNavigate("home")}
+					onClick={() => {
+						setMenuOpen(false);
+						onNavigate("home");
+					}}
 					type="button"
 				>
 					<img
@@ -444,12 +475,9 @@ function Shell({
 					/>
 					<span className="truncate">Cline Hub</span>
 				</button>
-				<nav
-					className="grid gap-1 overflow-y-auto max-[720px]:grid-flow-col max-[720px]:auto-cols-max max-[720px]:overflow-x-auto max-[720px]:[scrollbar-width:none] max-[720px]:[&::-webkit-scrollbar]:hidden"
-					aria-label="Hub views"
-				>
+				<nav className="grid gap-1 overflow-y-auto" aria-label="Hub views">
 					{navItems.map(renderNavButton)}
-					<div className="mt-4 px-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground max-[720px]:mt-0 max-[720px]:self-center">
+					<div className="mt-4 px-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
 						Customizations
 					</div>
 					{customizationNavItems.map(renderNavButton)}
@@ -469,7 +497,13 @@ function Shell({
 					</div>
 				</div>
 			</aside>
-			<main className="min-h-0 overflow-hidden bg-background [&>.h-screen]:h-full">
+			<main
+				className={`min-h-0 overflow-hidden bg-background [&>.h-screen]:h-full ${
+					// Leave room for the round menu button above page titles; the
+					// chat scrolls beneath it instead.
+					view === "chat" ? "" : "max-[720px]:pt-12"
+				}`}
+			>
 				{children}
 			</main>
 		</div>

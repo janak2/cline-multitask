@@ -1199,7 +1199,7 @@ export default function Chat({
 	return (
 		<PromptInputProvider>
 			<div className="relative flex h-screen flex-col overflow-hidden">
-				<div className="flex items-center justify-between border-b px-4 py-3">
+				<div className="flex items-center justify-between border-b px-4 py-3 max-[720px]:hidden">
 					<div className="min-w-0">
 						{sessions.length > 0 ? (
 							<select
@@ -1284,8 +1284,22 @@ export default function Chat({
 						</Button>
 					</div>
 				</div>
+				{/* Phones hide the row above, so New chat moves to a round button. */}
+				<button
+					aria-label="New chat"
+					className="fixed top-2 right-2 z-30 hidden size-10 items-center justify-center rounded-full border bg-background shadow-md outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 max-[720px]:flex"
+					disabled={isHydrating}
+					onClick={() => {
+						postToHost({ type: "reset" });
+						setStatus("Resetting session...");
+						setPendingApprovals([]);
+					}}
+					type="button"
+				>
+					<PlusIcon className="size-5" />
+				</button>
 				<Conversation className="min-h-0 flex-1">
-					<ConversationContent className="px-4 py-5">
+					<ConversationContent className="px-4 py-5 max-[720px]:pt-16">
 						{isHydrating ? (
 							<div className="flex h-full items-center justify-center rounded-xl border border-dashed px-6 py-16 text-center text-sm text-muted-foreground">
 								<span className="inline-flex items-center gap-2">
