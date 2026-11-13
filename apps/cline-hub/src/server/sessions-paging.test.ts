@@ -38,7 +38,9 @@ describe("hub session list paging", () => {
 	it("loads more than ten sessions and reports when older ones remain", async () => {
 		const { ctx, listSessions } = contextWithSessions(SESSION_PAGE_SIZE + 5);
 		await syncHubClientsAndSessions(ctx);
-		expect(listSessions).toHaveBeenLastCalledWith(SESSION_PAGE_SIZE);
+		expect(listSessions).toHaveBeenLastCalledWith(SESSION_PAGE_SIZE, {
+			rootOnly: true,
+		});
 		const first = webviewSessionsPayload(ctx);
 		expect(first).toMatchObject({ hasMore: true });
 		expect(first.type === "sessions" && first.sessions.length).toBe(

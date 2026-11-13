@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SqliteSessionStore } from "@cline/core";
 import { resolveClineDataDir } from "@cline/shared/storage";
 import type { TrackedSession } from "./types";
 
@@ -81,6 +82,55 @@ export function orderSessionsLikeDesktopSidebar(
 		...sorted.filter((session) => !session.pinned && session.scheduled),
 		...sorted.filter((session) => !session.pinned && !session.scheduled),
 	];
+}
+
+type StoredSessionRow = {
+	provider?: string;
+	model?: string;
+	startedAt?: string;
+	endedAt?: string | null;
+	isSubagent?: boolean;
+	parentSessionId?: string;
+	prompt?: string;
+};
+
+let sessionStore:
+	| { get(sessionId: string): StoredSessionRow | undefined }
+	| undefined;
+
+function storedSession(sessionId: string): StoredSessionRow | undefined {
+	try {
+		sessionStore ??= new SqliteSessionStore();
+		return sessionStore.get(sessionId);
+	} catch {
+		// Without the saved row the session keeps what the Hub reported.
+		return undefined;
+	}
+}
+
+/**
+ * The Hub's session list carries only an id, times and metadata; the
+ * provider, model, start and end times and parent the desktop sidebar
+ * sorts and filters by live in the saved session row. Fills them in.
+ */
+export function withStoredSessionFields(
+	record: Record<string, unknown>,
+	read: (sessionId: string) => StoredSessionRow | undefined = storedSession,
+): Record<string, unknown> {
+	const sessionId =
+		typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+	const row = sessionId ? read(sessionId) : undefined;
+	if (!row) return record;
+	return {
+		...record,
+		provider: record.provider ?? row.provider,
+		model: record.model ?? row.model,
+		startedAt: record.startedAt ?? row.startedAt,
+		endedAt: record.endedAt ?? row.endedAt ?? undefined,
+		isSubagent: record.isSubagent ?? row.isSubagent,
+		parentSessionId: record.parentSessionId ?? row.parentSessionId,
+		prompt: record.prompt ?? row.prompt,
+	};
 }
 
 const FINISHED_STATUS =

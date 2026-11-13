@@ -20,7 +20,7 @@ import {
 	parseSessionContext,
 	trackSession,
 } from "./session-mapping";
-import { keepSessionDetails } from "./session-order";
+import { keepSessionDetails, withStoredSessionFields } from "./session-order";
 import type { HubContext } from "./state";
 import { broadcastHubState } from "./state-payloads";
 import type { SessionContext } from "./types";
@@ -56,7 +56,9 @@ export async function syncHubClientsAndSessions(
 	if (!ctx.uiClient) return;
 	const [knownClients, knownSessions] = await Promise.all([
 		ctx.uiClient.listClients(),
-		ctx.uiClient.listSessions(ctx.sessionListLimit),
+		// Main chats only: teammate chats would otherwise fill the page and
+		// push older main chats out of the list the phone shows.
+		ctx.uiClient.listSessions(ctx.sessionListLimit, { rootOnly: true }),
 	]);
 	ctx.clients.clear();
 	for (const client of knownClients) {
@@ -73,7 +75,9 @@ export async function syncHubClientsAndSessions(
 	ctx.sessionListHasMore = knownSessions.length >= ctx.sessionListLimit;
 	ctx.sessions.clear();
 	for (const session of knownSessions) {
-		const tracked = trackSession(session);
+		const tracked = trackSession(
+			withStoredSessionFields(session as unknown as Record<string, unknown>),
+		);
 		if (tracked) ctx.sessions.set(tracked.sessionId, tracked);
 	}
 	if (!ctx.initialHubEventEmitted) {
@@ -180,7 +184,7 @@ export async function attachHub(ctx: HubContext): Promise<void> {
 				payload.session && typeof payload.session === "object"
 					? (payload.session as Record<string, unknown>)
 					: (payload as unknown as Record<string, unknown>);
-			const tracked = trackSession(record);
+			const tracked = trackSession(withStoredSessionFields(record));
 			if (tracked) {
 				ctx.sessions.set(
 					tracked.sessionId,
@@ -201,7 +205,7 @@ export async function attachHub(ctx: HubContext): Promise<void> {
 				payload.session && typeof payload.session === "object"
 					? (payload.session as Record<string, unknown>)
 					: (payload as unknown as Record<string, unknown>);
-			const tracked = trackSession(record);
+			const tracked = trackSession(withStoredSessionFields(record));
 			if (tracked) {
 				ctx.sessions.set(
 					tracked.sessionId,

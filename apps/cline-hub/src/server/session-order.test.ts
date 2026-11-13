@@ -7,6 +7,7 @@ import {
 	keepSessionDetails,
 	orderSessionsLikeDesktopSidebar,
 	readSessionActivity,
+	withStoredSessionFields,
 } from "./session-order";
 import type { TrackedSession } from "./types";
 
@@ -99,6 +100,41 @@ describe("orderSessionsLikeDesktopSidebar", () => {
 		expect(kept.startedAt).toBe(Date.parse("2026-11-01T00:00:00Z"));
 		expect(kept.endedAt).toBe(Date.parse("2026-11-04T00:00:00Z"));
 		expect(kept.status).toBe("completed");
+	});
+});
+
+describe("withStoredSessionFields", () => {
+	it("fills in the saved model and times the Hub list leaves out", () => {
+		// What the Hub's session list actually sends: no model or start time.
+		const hubRecord = {
+			sessionId: "s1",
+			status: "idle",
+			createdAt: Date.parse("2026-11-01T00:00:00Z"),
+			updatedAt: Date.parse("2026-11-12T00:00:00Z"),
+			metadata: { title: "A chat" },
+		};
+		expect(
+			orderSessionsLikeDesktopSidebar([
+				trackSession(hubRecord) as TrackedSession,
+			]),
+		).toEqual([]);
+
+		const filled = withStoredSessionFields(hubRecord, (id) =>
+			id === "s1"
+				? {
+						provider: "anthropic",
+						model: "claude",
+						startedAt: "2026-11-01T00:00:00Z",
+						endedAt: "2026-11-03T00:00:00Z",
+						isSubagent: false,
+					}
+				: undefined,
+		);
+		const tracked = trackSession(filled) as TrackedSession;
+		expect(orderSessionsLikeDesktopSidebar([tracked])).toHaveLength(1);
+		expect(tracked.endedAt).toBe(Date.parse("2026-11-03T00:00:00Z"));
+		expect(tracked.title).toBe("A chat");
+		expect(withStoredSessionFields(hubRecord, () => undefined)).toBe(hubRecord);
 	});
 });
 
