@@ -69,6 +69,7 @@ export type BrowserPeer = {
 };
 
 export type PendingToolApproval = {
+	hubOwned?: boolean;
 	sessionId: string;
 	resolve: (result: ToolApprovalResult) => void;
 	/** What was sent to the page, so it can be sent again after a reconnect. */

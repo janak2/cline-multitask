@@ -46,6 +46,8 @@ export interface ToolCallRecord {
 }
 
 export interface ToolApprovalRequest {
+	approvalId?: string;
+	signal?: AbortSignal;
 	/**
 	 * Core/hub runtime session identifier.
 	 *

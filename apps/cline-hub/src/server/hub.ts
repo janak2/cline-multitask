@@ -9,6 +9,7 @@ import {
 import type { HubUINotifyPayload } from "@cline/shared";
 import { handleSessionEvent } from "./agent-events";
 import {
+	handleHubApprovalEvent,
 	rejectAllPendingApprovals,
 	requestToolApprovalFromWebview,
 } from "./approvals";
@@ -24,7 +25,14 @@ import { keepSessionDetails, withStoredSessionFields } from "./session-order";
 import type { HubContext } from "./state";
 import { broadcastHubState } from "./state-payloads";
 import type { SessionContext } from "./types";
-import { asRecord, asString, basename, clientMetadata, isActiveSession, isVisibleClient } from "./utils";
+import {
+	asRecord,
+	asString,
+	basename,
+	clientMetadata,
+	isActiveSession,
+	isVisibleClient,
+} from "./utils";
 
 export async function syncHubHealth(ctx: HubContext): Promise<void> {
 	if (!ctx.hubUrl) {
@@ -129,6 +137,8 @@ export async function attachHub(ctx: HubContext): Promise<void> {
 	await ctx.uiClient.connect();
 
 	ctx.uiClient.subscribeUI({
+		onApprovalRequested: (event) => handleHubApprovalEvent(ctx, event),
+		onApprovalResolved: (event) => handleHubApprovalEvent(ctx, event),
 		onNotify(payload: HubUINotifyPayload) {
 			ctx.pushEvent(
 				payload.title,

@@ -209,7 +209,7 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 						await syncHubClientsAndSessions(ctx);
 						broadcastHubState(ctx);
 					} else if (frame.type === "approval_response") {
-						handleToolApprovalResponse(ctx, frame);
+						await handleToolApprovalResponse(ctx, frame);
 					} else if (frame.type === "abort") {
 						await abortPeerTurn(ctx, peer);
 					} else if (frame.type === "reset") {

@@ -1788,6 +1788,82 @@ describe("Code sidecar runtime capabilities", () => {
 		);
 	});
 
+	it("shares ordinary phone approvals across trusted desktops and clears remote answers without responding", async () => {
+		const {
+			createSidecarContext,
+			handleHubLiveEvent,
+			cancelSidecarToolApprovalsForOwner,
+		} = await import("./context");
+		const { handleCommand } = await import("./commands");
+		const ctx = createSidecarContext("/workspace/project");
+		const first = { data: { canApproveTools: true }, send: vi.fn() };
+		const second = { data: { canApproveTools: true }, send: vi.fn() };
+		const untrusted = { data: { canApproveTools: false }, send: vi.fn() };
+		ctx.wsClients.add(first);
+		ctx.wsClients.add(second);
+		ctx.wsClients.add(untrusted);
+		const event = {
+			event: "approval.requested",
+			sessionId: "phone-session",
+			payload: {
+				approvalId: "shared-approval",
+				toolCallId: "tool-1",
+				toolName: "run_commands",
+				inputJson: "{}",
+			},
+		};
+		handleHubLiveEvent(ctx, event);
+		handleHubLiveEvent(ctx, event);
+		expect(ctx.pendingApprovals.size).toBe(1);
+		expect(first.send).toHaveBeenCalledTimes(1);
+		expect(second.send).toHaveBeenCalledTimes(1);
+		expect(untrusted.send).not.toHaveBeenCalled();
+		ctx.wsClients.delete(first);
+		cancelSidecarToolApprovalsForOwner(ctx, first);
+		expect(ctx.pendingApprovals.size).toBe(1);
+		await expect(
+			handleCommand(
+				ctx,
+				"poll_tool_approvals",
+				{ sessionId: "phone-session" },
+				{ connection: second },
+			),
+		).resolves.toEqual([
+			expect.objectContaining({ requestId: "shared-approval" }),
+		]);
+		handleHubLiveEvent(ctx, {
+			event: "approval.resolved",
+			sessionId: "phone-session",
+			payload: { approvalId: "shared-approval", approved: true },
+		});
+		expect(ctx.pendingApprovals.size).toBe(0);
+		expect(
+			JSON.parse(second.send.mock.calls.at(-1)?.[0]).event.payload.items,
+		).toEqual([]);
+		expect(hubCommandMock).not.toHaveBeenCalledWith(
+			"approval.respond",
+			expect.anything(),
+			expect.anything(),
+		);
+	});
+
+	it("retains Hub approvals when no desktop is connected", async () => {
+		const { createSidecarContext, handleHubLiveEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		handleHubLiveEvent(ctx, {
+			event: "approval.requested",
+			sessionId: "s1",
+			payload: {
+				approvalId: "pending-1",
+				toolCallId: "t1",
+				toolName: "write_to_file",
+			},
+		});
+		expect(ctx.pendingApprovals.has("pending-1")).toBe(true);
+	});
+
 	it("routes routine commands through the connected shared Hub client", async () => {
 		const { createSidecarContext, initializeSessionManager } = await import(
 			"./context"

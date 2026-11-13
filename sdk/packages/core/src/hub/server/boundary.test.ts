@@ -1098,6 +1098,17 @@ describe("HubServerTransport boundaries", () => {
 				approved: true,
 				reason: "approved by user",
 			});
+			await expect(
+				handleApprovalRespond(ctx, {
+					version: "v1",
+					requestId: "req-second-surface",
+					command: "approval.respond",
+					payload: { approvalId, approved: false },
+				}),
+			).resolves.toMatchObject({ ok: false });
+			expect(
+				events.filter((event) => event.event === "approval.resolved"),
+			).toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 		}

@@ -127,6 +127,7 @@ import {
 	getEnvironmentContext,
 	getEnvironmentContexts,
 	getRuntimeBinding,
+	publishSharedApprovalState,
 	resolveSidecarAskQuestion,
 	sendEventToClient,
 } from "./context";
@@ -2633,6 +2634,7 @@ export async function handleCommand(
 				: {}),
 		});
 		ctx.pendingApprovals.delete(requestId);
+		if (!pending.owner) publishSharedApprovalState(ctx, sessionId);
 		const remaining = Array.from(ctx.pendingApprovals.values())
 			.filter(
 				(a) =>

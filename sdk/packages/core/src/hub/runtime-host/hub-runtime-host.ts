@@ -805,6 +805,7 @@ export class HubRuntimeHost implements RuntimeHost {
 	>();
 	private readonly sessionSubscriptions = new Map<string, () => void>();
 	private readonly pendingApprovalToolCallIds = new Set<string>();
+	private readonly approvalControllers = new Map<string, AbortController>();
 	private readonly agentDoneEmittedForCurrentRunBySession = new Set<string>();
 	private readonly activeCapabilityAbortControllers = new Map<
 		string,
@@ -1426,6 +1427,10 @@ export class HubRuntimeHost implements RuntimeHost {
 	}
 
 	async dispose(): Promise<void> {
+		for (const controller of this.approvalControllers.values()) {
+			controller.abort();
+		}
+		this.approvalControllers.clear();
 		for (const [sessionId, unsubscribe] of this.sessionSubscriptions) {
 			unsubscribe();
 			try {
@@ -1810,6 +1815,14 @@ export class HubRuntimeHost implements RuntimeHost {
 		}
 		if (event.event === "capability.resolved") {
 			this.handleCapabilityResolved(event);
+			return;
+		}
+		if (event.event === "approval.resolved") {
+			const id = event.payload?.approvalId;
+			if (typeof id === "string") {
+				this.approvalControllers.get(id)?.abort();
+				this.approvalControllers.delete(id);
+			}
 			return;
 		}
 		if (event.event === "approval.requested") {
@@ -2389,6 +2402,9 @@ export class HubRuntimeHost implements RuntimeHost {
 		if (!approvalId || !toolCallId || !toolName) {
 			return;
 		}
+		if (this.approvalControllers.has(approvalId)) return;
+		const controller = new AbortController();
+		this.approvalControllers.set(approvalId, controller);
 		const policy =
 			event.payload?.policy &&
 			typeof event.payload.policy === "object" &&
@@ -2405,6 +2421,8 @@ export class HubRuntimeHost implements RuntimeHost {
 		});
 		const result = await Promise.resolve(
 			requestToolApproval({
+				approvalId,
+				signal: controller.signal,
 				sessionId,
 				agentId:
 					typeof event.payload?.agentId === "string"
@@ -2430,6 +2448,7 @@ export class HubRuntimeHost implements RuntimeHost {
 					? error.message
 					: `Tool approval request failed: ${String(error)}`,
 		}));
+		if (controller.signal.aborted) return;
 		await this.client
 			.command(
 				"approval.respond",
@@ -2441,5 +2460,6 @@ export class HubRuntimeHost implements RuntimeHost {
 				sessionId,
 			)
 			.catch(() => {});
+		this.approvalControllers.delete(approvalId);
 	}
 }

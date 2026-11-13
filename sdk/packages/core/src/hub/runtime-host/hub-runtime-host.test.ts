@@ -813,6 +813,8 @@ describe("HubRuntimeHost", () => {
 
 		expect(eventOrder).toEqual(["tool-started", "approval-requested"]);
 		expect(requestToolApproval).toHaveBeenCalledWith({
+			approvalId: "approval-1",
+			signal: expect.any(AbortSignal),
 			sessionId: "sess-1",
 			agentId: "agent-1",
 			conversationId: "conversation-1",
@@ -839,6 +841,71 @@ describe("HubRuntimeHost", () => {
 			},
 		});
 		expect(eventOrder).toEqual(["tool-started", "approval-requested"]);
+	});
+
+	it("dismisses a remotely resolved approval without a second response and ignores duplicate requests", async () => {
+		let onEvent: ((event: HubEventEnvelope) => void) | undefined;
+		subscribeMock.mockImplementation((listener) => {
+			onEvent = listener;
+			return () => {};
+		});
+		commandMock.mockResolvedValue({
+			payload: {
+				session: {
+					sessionId: "sess-1",
+					status: "running",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+			},
+		});
+		let signal: AbortSignal | undefined;
+		const requestToolApproval = vi.fn(
+			(request: { signal?: AbortSignal }) =>
+				new Promise<{ approved: boolean }>((resolve) => {
+					signal = request.signal;
+					signal?.addEventListener(
+						"abort",
+						() => resolve({ approved: false }),
+						{ once: true },
+					);
+				}),
+		);
+		const { HubRuntimeHost } = await import("./hub-runtime-host");
+		const host = new HubRuntimeHost({
+			url: "ws://127.0.0.1:25463/hub",
+			capabilities: { requestToolApproval },
+		});
+		await host.startSession({
+			config: createConfig(),
+			source: SessionSource.CLI,
+			prompt: "Hey",
+		});
+		const event: HubEventEnvelope = {
+			version: "v1",
+			event: "approval.requested",
+			sessionId: "sess-1",
+			payload: {
+				approvalId: "shared-1",
+				toolCallId: "call-1",
+				toolName: "run_commands",
+				inputJson: "{}",
+			},
+		};
+		onEvent?.(event);
+		onEvent?.(event);
+		expect(requestToolApproval).toHaveBeenCalledTimes(1);
+		onEvent?.({
+			...event,
+			event: "approval.resolved",
+			payload: { approvalId: "shared-1", approved: true },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(signal?.aborted).toBe(true);
+		expect(
+			commandMock.mock.calls.filter(([name]) => name === "approval.respond"),
+		).toHaveLength(0);
+		await host.dispose();
 	});
 
 	it.each([
@@ -990,6 +1057,8 @@ describe("HubRuntimeHost", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(requestToolApproval).toHaveBeenCalledWith({
+			approvalId: "approval-1",
+			signal: expect.any(AbortSignal),
 			sessionId: "sess-1",
 			agentId: "agent-1",
 			conversationId: "conversation-1",

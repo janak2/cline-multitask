@@ -124,6 +124,8 @@ export class HubUIClient {
 	 * Returns an unsubscribe function.
 	 */
 	subscribeUI(handlers: {
+		onApprovalRequested?: (event: HubEventEnvelope) => void;
+		onApprovalResolved?: (event: HubEventEnvelope) => void;
 		onNotify?: (payload: HubUINotifyPayload) => void;
 		onShowWindow?: (payload: HubUIShowWindowPayload) => void;
 		onClientRegistered?: (payload: Record<string, unknown>) => void;
@@ -134,6 +136,12 @@ export class HubUIClient {
 	}): () => void {
 		return this.client.subscribe((event: HubEventEnvelope) => {
 			switch (event.event) {
+				case "approval.requested":
+					handlers.onApprovalRequested?.(event);
+					break;
+				case "approval.resolved":
+					handlers.onApprovalResolved?.(event);
+					break;
 				case "ui.notify":
 					handlers.onNotify?.(event.payload as unknown as HubUINotifyPayload);
 					break;
@@ -158,6 +166,18 @@ export class HubUIClient {
 					handlers.onSessionDetached?.(event.payload ?? {});
 					break;
 			}
+		});
+	}
+
+	async respondToApproval(
+		approvalId: string,
+		approved: boolean,
+		reason?: string,
+	): Promise<void> {
+		await this.client.command("approval.respond", {
+			approvalId,
+			approved,
+			reason,
 		});
 	}
 }

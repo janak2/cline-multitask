@@ -873,6 +873,13 @@ function requestSidecarToolApproval(
 	ctx: SidecarContext,
 	request: ToolApprovalRequest,
 ): Promise<ToolApprovalResult> {
+	if (request.approvalId) {
+		return new Promise((resolve) => {
+			const finish = () => resolve({ approved: false });
+			if (request.signal?.aborted) finish();
+			else request.signal?.addEventListener("abort", finish, { once: true });
+		});
+	}
 	const owner = [...ctx.wsClients].find(
 		(client) => client.data?.canApproveTools === true,
 	);
@@ -928,10 +935,18 @@ export function handleHubLiveEvent(
 	},
 ): void {
 	if (event.event === "approval.requested") {
-		if (typeof event.payload?.agendaTaskId !== "string") return;
 		void handleHubApprovalRequest(ctx, event).catch((error) => {
 			ctx.logger?.error?.("Hub task approval forwarding failed", { error });
 		});
+		return;
+	}
+	if (event.event === "approval.resolved") {
+		const id = event.payload?.approvalId;
+		if (typeof id !== "string") return;
+		const pending = ctx.pendingApprovals.get(id);
+		if (!pending) return;
+		ctx.pendingApprovals.delete(id);
+		publishSharedApprovalState(ctx, pending.item.sessionId);
 		return;
 	}
 	// Task lifecycle events are Hub-wide invalidations and usually do not have a
@@ -1283,6 +1298,23 @@ export function handleHubLiveEvent(
 	}
 }
 
+export function publishSharedApprovalState(
+	ctx: SidecarContext,
+	sessionId: string,
+): void {
+	const items = [...ctx.pendingApprovals.values()]
+		.filter((pending) => !pending.owner && pending.item.sessionId === sessionId)
+		.map((pending) => pending.item);
+	for (const client of ctx.wsClients) {
+		if (client.data?.canApproveTools) {
+			sendEventToClient(ctx, client, "tool_approval_state", {
+				sessionId,
+				items,
+			});
+		}
+	}
+}
+
 async function handleHubApprovalRequest(
 	ctx: SidecarContext,
 	event: {
@@ -1313,7 +1345,8 @@ async function handleHubApprovalRequest(
 	} catch {
 		input = undefined;
 	}
-	const result = await requestSidecarToolApproval(ctx, {
+	if (ctx.pendingApprovals.has(approvalId)) return;
+	const request: ToolApprovalRequest = {
 		sessionId,
 		agentId:
 			typeof event.payload?.agentId === "string" ? event.payload.agentId : "",
@@ -1334,19 +1367,35 @@ async function handleHubApprovalRequest(
 			!Array.isArray(event.payload.policy)
 				? (event.payload.policy as ToolApprovalRequest["policy"])
 				: { autoApprove: false },
-	});
-	const client = getSessionRuntimeBinding(ctx, sessionId).hubClient;
-	if (!client)
-		throw new Error("Hub client disconnected before approval response");
-	await client.command(
-		"approval.respond",
-		{
-			approvalId,
-			approved: result.approved,
-			reason: result.reason,
+	};
+	ctx.pendingApprovals.set(approvalId, {
+		item: {
+			requestId: approvalId,
+			createdAt: new Date().toISOString(),
+			sessionId,
+			toolCallId,
+			toolName,
+			input,
+			iteration: request.iteration,
+			agentId: request.agentId,
+			conversationId: request.conversationId,
 		},
-		sessionId,
-	);
+		resolve: async (result) => {
+			const client = getSessionRuntimeBinding(ctx, sessionId).hubClient;
+			if (!client)
+				throw new Error("Hub client disconnected before approval response");
+			await client.command(
+				"approval.respond",
+				{
+					approvalId,
+					approved: result.approved,
+					reason: result.reason,
+				},
+				sessionId,
+			);
+		},
+	});
+	publishSharedApprovalState(ctx, sessionId);
 }
 
 export async function initializeSessionManager(
