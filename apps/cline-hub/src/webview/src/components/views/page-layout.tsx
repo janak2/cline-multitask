@@ -51,7 +51,8 @@ export function PageHeader({
 				className,
 			)}
 		>
-			<div className="min-w-0">
+			{/* Phones skip the large title; the menu button already says where you are. */}
+			<div className="min-w-0 max-[720px]:hidden">
 				<div className="flex min-w-0 items-center gap-3">
 					{Icon ? <Icon className="size-8 shrink-0 text-primary" /> : null}
 					<h1 className="truncate text-[32px] font-semibold leading-[1.15] tracking-normal text-foreground">

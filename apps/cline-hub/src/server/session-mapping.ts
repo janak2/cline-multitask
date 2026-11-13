@@ -15,6 +15,10 @@ import type {
 	WebviewOutboundMessage,
 	WebviewSessionSummary,
 } from "../webview-protocol";
+import {
+	orderSessionsLikeDesktopSidebar,
+	readSessionActivity,
+} from "./session-order";
 import type { HubContext } from "./state";
 import type { SessionContext, TrackedClient, TrackedSession } from "./types";
 import {
@@ -483,6 +487,15 @@ export function trackSession(record: unknown): TrackedSession | undefined {
 		totalCost: asNumber(usage.totalCost) ?? asNumber(metadata.totalCost),
 		agentCount: Math.max(1, participantCount),
 		participantCount,
+		startedAt: asTimestamp(raw.startedAt) ?? asTimestamp(raw.createdAt),
+		endedAt: asTimestamp(raw.endedAt),
+		isSubagent: raw.isSubagent === true ? true : undefined,
+		pinned: metadata.pinned === true ? true : undefined,
+		scheduled:
+			asString(asRecord(metadata.sessionHistoryOrigin)?.trigger) ===
+			"hub-schedule"
+				? true
+				: undefined,
 	};
 }
 
@@ -576,9 +589,11 @@ export function webviewSessionsPayload(
 ): WebviewOutboundMessage {
 	return {
 		type: "sessions",
-		sessions: [...ctx.sessions.values()]
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-			.map(toWebviewSessionSummary),
+		// Same chats and order as the desktop app's sidebar.
+		sessions: orderSessionsLikeDesktopSidebar(
+			ctx.sessions.values(),
+			readSessionActivity(),
+		).map(toWebviewSessionSummary),
 		hasMore: ctx.sessionListHasMore,
 	};
 }

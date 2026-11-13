@@ -30,6 +30,7 @@ import { createDesktopObservability } from "./observability";
 import { resolveWorkspaceRoot } from "./paths";
 import { createPhoneAccess } from "./phone-access";
 import { startServer } from "./server";
+import { clearSessionActivity } from "./session-activity-file";
 import { BunRuntime, SIDECAR_HOST, SIDECAR_MODE, SIDECAR_PORT } from "./types";
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -186,6 +187,8 @@ async function main(desktopCliPath?: string) {
 		void shutdown("code_sidecar_before_exit");
 	});
 
+	// Chat activity times from an earlier run no longer apply.
+	await clearSessionActivity();
 	const { port, approvalToken } = startServer(ctx, SIDECAR_PORT, shutdown);
 	observability.logger.log("Desktop sidecar ready", {
 		port,

@@ -33,6 +33,10 @@ import {
 } from "./feature-flags";
 import { recordHubActivity } from "./hub-admin";
 import { sessionLogPath } from "./paths";
+import {
+	liveSessionActivity,
+	scheduleSessionActivityWrite,
+} from "./session-activity-file";
 import type {
 	LiveSession,
 	PendingAskQuestion,
@@ -258,6 +262,12 @@ function emitChunk(
 	const session = ctx.liveSessions.get(sessionId);
 	if (session && isSessionActivityStream(stream)) {
 		session.lastActivityAt = Math.max(session.lastActivityAt ?? 0, ts);
+		// Shared with Cline Hub so the phone orders chats like the sidebar.
+		if (ctx.activeEnvironmentId === LOCAL_ENVIRONMENT_ID) {
+			scheduleSessionActivityWrite(
+				liveSessionActivity(ctx.liveSessions.entries()),
+			);
+		}
 	}
 	if (ctx.activeEnvironmentId === LOCAL_ENVIRONMENT_ID)
 		appendSessionChunk(sessionId, stream, chunk, ts);

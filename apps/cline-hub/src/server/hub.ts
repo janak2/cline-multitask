@@ -20,6 +20,7 @@ import {
 	parseSessionContext,
 	trackSession,
 } from "./session-mapping";
+import { keepSessionDetails } from "./session-order";
 import type { HubContext } from "./state";
 import { broadcastHubState } from "./state-payloads";
 import type { SessionContext } from "./types";
@@ -181,7 +182,10 @@ export async function attachHub(ctx: HubContext): Promise<void> {
 					: (payload as unknown as Record<string, unknown>);
 			const tracked = trackSession(record);
 			if (tracked) {
-				ctx.sessions.set(tracked.sessionId, tracked);
+				ctx.sessions.set(
+					tracked.sessionId,
+					keepSessionDetails(ctx.sessions.get(tracked.sessionId), tracked),
+				);
 				const context = parseSessionContext(record);
 				if (context) ctx.lastSessionContext = context;
 				ctx.pushEvent(
@@ -199,7 +203,10 @@ export async function attachHub(ctx: HubContext): Promise<void> {
 					: (payload as unknown as Record<string, unknown>);
 			const tracked = trackSession(record);
 			if (tracked) {
-				ctx.sessions.set(tracked.sessionId, tracked);
+				ctx.sessions.set(
+					tracked.sessionId,
+					keepSessionDetails(ctx.sessions.get(tracked.sessionId), tracked),
+				);
 				const context = parseSessionContext(record);
 				if (context) ctx.lastSessionContext = context;
 				broadcastHubState(ctx);

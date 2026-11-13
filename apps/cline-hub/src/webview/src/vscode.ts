@@ -2,6 +2,7 @@ import type {
 	WebviewInboundMessage,
 	WebviewOutboundMessage,
 } from "../../webview-protocol";
+import { HubSocket } from "./lib/hub-socket";
 
 type VsCodeApi = {
 	postMessage(message: WebviewInboundMessage): void;
@@ -16,8 +17,7 @@ declare global {
 }
 
 let cachedApi: VsCodeApi | undefined;
-let browserSocket: WebSocket | undefined;
-const pendingMessages: WebviewInboundMessage[] = [];
+let hubSocket: HubSocket | undefined;
 const stateKey = "cline-hub-webview-state";
 
 function dispatchHostMessage(message: WebviewOutboundMessage): void {
@@ -31,15 +31,7 @@ function readBrowserRoomSecret(): string | undefined {
 	return roomSecret || undefined;
 }
 
-function createBrowserSocket(): WebSocket {
-	if (
-		browserSocket &&
-		(browserSocket.readyState === WebSocket.OPEN ||
-			browserSocket.readyState === WebSocket.CONNECTING)
-	) {
-		return browserSocket;
-	}
-
+function browserSocketUrl(): string {
 	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 	const params = new URLSearchParams();
 	const roomSecret = readBrowserRoomSecret();
@@ -47,51 +39,32 @@ function createBrowserSocket(): WebSocket {
 		params.set("roomSecret", roomSecret);
 	}
 	const query = params.toString();
-	const socketUrl = `${protocol}//${window.location.host}/browser${query ? `?${query}` : ""}`;
-	browserSocket = new WebSocket(socketUrl);
-	browserSocket.addEventListener("open", () => {
-		for (const message of pendingMessages.splice(0)) {
-			browserSocket?.send(JSON.stringify(message));
-		}
+	return `${protocol}//${window.location.host}/browser${query ? `?${query}` : ""}`;
+}
+
+function getHubSocket(): HubSocket {
+	if (hubSocket) return hubSocket;
+	const socket = new HubSocket({
+		create: () => new WebSocket(browserSocketUrl()),
+		dispatch: dispatchHostMessage,
 	});
-	browserSocket.addEventListener("message", (event) => {
-		try {
-			const message = JSON.parse(String(event.data)) as WebviewOutboundMessage;
-			dispatchHostMessage(message);
-		} catch {
-			pendingMessages.splice(0);
-			dispatchHostMessage({
-				type: "error",
-				text: "Received an invalid message from the Cline Hub server.",
-			});
-		}
-	});
-	browserSocket.addEventListener("close", () => {
-		pendingMessages.splice(0);
-		dispatchHostMessage({
-			type: "status",
-			text: "Disconnected from the Cline Hub server.",
-		});
-	});
-	browserSocket.addEventListener("error", () => {
-		pendingMessages.splice(0);
-		dispatchHostMessage({
-			type: "error",
-			text: "Failed to connect to the Cline Hub server.",
-		});
-	});
-	return browserSocket;
+	hubSocket = socket;
+	// Phones drop the connection while the page is in the background;
+	// reconnect as soon as it is shown again instead of waiting.
+	const wake = () => {
+		if (document.visibilityState === "visible") socket.wake();
+	};
+	document.addEventListener("visibilitychange", wake);
+	window.addEventListener("pageshow", wake);
+	window.addEventListener("focus", wake);
+	window.addEventListener("online", wake);
+	return socket;
 }
 
 function createBrowserApi(): VsCodeApi {
 	return {
 		postMessage(message) {
-			const socket = createBrowserSocket();
-			if (socket.readyState === WebSocket.OPEN) {
-				socket.send(JSON.stringify(message));
-				return;
-			}
-			pendingMessages.push(message);
+			getHubSocket().post(message);
 		},
 		getState() {
 			try {

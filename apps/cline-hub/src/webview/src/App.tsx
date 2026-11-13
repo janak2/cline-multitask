@@ -832,11 +832,8 @@ function SessionsView({
 							selected.has(detail),
 						),
 					);
-		return [...filtered].sort((a, b) => {
-			const aTime = a.createdAt ?? a.updatedAt ?? 0;
-			const bTime = b.createdAt ?? b.updatedAt ?? 0;
-			return sortDirection === "newest" ? bTime - aTime : aTime - bTime;
-		});
+		// The server already orders sessions like the desktop app's sidebar.
+		return sortDirection === "newest" ? filtered : [...filtered].reverse();
 	}, [sessions, sessionFilters, sortDirection]);
 	const [expandedOverrides, setExpandedOverrides] = useState<
 		Record<string, boolean>

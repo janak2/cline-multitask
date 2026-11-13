@@ -44,6 +44,12 @@ export type TrackedSession = {
 	totalCost?: number;
 	agentCount: number;
 	participantCount: number;
+	/** Fields the desktop sidebar orders and filters by. */
+	startedAt?: number;
+	endedAt?: number;
+	isSubagent?: boolean;
+	pinned?: boolean;
+	scheduled?: boolean;
 };
 
 export type SessionContext = {

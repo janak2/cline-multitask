@@ -127,7 +127,7 @@ export function ProviderListContent({
 						isPanel ? "max-w-none" : "max-w-[42rem]",
 					)}
 				>
-					<div className="min-w-0">
+					<div className="min-w-0 max-[720px]:hidden">
 						<h1
 							className={cn(
 								"truncate font-semibold leading-[1.15] tracking-normal text-foreground",
@@ -363,7 +363,7 @@ export function ProviderDetailContent({
 					<h1
 						className={cn(
 							"truncate font-semibold leading-[1.15] tracking-normal text-foreground",
-							isPanel ? "text-[24px]" : "text-[32px]",
+							isPanel ? "text-[24px]" : "text-[32px] max-[720px]:text-lg",
 						)}
 					>
 						{provider.name}

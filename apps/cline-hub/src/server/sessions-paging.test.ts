@@ -16,6 +16,9 @@ function sessionRecords(count: number) {
 	return Array.from({ length: count }, (_, index) => ({
 		sessionId: `session_${index}`,
 		status: "completed",
+		// The desktop sidebar, which the Hub list mirrors, hides sessions with no model.
+		provider: "anthropic",
+		model: "claude",
 		updatedAt: 1_000 + index,
 	}));
 }
