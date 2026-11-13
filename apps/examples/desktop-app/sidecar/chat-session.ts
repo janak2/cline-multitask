@@ -1816,6 +1816,9 @@ async function handleSendOnce(
 	const ownsBusyState = Boolean(
 		session && delivery !== "queue" && delivery !== "steer",
 	);
+	// Set when the runtime queues this send behind a turn already running;
+	// that turn, not this send, then owns the busy state.
+	let handedToQueue = false;
 	if (session) {
 		if (ownsBusyState) {
 			session.prompt = prompt;
@@ -1996,15 +1999,32 @@ async function handleSendOnce(
 		}
 		if (result === undefined) {
 			// The runtime queued or steered the prompt instead of running it
-			// (busy interactive session / steer delivery) — track the files so
-			// they are deleted once the prompt is consumed or discarded.
+			// (busy interactive session / steer delivery). The turn already
+			// running is not over, so the session stays busy: marking it idle
+			// here made the sidebar show it finished (and unread) mid-reply.
+			// That turn's own completion event clears the busy state.
+			handedToQueue = true;
+			const prompts = await manager.pendingPrompts.list({ sessionId });
 			if (userFiles?.length) {
-				trackQueuedAttachments(
-					session,
-					await manager.pendingPrompts.list({ sessionId }),
-					userFiles,
-				);
+				trackQueuedAttachments(session, prompts, userFiles);
 			}
+			ctx.logger?.log("Desktop chat prompt queued behind a running turn", {
+				sessionId,
+			});
+			return {
+				sessionId,
+				ok: true,
+				queued: true,
+				promptsInQueue: prompts
+					.map(mapPendingPrompt)
+					.filter((item) => item.id)
+					.map(({ id, prompt, steer, attachmentCount }) => ({
+						id,
+						prompt,
+						steer,
+						attachmentCount,
+					})),
+			};
 		} else {
 			deleteMaterializedAttachments(sessionId, userFiles);
 		}
@@ -2055,7 +2075,7 @@ async function handleSendOnce(
 		};
 	} finally {
 		if (session) {
-			if (ownsBusyState) {
+			if (ownsBusyState && !handedToQueue) {
 				session.busy = false;
 			}
 			if (providerChanged || modeChanged) {

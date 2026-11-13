@@ -1224,6 +1224,35 @@ describe("first-send connection updates", () => {
 		}
 	});
 
+	it("keeps the session running when a send is queued behind a running turn", async () => {
+		const { ctx, send, sessionId } = createContext();
+		// The runtime was still working, so it queued the prompt and returned
+		// no result instead of running a new turn.
+		send.mockResolvedValueOnce(undefined as never);
+
+		const reply = (await handleChatSessionCommand(ctx, {
+			action: "send",
+			sessionId,
+			prompt: "one more thing",
+		})) as { ok?: boolean; queued?: boolean };
+
+		expect(reply).toMatchObject({ ok: true, queued: true });
+		expect(ctx.liveSessions.get(sessionId)).toMatchObject({
+			busy: true,
+			status: "running",
+		});
+
+		// The running turn's own completion is what ends the busy state.
+		handleCoreSessionEvent(ctx, {
+			type: "status",
+			payload: { sessionId, status: "idle" },
+		});
+		expect(ctx.liveSessions.get(sessionId)).toMatchObject({
+			busy: false,
+			status: "idle",
+		});
+	});
+
 	it("skips an identical update for a locally-created session", async () => {
 		const { ctx, send, sessionId, updateSessionConnection } = createContext();
 
@@ -3384,15 +3413,18 @@ describe("mistake-limit prompt", () => {
 		expect(ctx.pendingQuestions.size).toBe(0);
 	});
 
-	it("times out an unanswered question and removes it from polling", async () => {
+	it("keeps an unanswered question waiting with no time limit", async () => {
 		vi.useFakeTimers();
 		try {
 			const { ctx, steer } = createPromptContext();
 			const decide = createDesktopMistakeLimitPrompt(ctx, () => "session-1");
-			const decision = decide(limitContext);
-			await vi.advanceTimersByTimeAsync(5 * 60_000);
-			await expect(decision).resolves.toMatchObject({ action: "stop" });
-			expect(ctx.pendingQuestions.size).toBe(0);
+			let settled = false;
+			void decide(limitContext).finally(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			expect(settled).toBe(false);
+			expect(ctx.pendingQuestions.size).toBe(1);
 			expect(steer).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
