@@ -6,7 +6,10 @@ import {
 } from "@cline/core";
 import type { MessageWithMetadata } from "@cline/llms";
 import type { WebviewConfig, WebviewReasonLevel } from "../webview-protocol";
-import { rejectPendingApprovalsForSession } from "./approvals";
+import {
+	rejectPendingApprovalsForSession,
+	resendPendingApprovals,
+} from "./approvals";
 import { providerSettingsManager, workspaceRoot } from "./deps";
 import {
 	loadProviders,
@@ -224,6 +227,7 @@ export async function selectSession(
 		reasonLevel: readSessionReasonLevel(record?.metadata),
 		messages: mapHistoryToWebviewMessages(history),
 	});
+	resendPendingApprovals(ctx, peer, sessionId);
 }
 
 export async function createSession(

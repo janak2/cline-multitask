@@ -2,6 +2,7 @@ import type { ToolApprovalRequest, ToolApprovalResult } from "@cline/shared";
 import type { WebviewInboundMessage } from "../webview-protocol";
 import type { HubContext } from "./state";
 import { broadcastHubState } from "./state-payloads";
+import type { BrowserPeer } from "./types";
 
 function createApprovalId(): string {
 	return `approval-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -14,7 +15,6 @@ export function resolveToolApproval(
 ): boolean {
 	const pending = ctx.pendingToolApprovals.get(approvalId);
 	if (!pending) return false;
-	clearTimeout(pending.timeout);
 	ctx.pendingToolApprovals.delete(approvalId);
 	ctx.sendToSelectedPeers(pending.sessionId, {
 		type: "approval_resolved",
@@ -47,14 +47,23 @@ export function rejectAllPendingApprovals(
 	}
 }
 
-export function rejectOrphanedApprovals(ctx: HubContext): void {
-	for (const [approvalId, pending] of [...ctx.pendingToolApprovals.entries()]) {
-		if (!ctx.hasSelectedPeer(pending.sessionId)) {
-			resolveToolApproval(ctx, approvalId, {
-				approved: false,
-				reason: "Cline Hub webview disconnected before approval was resolved.",
-			});
-		}
+/**
+ * Re-sends a session's open approval requests to a page that just opened it,
+ * e.g. the phone reconnecting after the user switched apps. Approvals wait
+ * until someone answers them; a dropped connection does not reject them.
+ */
+export function resendPendingApprovals(
+	ctx: HubContext,
+	peer: BrowserPeer,
+	sessionId: string,
+): void {
+	for (const [approvalId, pending] of ctx.pendingToolApprovals) {
+		if (pending.sessionId !== sessionId) continue;
+		ctx.send(peer, {
+			type: "approval_request",
+			approvalId,
+			...pending.request,
+		});
 	}
 }
 
@@ -77,21 +86,9 @@ export function requestToolApprovalFromWebview(
 	);
 	broadcastHubState(ctx);
 
+	// No time limit: the request waits until someone approves or rejects it.
 	return new Promise((resolve) => {
-		const timeout = setTimeout(() => {
-			resolveToolApproval(ctx, approvalId, {
-				approved: false,
-				reason: "Tool approval request timed out.",
-			});
-		}, 10 * 60_000);
-		ctx.pendingToolApprovals.set(approvalId, {
-			sessionId: request.sessionId,
-			resolve,
-			timeout,
-		});
-		ctx.sendToSelectedPeers(request.sessionId, {
-			type: "approval_request",
-			approvalId,
+		const details = {
 			sessionId: request.sessionId,
 			agentId: request.agentId,
 			conversationId: request.conversationId,
@@ -100,6 +97,16 @@ export function requestToolApprovalFromWebview(
 			toolName: request.toolName,
 			input: request.input,
 			policy: request.policy as Record<string, unknown> | undefined,
+		};
+		ctx.pendingToolApprovals.set(approvalId, {
+			sessionId: request.sessionId,
+			resolve,
+			request: details,
+		});
+		ctx.sendToSelectedPeers(request.sessionId, {
+			type: "approval_request",
+			approvalId,
+			...details,
 		});
 	});
 }

@@ -2,6 +2,7 @@ import type { SaveProviderSettingsActionRequest } from "@cline/core";
 import type { ToolApprovalResult } from "@cline/shared";
 import type {
 	WebviewInboundMessage,
+	WebviewOutboundMessage,
 	WebviewReasonLevel,
 } from "../webview-protocol";
 
@@ -70,7 +71,11 @@ export type BrowserPeer = {
 export type PendingToolApproval = {
 	sessionId: string;
 	resolve: (result: ToolApprovalResult) => void;
-	timeout: ReturnType<typeof setTimeout>;
+	/** What was sent to the page, so it can be sent again after a reconnect. */
+	request: Omit<
+		Extract<WebviewOutboundMessage, { type: "approval_request" }>,
+		"type" | "approvalId"
+	>;
 };
 
 export type JsonRecord = Record<string, unknown>;

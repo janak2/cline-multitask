@@ -71,7 +71,8 @@ export async function requestDesktopToolApproval(
 		"utf8",
 	);
 
-	const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+	// Waits until a decision is written unless the caller sets a limit.
+	const timeoutMs = options.timeoutMs ?? Number.POSITIVE_INFINITY;
 	const pollIntervalMs = options.pollIntervalMs ?? 200;
 	const startedAt = Date.now();
 	while (Date.now() - startedAt < timeoutMs) {

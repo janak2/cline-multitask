@@ -1,9 +1,6 @@
 import { CORE_BUILD_VERSION } from "@cline/core";
 import { isNonLocalBindHost } from "./options";
-import {
-	handleToolApprovalResponse,
-	rejectOrphanedApprovals,
-} from "./server/approvals";
+import { handleToolApprovalResponse } from "./server/approvals";
 import { isAuthorizedBrowserToDesktopRequest } from "./server/browser-auth";
 import {
 	browserConfig,
@@ -259,8 +256,9 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 			close(socket) {
 				const peer = socket.data;
 				peer.unsubscribeEvents?.();
+				// Open approvals keep waiting; the page gets them again when it
+				// reconnects and reopens the chat.
 				ctx.peers.delete(peer);
-				rejectOrphanedApprovals(ctx);
 			},
 		},
 	});

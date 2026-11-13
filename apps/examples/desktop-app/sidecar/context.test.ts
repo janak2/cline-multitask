@@ -895,6 +895,35 @@ describe("Code sidecar runtime capabilities", () => {
 		});
 	});
 
+	it("keeps a question waiting with no time limit until it is answered", async () => {
+		vi.useFakeTimers();
+		try {
+			const {
+				createSidecarContext,
+				requestSidecarAskQuestion,
+				resolveSidecarAskQuestion,
+			} = await import("./context");
+			const ctx = createSidecarContext("/workspace/project");
+			ctx.wsClients.add({ send: vi.fn() });
+			let settled = false;
+			const answer = requestSidecarAskQuestion(ctx, "Which one?", ["A", "B"], {
+				sessionId: "session-1",
+				agentId: "agent-1",
+				conversationId: "conversation-1",
+				iteration: 1,
+			}).finally(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			expect(settled).toBe(false);
+			const [requestId] = [...ctx.pendingQuestions.keys()];
+			expect(resolveSidecarAskQuestion(ctx, String(requestId), "B")).toBe(true);
+			await expect(answer).resolves.toBe("B");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps raw hub teammate output out of the lead's chat but keeps usage", async () => {
 		const { createSidecarContext, handleHubLiveEvent } = await import(
 			"./context"

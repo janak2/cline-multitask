@@ -48,7 +48,6 @@ import type {
 } from "./types";
 import { LOCAL_ENVIRONMENT_ID } from "./types";
 
-const ASK_QUESTION_TIMEOUT_MS = 5 * 60_000;
 const hubClientInitialization = new WeakMap<
 	SidecarContext,
 	Promise<NodeHubClient>
@@ -801,20 +800,9 @@ export function requestSidecarAskQuestion(
 		return Promise.resolve("");
 	}
 
+	// No time limit: the question waits until it is answered or the run stops.
 	return new Promise<string>((resolve, reject) => {
 		const requestId = randomUUID();
-		const timeoutId = setTimeout(() => {
-			ctx.pendingQuestions.delete(requestId);
-			reject(
-				new Error(
-					`Ask question request timed out after ${ASK_QUESTION_TIMEOUT_MS}ms`,
-				),
-			);
-			sendEvent(ctx, "ask_question_cancelled", {
-				requestId,
-				reason: "timeout",
-			});
-		}, ASK_QUESTION_TIMEOUT_MS);
 		const pending: PendingAskQuestion = {
 			item: {
 				requestId,
@@ -826,7 +814,6 @@ export function requestSidecarAskQuestion(
 			},
 			resolve,
 			reject,
-			timeoutId,
 		};
 		ctx.pendingQuestions.set(requestId, pending);
 		sendEvent(ctx, "ask_question_requested", pending.item);
