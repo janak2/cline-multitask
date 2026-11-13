@@ -478,7 +478,7 @@ function App() {
 	const [commandBarOpen, setCommandBarOpen] = useState(false);
 	const [exportDiagnosticsOpen, setExportDiagnosticsOpen] = useState(false);
 	// The terminal panel opens per chat: opening it in one chat does not show
-	// it in others. Its height is shared. The PTY needs the native shell, so
+	// it in others. The PTY needs the native shell, so
 	// browser mode never offers it.
 	const [terminalAvailable, setTerminalAvailable] = useState(false);
 	const [terminalPanels, setTerminalPanels] = useState<TerminalPanelsState>({
@@ -524,15 +524,6 @@ function App() {
 		);
 		requestPromptInputFocus();
 	}, [updateTerminalPanels]);
-	const handleTerminalHeightChange = useCallback(
-		(height: number) => {
-			updateTerminalPanels((current) => ({
-				...current,
-				height: clampTerminalPanelHeight(height, window.innerHeight),
-			}));
-		},
-		[updateTerminalPanels],
-	);
 	// Shared by the sidebar search icon and the Cmd/Ctrl+P shortcut.
 	const handleOpenCommandBar = useCallback(() => setCommandBarOpen(true), []);
 	// "welcome" for the full first-run flow; "connect" when re-entered from
@@ -1430,7 +1421,6 @@ function App() {
 													? {
 															open: terminalOpenForChat,
 															chatKey: terminalChatKey ?? "",
-															height: terminalPanels.height,
 															shortcut: keybindings["toggle-terminal"].key
 																? formatAccelerator(
 																		keybindings["toggle-terminal"].key,
@@ -1438,7 +1428,6 @@ function App() {
 																: undefined,
 															onToggle: handleToggleTerminal,
 															onClose: handleCloseTerminal,
-															onHeightChange: handleTerminalHeightChange,
 														}
 													: undefined
 											}
@@ -1611,12 +1600,10 @@ function ChatThreadPane({
 		open: boolean;
 		/** The chat the panel's shells belong to. */
 		chatKey: string;
-		height: number;
 		/** Display form of the toggle shortcut; undefined when unbound. */
 		shortcut?: string;
 		onToggle: () => void;
 		onClose: () => void;
-		onHeightChange: (height: number) => void;
 	};
 }) {
 	const {
@@ -1684,7 +1671,7 @@ function ChatThreadPane({
 		setWorkInSelection(next);
 		writeWorkInToWindow(next);
 	}, []);
-	// The Changes pane and the Files + Git panel share the right-hand column.
+	// Files, changes, and the terminal share the right-hand column.
 	const fileViewKey = fileViewStorageKey(
 		environmentId,
 		sessionId ?? historySession?.sessionId ?? null,
@@ -1704,23 +1691,28 @@ function ChatThreadPane({
 		null,
 		fileViewKey,
 	);
-	const toggleFilesPanel = useCallback(
-		() =>
-			setWorkspacePanel((current) => (current === "files" ? null : "files")),
-		[setWorkspacePanel],
-	);
+	const closeTerminal = terminal?.onClose;
+	useEffect(() => {
+		if (terminal?.open) setWorkspacePanel(null);
+	}, [terminal?.open, setWorkspacePanel]);
+	const toggleFilesPanel = useCallback(() => {
+		closeTerminal?.();
+		setWorkspacePanel((current) => (current === "files" ? null : "files"));
+	}, [closeTerminal, setWorkspacePanel]);
 	const toggleChangesPanel = useCallback(() => {
+		closeTerminal?.();
 		setChangesScope("session");
 		setChangesPath(null);
 		setWorkspacePanel((current) => (current === "changes" ? null : "changes"));
-	}, [setChangesPath, setChangesScope, setWorkspacePanel]);
+	}, [closeTerminal, setChangesPath, setChangesScope, setWorkspacePanel]);
 	const reviewLastTurn = useCallback(
 		(path?: string) => {
+			closeTerminal?.();
 			setChangesScope("last-turn");
 			setChangesPath(path ?? null);
 			setWorkspacePanel("changes");
 		},
-		[setChangesPath, setChangesScope, setWorkspacePanel],
+		[closeTerminal, setChangesPath, setChangesScope, setWorkspacePanel],
 	);
 	const [deletingSession, setDeletingSession] = useState(false);
 	const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -3416,16 +3408,21 @@ function ChatThreadPane({
 	// Cloud runs have no reachable workspace, and the welcome state has no
 	// session to browse alongside yet.
 	const canBrowseFiles = mayBrowseFiles;
+	const terminalPanelVisible = terminalEnabled && terminal?.open;
 	const filesPanelVisible =
-		mayOpenFiles && !displayedIsSwitching && workspacePanel === "files";
-	const changesPanelVisible = canBrowseFiles && workspacePanel === "changes";
+		!terminalPanelVisible &&
+		mayOpenFiles &&
+		!displayedIsSwitching &&
+		workspacePanel === "files";
+	const changesPanelVisible =
+		!terminalPanelVisible && canBrowseFiles && workspacePanel === "changes";
 
 	return (
 		<WorkspaceProvider value={workspaceContextValue}>
 			{/* Requires `dragDropEnabled: false` on the Tauri window so the native shell does not swallow OS file drags. */}
 			<AttachmentDropZone
 				className={
-					filesPanelVisible || changesPanelVisible
+					filesPanelVisible || changesPanelVisible || terminalPanelVisible
 						? // The panel is placed explicitly in column 2 spanning both
 							// rows, so the transcript and composer (or the welcome
 							// screen) auto-flow into column 1.
@@ -3624,7 +3621,6 @@ function ChatThreadPane({
 					onWorkInChange={canWorkInWorktree ? setWorkIn : undefined}
 					workIn={workIn}
 					terminalToggle={terminalToggle}
-					bottomInset={terminalEnabled && terminal?.open ? terminal.height : 0}
 				/>
 				{changesPanelVisible ? (
 					<ChangesPanel
@@ -3633,7 +3629,10 @@ function ChatThreadPane({
 						environmentId={environmentId}
 						fallbackFileDiffs={fileDiffs}
 						onClose={toggleChangesPanel}
-						onOpenGit={() => setWorkspacePanel("files")}
+						onOpenGit={() => {
+							closeTerminal?.();
+							setWorkspacePanel("files");
+						}}
 						onScopeChange={(scope) => {
 							setChangesScope(scope);
 							setChangesPath(null);
@@ -3656,25 +3655,25 @@ function ChatThreadPane({
 						/>
 					</FileViewStateProvider>
 				) : null}
+				{terminalPanelVisible ? (
+					<FileViewStateProvider value={fileViewKey}>
+						<TerminalPanel
+							chatKey={terminal.chatKey}
+							cwd={activeWorkspaceCwd}
+							onAddToChat={
+								isCloudSessionExpired || showingHistoryPreview
+									? undefined
+									: (text) => {
+											const draft = promptDrafts.get(threadId)?.text ?? "";
+											setPromptInput(draft ? `${draft}\n\n${text}` : text);
+											requestPromptInputFocus();
+										}
+							}
+							onClose={terminal.onClose}
+						/>
+					</FileViewStateProvider>
+				) : null}
 			</AttachmentDropZone>
-			{terminalEnabled && terminal?.open ? (
-				<TerminalPanel
-					chatKey={terminal.chatKey}
-					cwd={activeWorkspaceCwd}
-					height={terminal.height}
-					onAddToChat={
-						isCloudSessionExpired || showingHistoryPreview
-							? undefined
-							: (text) => {
-									const draft = promptDrafts.get(threadId)?.text ?? "";
-									setPromptInput(draft ? `${draft}\n\n${text}` : text);
-									requestPromptInputFocus();
-								}
-					}
-					onClose={terminal.onClose}
-					onHeightChange={terminal.onHeightChange}
-				/>
-			) : null}
 			<AlertDialog
 				open={deleteConfirmOpen}
 				onOpenChange={(open) => {

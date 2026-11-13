@@ -3,18 +3,8 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { MessageSquarePlus, Plus, SquareTerminal, X } from "lucide-react";
-import {
-	type PointerEvent as ReactPointerEvent,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-	useSyncExternalStore,
-} from "react";
-import {
-	clampTerminalPanelHeight,
-	TERMINAL_PANEL_MIN_HEIGHT,
-} from "@/lib/terminal-panel-state";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { WorkspacePanelFrame } from "@/components/views/chat/workspace-panel-frame";
 import {
 	activeTerminalTabId,
 	applyTerminalTheme,
@@ -34,14 +24,12 @@ type TerminalPanelProps = {
 	chatKey: string;
 	/** Directory new shells start in; empty opens the home directory. */
 	cwd: string;
-	height: number;
-	onHeightChange: (height: number) => void;
 	onClose: () => void;
 	onAddToChat?: (text: string) => void;
 };
 
 /**
- * Bottom terminal drawer. Shell tabs are owned by `terminal-sessions` and
+ * Right-hand terminal panel. Shell tabs are owned by `terminal-sessions` and
  * grouped by chat and directory, so this component only decides which tab is
  * visible and keeps xterm sized to the panel.
  */
@@ -57,8 +45,6 @@ const noTabs: TerminalTab[] = [];
 function TerminalPanelForGroup({
 	group,
 	cwd,
-	height,
-	onHeightChange,
 	onClose,
 	onAddToChat,
 }: TerminalPanelProps & { group: string }) {
@@ -140,128 +126,65 @@ function TerminalPanelForGroup({
 		return () => observer.disconnect();
 	}, []);
 
-	const handleResizeStart = useCallback(
-		(event: ReactPointerEvent<HTMLDivElement>) => {
-			if (event.button !== 0) return;
-			event.preventDefault();
-			const startY = event.clientY;
-			const startHeight = height;
-			const previousCursor = document.body.style.cursor;
-			const previousUserSelect = document.body.style.userSelect;
-			document.body.style.cursor = "row-resize";
-			document.body.style.userSelect = "none";
-			const handleMove = (move: PointerEvent) => {
-				// A release outside the window never delivers pointerup.
-				if (!(move.buttons & 1)) {
-					handleUp();
-					return;
-				}
-				onHeightChange(
-					clampTerminalPanelHeight(
-						startHeight + (startY - move.clientY),
-						window.innerHeight,
-					),
-				);
-			};
-			const handleUp = () => {
-				document.body.style.cursor = previousCursor;
-				document.body.style.userSelect = previousUserSelect;
-				window.removeEventListener("pointermove", handleMove);
-				window.removeEventListener("pointerup", handleUp);
-				window.removeEventListener("pointercancel", handleUp);
-			};
-			window.addEventListener("pointermove", handleMove);
-			window.addEventListener("pointerup", handleUp);
-			window.addEventListener("pointercancel", handleUp);
-		},
-		[height, onHeightChange],
-	);
-
 	return (
-		<section
-			aria-label="Terminal"
-			className="relative flex max-h-[80%] shrink-0 flex-col border-t border-border/70 bg-background"
-			style={{ height }}
-		>
-			{/* biome-ignore lint/a11y/useSemanticElements: a separator role is the ARIA pattern for a resize splitter */}
-			<div
-				aria-label="Resize terminal"
-				aria-orientation="horizontal"
-				aria-valuemin={TERMINAL_PANEL_MIN_HEIGHT}
-				aria-valuenow={height}
-				className="group absolute inset-x-0 -top-1.5 z-10 h-3 cursor-row-resize outline-none focus-visible:[&>div]:bg-primary"
-				onKeyDown={(event) => {
-					const step = event.shiftKey ? 80 : 16;
-					const delta =
-						event.key === "ArrowUp"
-							? step
-							: event.key === "ArrowDown"
-								? -step
-								: 0;
-					if (!delta) return;
-					event.preventDefault();
-					onHeightChange(
-						clampTerminalPanelHeight(height + delta, window.innerHeight),
-					);
-				}}
-				onPointerDown={handleResizeStart}
-				role="separator"
-				tabIndex={0}
+		<WorkspacePanelFrame id="terminal-panel">
+			<section
+				aria-label="Terminal"
+				className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
 			>
-				<div className="absolute left-1/2 top-1/2 h-[3px] w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
-			</div>
-			{/* Tabs sit on the strip's bottom border; the active one paints over
+				{/* Tabs sit on the strip's bottom border; the active one paints over
 			    it so it reads as attached to the terminal below. */}
-			<div className="flex h-9 shrink-0 items-end gap-1 border-b border-border/60 bg-sidebar/50 px-2">
-				<div className="flex min-w-0 items-end gap-0.5">
-					{/* Tabs shrink and truncate rather than overflow, so + and hide stay reachable. */}
-					{tabs.map((tab) => (
-						<TerminalTabButton
-							active={tab.id === activeTab?.id}
-							key={tab.id}
-							onClose={() => void killTerminalTab(tab)}
-							onSelect={() => setActiveTerminalTab(group, tab.id)}
-							tab={tab}
-						/>
-					))}
-					<button
-						aria-label="New terminal"
-						className="mb-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-						onClick={() => createTerminalTab(group, cwd)}
-						title="New terminal"
-						type="button"
-					>
-						<Plus className="size-3.5" />
-					</button>
+				<div className="flex h-9 shrink-0 items-end gap-1 border-b border-border/60 bg-sidebar/50 px-2">
+					<div className="flex min-w-0 items-end gap-0.5">
+						{/* Tabs shrink and truncate rather than overflow, so + and hide stay reachable. */}
+						{tabs.map((tab) => (
+							<TerminalTabButton
+								active={tab.id === activeTab?.id}
+								key={tab.id}
+								onClose={() => void killTerminalTab(tab)}
+								onSelect={() => setActiveTerminalTab(group, tab.id)}
+								tab={tab}
+							/>
+						))}
+						<button
+							aria-label="New terminal"
+							className="mb-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+							onClick={() => createTerminalTab(group, cwd)}
+							title="New terminal"
+							type="button"
+						>
+							<Plus className="size-3.5" />
+						</button>
+					</div>
+					<div className="mb-0.5 ml-auto flex shrink-0 items-center">
+						<button
+							className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+							disabled={!selection.trim() || !onAddToChat}
+							onMouseDown={(event) => event.preventDefault()}
+							onClick={() => onAddToChat?.(selection)}
+							title="Add selected terminal text to the current chat"
+							type="button"
+						>
+							<MessageSquarePlus className="size-3.5" />
+							Add to chat
+						</button>
+						<button
+							aria-label="Hide terminal"
+							className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+							onClick={onClose}
+							title="Hide terminal (Ctrl+`)"
+							type="button"
+						>
+							<X className="size-3.5" />
+						</button>
+					</div>
 				</div>
-				<div className="mb-0.5 ml-auto flex shrink-0 items-center">
-					<button
-						className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-						disabled={!selection.trim() || !onAddToChat}
-						onMouseDown={(event) => event.preventDefault()}
-						onClick={() => onAddToChat?.(selection)}
-						title="Add selected terminal text to the current chat"
-						type="button"
-					>
-						<MessageSquarePlus className="size-3.5" />
-						Add to chat
-					</button>
-					<button
-						aria-label="Hide terminal"
-						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-						onClick={onClose}
-						title="Hide terminal (Ctrl+`)"
-						type="button"
-					>
-						<X className="size-3.5" />
-					</button>
-				</div>
-			</div>
-			<div
-				className="cline-chat-selectable min-h-0 flex-1 overflow-hidden px-3 py-2"
-				ref={hostRef}
-			/>
-		</section>
+				<div
+					className="cline-chat-selectable min-h-0 flex-1 overflow-hidden px-3 py-2"
+					ref={hostRef}
+				/>
+			</section>
+		</WorkspacePanelFrame>
 	);
 }
 

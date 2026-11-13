@@ -73,9 +73,7 @@ describe("terminal selection to chat", () => {
 				<TerminalPanel
 					chatKey="chat-a"
 					cwd="/workspace"
-					height={280}
 					onClose={() => {}}
-					onHeightChange={() => {}}
 					onAddToChat={onAddToChat}
 				/>,
 			),
@@ -84,6 +82,19 @@ describe("terminal selection to chat", () => {
 			button.textContent?.includes("Add to chat"),
 		)!;
 	}
+
+	it("fills the resizable right-hand file-view column without a bottom drawer", async () => {
+		await render();
+		const frame = container.querySelector("#terminal-panel");
+		expect(frame?.className).toContain("col-start-2");
+		expect(frame?.className).toContain("row-span-2");
+		const panel = container.querySelector('[aria-label="Terminal"]');
+		expect(panel?.className).toContain("flex-1");
+		expect(panel?.getAttribute("style")).toBeNull();
+		expect(
+			container.querySelector('[aria-label="Resize terminal"]'),
+		).toBeNull();
+	});
 
 	async function select(text: string) {
 		await act(async () => {
