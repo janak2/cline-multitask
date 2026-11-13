@@ -1092,7 +1092,7 @@ describe("MessageBuilder with structured ToolOperationResult content", () => {
 
 		expect(serialized).not.toContain(bigImage);
 		expect(serialized).toContain(
-			"4400x3400 px is larger than the 2000 px limit",
+			"4400x3400 px is larger than the 3000 px limit",
 		);
 		expect(serialized).toContain(smallImage);
 		expect(JSON.stringify(messages)).toBe(original);

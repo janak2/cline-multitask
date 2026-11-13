@@ -347,7 +347,7 @@ describe("createFileReadExecutor", () => {
 						metadata: { modelSupportsImages: true },
 					},
 				),
-			).rejects.toThrow(/4400x3400 px.*at most 2000 px.*-scale-to 2000/);
+			).rejects.toThrow(/4400x3400 px.*at most 3000 px.*-scale-to 3000/);
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
 		}

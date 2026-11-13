@@ -277,13 +277,14 @@ describe("image dimensions", () => {
 	});
 
 	it("flags only images whose longest side exceeds the limit", () => {
-		expect(oversizedImageDimensions(pngHeader(2000, 2000))).toBeUndefined();
-		expect(oversizedImageDimensions(pngHeader(2001, 10))).toEqual({
-			width: 2001,
+		expect(oversizedImageDimensions(pngHeader(1290, 2796))).toBeUndefined();
+		expect(oversizedImageDimensions(pngHeader(3000, 3000))).toBeUndefined();
+		expect(oversizedImageDimensions(pngHeader(3001, 10))).toEqual({
+			width: 3001,
 			height: 10,
 		});
 		expect(oversizedImageDimensions(Buffer.from("unknown"))).toBeUndefined();
 		expect(imageTooLargePlaceholder(4400, 3400)).toContain("4400x3400");
-		expect(DEFAULT_MAX_IMAGE_DIMENSION_PX).toBe(2000);
+		expect(DEFAULT_MAX_IMAGE_DIMENSION_PX).toBe(3000);
 	});
 });

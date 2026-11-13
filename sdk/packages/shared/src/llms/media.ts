@@ -86,10 +86,12 @@ export const DEFAULT_MAX_TOTAL_MEDIA_BYTES = 8 * 1024 * 1024;
 
 /**
  * Longest side, in pixels, of an image sent to a model. Providers reject
- * larger images once a request carries many of them, and because history is
- * resent every turn, one such image fails every later turn of the session.
+ * larger images once a request carries many of them ("max allowed size for
+ * many-image requests: 3000 pixels"), and because history is resent every
+ * turn, one such image fails every later turn of the session. Phone
+ * screenshots (up to about 2900 px tall) fit.
  */
-export const DEFAULT_MAX_IMAGE_DIMENSION_PX = 2000;
+export const DEFAULT_MAX_IMAGE_DIMENSION_PX = 3000;
 
 /**
  * Text sent in place of an image whose longest side exceeds
