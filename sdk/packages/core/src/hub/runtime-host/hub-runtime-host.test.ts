@@ -2217,3 +2217,25 @@ describe("HubRuntimeHost MCP Apps commands", () => {
 		).rejects.toThrow("cannot be called by an app");
 	});
 });
+
+describe("readRemoteTurnPrompt", () => {
+	it("announces another client's message but not this client's own", async () => {
+		const { readRemoteTurnPrompt } = await import("./hub-runtime-host");
+		const payload = {
+			clientId: "phone",
+			requestId: "req-1",
+			prompt: "hello",
+			attachmentCount: 0,
+		};
+		expect(readRemoteTurnPrompt(payload, "desktop")).toEqual({
+			id: "remote_req-1",
+			prompt: "hello",
+			delivery: "queue",
+			attachmentCount: 0,
+		});
+		expect(readRemoteTurnPrompt(payload, "phone")).toBeUndefined();
+		expect(
+			readRemoteTurnPrompt({ clientId: "phone", requestId: "r" }, "desktop"),
+		).toBeUndefined();
+	});
+});

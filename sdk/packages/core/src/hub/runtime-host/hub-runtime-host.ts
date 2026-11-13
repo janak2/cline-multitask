@@ -584,6 +584,46 @@ export interface HubRuntimeHostOptions {
 	telemetry?: ITelemetryService;
 }
 
+/**
+ * The user message of a turn started by a different client, from the
+ * run.started event that carries it. Undefined for this client's own turns
+ * and for events without a message.
+ */
+export function readRemoteTurnPrompt(
+	payload: Record<string, unknown> | undefined,
+	ownClientId: string,
+):
+	| {
+			id: string;
+			prompt: string;
+			delivery: "queue";
+			attachmentCount: number;
+			userImages?: string[];
+	  }
+	| undefined {
+	const clientId = payload?.clientId;
+	const requestId = payload?.requestId;
+	if (typeof clientId !== "string" || clientId === ownClientId)
+		return undefined;
+	if (typeof requestId !== "string" || !requestId) return undefined;
+	const prompt = typeof payload?.prompt === "string" ? payload.prompt : "";
+	const attachmentCount =
+		typeof payload?.attachmentCount === "number" ? payload.attachmentCount : 0;
+	if (!prompt.trim() && attachmentCount === 0) return undefined;
+	const userImages = Array.isArray(payload?.userImages)
+		? payload.userImages.filter(
+				(image): image is string => typeof image === "string",
+			)
+		: undefined;
+	return {
+		id: `remote_${requestId}`,
+		prompt,
+		delivery: "queue",
+		attachmentCount,
+		...(userImages?.length ? { userImages } : {}),
+	};
+}
+
 function mapStatus(
 	status: HubSessionRecord["status"] | undefined,
 ): SessionStatus {
@@ -1804,6 +1844,19 @@ export class HubRuntimeHost implements RuntimeHost {
 						status: session?.status ?? "running",
 					},
 				});
+				// A turn another client started (e.g. from a phone): announce its
+				// user message now, the same way a queued prompt that starts is
+				// announced. This client's own sends already show their message.
+				const remotePrompt = readRemoteTurnPrompt(
+					event.payload,
+					this.client.getClientId(),
+				);
+				if (remotePrompt) {
+					emit({
+						type: "pending_prompt_submitted",
+						payload: { sessionId, ...remotePrompt },
+					});
+				}
 				return;
 			}
 			case "iteration.started": {

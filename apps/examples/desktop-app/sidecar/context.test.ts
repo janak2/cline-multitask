@@ -851,6 +851,50 @@ describe("Code sidecar runtime capabilities", () => {
 		});
 	});
 
+	it("shows a message another client sent to a watched chat when its turn starts", async () => {
+		const { createSidecarContext, handleHubLiveEvent } = await import(
+			"./context"
+		);
+		const ctx = createSidecarContext("/workspace/project");
+		ctx.wsClients.add({ send: vi.fn() });
+		ctx.liveSessions.set("session-1", {
+			config: {},
+			messages: [],
+			promptsInQueue: [],
+			busy: false,
+			startedAt: Date.now(),
+			status: "idle",
+			attachedViaHub: true,
+		});
+
+		handleHubLiveEvent(ctx, {
+			event: "run.started",
+			sessionId: "session-1",
+			payload: {
+				requestId: "req-1",
+				clientId: "phone",
+				prompt: "sent from the phone",
+				attachmentCount: 0,
+			},
+		});
+
+		const starts = readEvents(ctx).filter(
+			(message) =>
+				message.event.name === "chat_event" &&
+				(message.event.payload as { stream?: string }).stream ===
+					"chat_queued_prompt_start",
+		);
+		expect(starts).toHaveLength(1);
+		expect(
+			JSON.parse(
+				String((starts[0]?.event.payload as { chunk?: string }).chunk),
+			),
+		).toMatchObject({
+			promptId: "remote_req-1",
+			prompt: "sent from the phone",
+		});
+	});
+
 	it("keeps raw hub teammate output out of the lead's chat but keeps usage", async () => {
 		const { createSidecarContext, handleHubLiveEvent } = await import(
 			"./context"

@@ -245,12 +245,28 @@ export async function handleSessionInput(
 	if (!session) {
 		return sessionNotFoundReply(envelope, sessionId);
 	}
+	// An input that starts a turn right away carries its text, so other
+	// clients showing this session can show the user's message as soon as it
+	// is sent instead of after the turn is saved. Input to a busy session is
+	// queued and announced by session.pending_prompt_submitted when it starts.
+	const startsNow =
+		session.status !== "running" &&
+		payload.delivery !== "queue" &&
+		payload.delivery !== "steer";
 	ctx.publish(
 		ctx.buildEvent(
 			"run.started",
 			{
 				...(envelope.requestId ? { requestId: envelope.requestId } : {}),
 				...(envelope.clientId ? { clientId: envelope.clientId } : {}),
+				...(startsNow
+					? {
+							prompt,
+							attachmentCount:
+								(userImages?.length ?? 0) + (userFiles?.length ?? 0),
+							...(userImages?.length ? { userImages } : {}),
+						}
+					: {}),
 			},
 			sessionId,
 		),

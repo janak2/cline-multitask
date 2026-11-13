@@ -66,10 +66,55 @@ describe("run handlers", () => {
 				payload: {
 					clientId: "client-1",
 					requestId: "req-input",
+					prompt: "go",
+					attachmentCount: 0,
 				},
 				sessionId: "session-1",
 			}),
 		);
+	});
+
+	it("includes the user's message when the turn starts right away", async () => {
+		const ctx = createContext({
+			runTurn: vi.fn().mockResolvedValue(undefined),
+		});
+		await handleSessionInput(ctx, {
+			version: "v1",
+			command: "session.send_input",
+			requestId: "req-1",
+			clientId: "phone",
+			sessionId: "session-1",
+			payload: { prompt: "from the phone" },
+		});
+		expect(ctx.events).toContainEqual(
+			expect.objectContaining({
+				event: "run.started",
+				payload: expect.objectContaining({
+					prompt: "from the phone",
+					attachmentCount: 0,
+				}),
+			}),
+		);
+	});
+
+	it("leaves the message out when the input is queued behind a running turn", async () => {
+		const ctx = createContext({
+			runTurn: vi.fn().mockResolvedValue(undefined),
+			getSession: vi.fn().mockResolvedValue({
+				sessionId: "session-1",
+				status: "running",
+			}),
+		});
+		await handleSessionInput(ctx, {
+			version: "v1",
+			command: "session.send_input",
+			requestId: "req-2",
+			clientId: "phone",
+			sessionId: "session-1",
+			payload: { prompt: "wait your turn" },
+		});
+		const started = ctx.events.find((event) => event.event === "run.started");
+		expect(started?.payload).not.toHaveProperty("prompt");
 	});
 
 	it("accepts image-only input and rejects blank attachments", async () => {

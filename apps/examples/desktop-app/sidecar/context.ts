@@ -1233,6 +1233,30 @@ export function handleHubLiveEvent(
 			if (statusChanged) {
 				sendEvent(ctx, "chat_session_status", { sessionId, status });
 			}
+			// A watched chat that another client (e.g. the phone) just sent a
+			// message to: show the message now, not after the turn is saved.
+			// This app's own sends never reach here (sending stops watching).
+			if (
+				event.event === "run.started" &&
+				typeof event.payload?.requestId === "string" &&
+				(typeof event.payload.prompt === "string" ||
+					typeof event.payload.attachmentCount === "number")
+			) {
+				emitQueuedPromptStart(ctx, sessionId, session, {
+					promptId: `remote_${event.payload.requestId}`,
+					prompt:
+						typeof event.payload.prompt === "string"
+							? event.payload.prompt
+							: "",
+					attachmentCount:
+						typeof event.payload.attachmentCount === "number"
+							? event.payload.attachmentCount
+							: 0,
+					userImages: Array.isArray(event.payload.userImages)
+						? (event.payload.userImages as string[])
+						: undefined,
+				});
+			}
 			return;
 		}
 		case "agent.done":
