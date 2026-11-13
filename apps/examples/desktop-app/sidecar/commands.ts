@@ -224,6 +224,7 @@ import {
 	parseSourceControlAction,
 	runSourceControlAction,
 } from "./source-control";
+import { opensInSystemDefaultApp } from "./system-default-app";
 import {
 	clearTerminalSnapshots,
 	publishTerminalSnapshot,
@@ -1920,6 +1921,10 @@ async function openFileInCodeEditor(
 	filePath: string,
 	editorId?: string,
 ): Promise<string> {
+	if (!editorId && opensInSystemDefaultApp(filePath)) {
+		openFileInEditor(filePath);
+		return "system default";
+	}
 	if (
 		process.platform === "win32" &&
 		WINDOWS_CMD_UNSAFE_PATTERN.test(filePath)
