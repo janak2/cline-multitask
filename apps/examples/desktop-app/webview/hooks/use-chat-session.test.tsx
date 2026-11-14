@@ -7557,6 +7557,100 @@ describe("coerced-queue first turn vs stale send response", () => {
 		}
 	}
 
+	it.each([
+		"reply",
+		"event",
+	] as const)("keeps a backend-queued submission out of chat until it starts (%s)", async (source) => {
+		const sendResolvers = mockTransport();
+		const { sendPromise } = await dispatchPrompt("waiting prompt");
+		const sid = current.sessionId;
+		const items = [
+			{ id: "waiting-id", prompt: "waiting prompt", steer: false },
+		];
+		await act(async () => {
+			if (source === "event") {
+				handlerFor("prompts_in_queue_state")({ sessionId: sid, items });
+			} else {
+				sendResolvers[0]?.({
+					sessionId: sid,
+					ok: true,
+					queued: true,
+					promptsInQueue: items,
+				});
+				await sendPromise;
+			}
+		});
+		expect(current.promptsInQueue).toEqual(items);
+		expect(
+			current.messages.filter((message) => message.role === "user"),
+		).toEqual([]);
+		await act(async () => {
+			emitTurnEvents(getChatEventHandler(), sid, [
+				{
+					stream: "chat_queued_prompt_start",
+					chunk: JSON.stringify({
+						promptId: "waiting-id",
+						prompt: "waiting prompt",
+					}),
+					index: 1,
+				},
+			]);
+		});
+		expect(current.promptsInQueue).toEqual([]);
+		expect(
+			current.messages
+				.filter((message) => message.role === "user")
+				.map((message) => message.content),
+		).toEqual(["waiting prompt"]);
+		if (source === "event") {
+			await act(async () => {
+				sendResolvers[0]?.({
+					sessionId: sid,
+					ok: true,
+					queued: true,
+					promptsInQueue: items,
+				});
+				await sendPromise;
+			});
+			expect(current.promptsInQueue).toEqual([]);
+		}
+	});
+
+	it("keeps an earlier identical user message when a new submission is queued", async () => {
+		const sendResolvers = mockTransport({ deferredSendCount: 2 });
+		const first = await dispatchPrompt("repeat");
+		const sid = current.sessionId;
+		await act(async () => {
+			emitTurnEvents(getChatEventHandler(), sid, [
+				{
+					stream: "chat_queued_prompt_start",
+					chunk: JSON.stringify({ promptId: "first", prompt: "repeat" }),
+					index: 1,
+				},
+				{
+					stream: "chat_done",
+					chunk: JSON.stringify({ reason: "completed" }),
+					index: 2,
+				},
+			]);
+			sendResolvers[0]?.({ sessionId: sid, ok: true, queued: true });
+			await first.sendPromise;
+		});
+		const second = await dispatchPrompt("repeat");
+		await act(async () => {
+			sendResolvers[1]?.({
+				sessionId: sid,
+				ok: true,
+				queued: true,
+				promptsInQueue: [{ id: "second", prompt: "repeat", steer: false }],
+			});
+			await second.sendPromise;
+		});
+		const users = current.messages.filter((message) => message.role === "user");
+		expect(users.map((message) => message.id)).toEqual(["queued_user_first"]);
+		expect(current.promptsInQueue.map((item) => item.id)).toEqual(["second"]);
+	});
+
 	it("ignores a queue refresh captured before the queued turn started", async () => {
 		mockTransport();
 		const invoke = invokeMock.getMockImplementation();

@@ -1258,14 +1258,39 @@ export function useChatSession(environmentId: string) {
 		[postSession, setPromptsInQueue],
 	);
 
+	const retractQueuedOptimisticMessages = useCallback(
+		(items: PromptInQueue[]) => {
+			const remaining = [...items];
+			const ids = new Set<string>();
+			for (const message of messagesRef.current) {
+				if (!outstandingOptimisticUserIdsRef.current.has(message.id)) continue;
+				const index = remaining.findIndex(
+					(item) => item.prompt === message.content,
+				);
+				if (index === -1) continue;
+				remaining.splice(index, 1);
+				ids.add(message.id);
+				outstandingOptimisticUserIdsRef.current.delete(message.id);
+				retainedPendingUserIdsRef.current.delete(message.id);
+				cloudOptimisticStatesRef.current.delete(message.id);
+			}
+			if (ids.size > 0) {
+				setMessages((prev) => prev.filter((message) => !ids.has(message.id)));
+			}
+		},
+		[],
+	);
+
 	const applyPromptsInQueue = useCallback(
 		(value: unknown) => {
 			if (!Array.isArray(value)) {
 				return;
 			}
-			setPromptsInQueue(value as PromptInQueue[]);
+			const items = value as PromptInQueue[];
+			retractQueuedOptimisticMessages(items);
+			setPromptsInQueue(items);
 		},
-		[setPromptsInQueue],
+		[retractQueuedOptimisticMessages, setPromptsInQueue],
 	);
 
 	const sessionDiffCwd = (config.cwd || config.workspaceRoot || "").trim();
@@ -1756,9 +1781,9 @@ export function useChatSession(environmentId: string) {
 				items?: PromptInQueue[];
 			};
 			if (record.sessionId !== activeSessionIdRef.current) return;
-			setPromptsInQueue(Array.isArray(record.items) ? record.items : []);
+			applyPromptsInQueue(Array.isArray(record.items) ? record.items : []);
 		});
-	}, [setPromptsInQueue, subscribeToEnvironment]);
+	}, [applyPromptsInQueue, subscribeToEnvironment]);
 
 	useEffect(() => {
 		return subscribeToEnvironment("multitask_state", (payload) => {
