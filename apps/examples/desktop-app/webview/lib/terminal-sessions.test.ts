@@ -65,6 +65,36 @@ describe("terminal tabs per chat", () => {
 			[],
 		);
 	});
+
+	it("preserves both groups and the original active shell if the saved group already exists", async () => {
+		const source = terminalGroupKey("thread:collision", "/repo");
+		const target = terminalGroupKey("saved-collision", "/repo");
+		const original = createTerminalTab(source, "/repo");
+		const shell = { write: vi.fn(), resize: vi.fn() };
+		original.pty = shell;
+		original.status = "running";
+		const term = original.term;
+		const replacement = createTerminalTab(target, "/repo");
+		renameTerminalChat("thread:collision", "saved-collision");
+		expect(listTerminalTabs(target)).toEqual([original, replacement]);
+		expect(activeTerminalTabId(target)).toBe(original.id);
+		expect(original.group).toBe(target);
+		expect(original.pty).toBe(shell);
+		expect(original.term).toBe(term);
+		expect(original.status).toBe("running");
+		expect(listTerminalTabs(source)).toEqual([]);
+		await killTerminalTab(original);
+		await killTerminalTab(replacement);
+	});
+
+	it("leaves shells alone when asked to rename a chat to itself", async () => {
+		const group = terminalGroupKey("same-chat", "/repo");
+		const tab = createTerminalTab(group, "/repo");
+		renameTerminalChat("same-chat", "same-chat");
+		expect(listTerminalTabs(group)).toEqual([tab]);
+		expect(activeTerminalTabId(group)).toBe(tab.id);
+		await killTerminalTab(tab);
+	});
 });
 
 describe("terminal text shared with Cline Hub", () => {

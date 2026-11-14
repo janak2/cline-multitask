@@ -160,18 +160,19 @@ export function renameTerminalChat(
 	fromChatKey: string,
 	toChatKey: string,
 ): void {
+	if (fromChatKey === toChatKey) return;
 	let moved = false;
 	for (const [group, tabs] of [...tabsByGroup]) {
 		const prefix = `${fromChatKey}\u0000`;
 		if (!group.startsWith(prefix)) continue;
 		const next = `${toChatKey}\u0000${group.slice(prefix.length)}`;
-		if (tabsByGroup.has(next)) continue;
+		const existing = tabsByGroup.get(next) ?? [];
 		for (const tab of tabs) {
 			tab.group = next;
 			// Re-save so Cline Hub links the shell to the chat's new session id.
 			scheduleSnapshot(tab);
 		}
-		tabsByGroup.set(next, tabs);
+		tabsByGroup.set(next, existing.length ? [...tabs, ...existing] : tabs);
 		tabsByGroup.delete(group);
 		const active = activeIdByGroup.get(group);
 		if (active) activeIdByGroup.set(next, active);

@@ -80,6 +80,7 @@ import { PromptDraftCache, usePromptDraft } from "@/hooks/use-prompt-draft";
 import { useRemoteEnvironmentBootstrap } from "@/hooks/use-remote-environment-bootstrap";
 import { useSessionAgents } from "@/hooks/use-session-agents";
 import { useSessionHistory } from "@/hooks/use-session-history";
+import { useTerminalChatHandoff } from "@/hooks/use-terminal-chat-handoff";
 import { toast } from "@/hooks/use-toast";
 import { applyAppZoomAction, syncAppFontSize } from "@/lib/app-font-size";
 import { syncAppIcon } from "@/lib/app-icon";
@@ -970,46 +971,24 @@ function App() {
 			: null;
 	// The chat the terminal panel belongs to: its saved session once it has
 	// one, otherwise the new chat's own thread id.
-	const terminalChatKey =
+	const savedTerminalChatKey =
 		(activeThread?.workspaceSessionId
 			? sessionKey({
 					environmentId: activeThread.environmentId,
 					sessionId: activeThread.workspaceSessionId,
 				})
-			: activeHistorySessionId) ??
-		(activeThread ? `thread:${activeThread.id}` : null);
+			: activeHistorySessionId) ?? null;
+	const activeThreadKey = activeThread ? `thread:${activeThread.id}` : null;
+	const terminalChatKey = useTerminalChatHandoff(
+		activeThreadKey,
+		savedTerminalChatKey,
+		terminalPanels,
+		updateTerminalPanels,
+	);
 	terminalChatKeyRef.current = terminalChatKey;
 	const terminalOpenForChat = Boolean(
 		terminalChatKey && terminalPanels.openChats.includes(terminalChatKey),
 	);
-	// A new chat gains its session id on its first message; keep its open
-	// terminal by moving it from the thread key to the session key.
-	const activeThreadKey = activeThread ? `thread:${activeThread.id}` : null;
-	useEffect(() => {
-		if (
-			!activeThreadKey ||
-			!activeHistorySessionId ||
-			!terminalPanels.openChats.includes(activeThreadKey)
-		)
-			return;
-		// Loaded on demand: the shell store pulls in xterm, which the terminal
-		// panel already loads lazily.
-		void import("@/lib/terminal-sessions").then((sessions) =>
-			sessions.renameTerminalChat(activeThreadKey, activeHistorySessionId),
-		);
-		updateTerminalPanels((current) =>
-			setTerminalOpenForChat(
-				setTerminalOpenForChat(current, activeThreadKey, false),
-				activeHistorySessionId,
-				true,
-			),
-		);
-	}, [
-		activeHistorySessionId,
-		activeThreadKey,
-		terminalPanels.openChats,
-		updateTerminalPanels,
-	]);
 	const activeLocationRef = useRef(appState.navigation.current);
 	activeLocationRef.current = appState.navigation.current;
 	const handleHome = useCallback(() => {
