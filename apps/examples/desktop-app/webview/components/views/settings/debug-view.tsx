@@ -1,5 +1,6 @@
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { UiPerformanceControls } from "@/components/ui-performance-controls";
 import { PageFrame, PageHeader } from "../page-layout";
 
 export function DebugContent({
@@ -14,6 +15,7 @@ export function DebugContent({
 				description="Tools for troubleshooting Cline."
 			/>
 			<section className="max-w-344">
+				<UiPerformanceControls />
 				<div className="flex py-4 items-center justify-between gap-5 max-[720px]:flex-col max-[720px]:items-stretch max-[720px]:py-4">
 					<div className="flex flex-col gap-1">
 						<p className="text-base font-semibold text-foreground">

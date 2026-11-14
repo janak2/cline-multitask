@@ -12,6 +12,7 @@ import {
 import dynamic from "next/dynamic";
 import {
 	Activity,
+	Profiler,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -44,6 +45,7 @@ import {
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { ToastAction } from "@/components/ui/toast";
+import { UiPerformanceControls } from "@/components/ui-performance-controls";
 import { normalizeTitle } from "@/components/utils";
 import { ChatInputBar } from "@/components/views/chat/chat-input-bar";
 import { ChatMessages } from "@/components/views/chat/chat-messages";
@@ -183,6 +185,7 @@ import {
 	writeTerminalPanelsState,
 } from "@/lib/terminal-panel-state";
 import { syncHubAccent, syncHubTheme, watchSystemHubTheme } from "@/lib/theme";
+import { recordReactRender, uiPerformance } from "@/lib/ui-performance";
 import { cn } from "@/lib/utils";
 import {
 	markCurrentWhatsNewSeen,
@@ -425,12 +428,15 @@ export default function Home() {
 		<>
 			{loaded ? (
 				<Activity mode={hubReady ? "visible" : "hidden"}>
-					<App />
+					<Profiler id="app" onRender={recordReactRender}>
+						<App />
+					</Profiler>
 				</Activity>
 			) : null}
 			{hubReady ? null : <HubStartupScreen {...startup} />}
 			{/* Outside the gate: the startup mismatch check can fire before App mounts. */}
 			<HubUpdateRequiredDialog />
+			<UiPerformanceControls floating />
 		</>
 	);
 }
@@ -565,6 +571,7 @@ function App() {
 		activeRemoteEnvironment?.id ?? LOCAL_WORKSPACE_ENVIRONMENT_ID;
 
 	const navigate = useCallback((destination: AppLocation) => {
+		uiPerformance.beginSessionSwitch();
 		dispatchApp({ type: "navigate", destination });
 	}, []);
 	const navigateWith = useCallback(
@@ -574,9 +581,11 @@ function App() {
 		[navigate, navigation.current],
 	);
 	const handleNavigateBack = useCallback(() => {
+		uiPerformance.beginSessionSwitch();
 		dispatchApp({ type: "back" });
 	}, []);
 	const handleNavigateForward = useCallback(() => {
+		uiPerformance.beginSessionSwitch();
 		dispatchApp({ type: "forward" });
 	}, []);
 
@@ -865,6 +874,7 @@ function App() {
 			initialAttachments?: File[],
 			workspaceSessionId?: string,
 		): Promise<HandoffOpenResult> => {
+			uiPerformance.beginSessionSwitch();
 			if (initialAttachments) {
 				const thread = threadsRef.current.find(
 					(item) =>
@@ -3334,6 +3344,14 @@ function ChatThreadPane({
 
 	const isAppReady =
 		chatTransportState === "connected" && providersLoaded && workspacesLoaded;
+	useEffect(() => {
+		uiPerformance.setContext(
+			status === "running" || status === "starting",
+			displayedMessages.length,
+		);
+		if (isAppReady && !displayedIsSwitching)
+			uiPerformance.finishSessionSwitch();
+	}, [status, displayedMessages.length, isAppReady, displayedIsSwitching]);
 
 	if (!isAppReady) {
 		return (
@@ -3356,55 +3374,59 @@ function ChatThreadPane({
 	}
 
 	const chatComposer = (
-		<ChatInputBar
-			sessionId={sessionId}
-			readOnly={isCloudSessionExpired || showingHistoryPreview}
-			attachments={attachmentList}
-			cloudHandoffAvailable={cloudAgentsEnabled}
-			environmentId={environmentId}
-			hasRunningAgents={agentActivity.running > 0}
-			onAbort={handleAbort}
-			onAttachFiles={handleAttachFiles}
-			onListGitBranches={listGitBranches}
-			onRemoveAttachment={handleRemoveAttachment}
-			onSwitchGitBranch={switchGitBranch}
-			onModelChange={handleModelChange}
-			onModeToggle={handleModeToggle}
-			onPromptInputChange={handlePromptInputChange}
-			onOpenModelSettings={onOpenModelSettings}
-			onOpenLocalModels={onOpenLocalModels}
-			onReasoningChange={handleReasoningChange}
-			onSteerPromptInQueue={steerPromptInQueue}
-			onEditPromptInQueue={updatePromptInQueue}
-			onRemovePromptInQueue={handleRemoveQueuedPrompt}
-			onProviderChange={handleProviderChange}
-			onSend={handleSendPrompt}
-			onDisableMultitask={handleDisableMultitask}
-			gitBranch={gitBranch}
-			cloudBranch={config.branch}
-			executionTarget={isCloudSession ? "cloud" : "local"}
-			hasActiveSession={Boolean(sessionId)}
-			repoUrl={config.repoUrl}
-			model={config.model}
-			modelContextWindow={modelContextWindow}
-			mode={config.mode}
-			multitaskEnabled={multitaskEnabled}
-			activeTeammateRuns={activeTeammateRuns}
-			waitingTeammateRuns={waitingTeammateRuns}
-			promptsInQueue={promptsInQueue}
-			promptDraft={promptDraft}
-			provider={config.provider}
-			reasoningEffort={config.reasoningEffort}
-			status={status}
-			placeholder={showingHistoryPreview ? "Getting session ready…" : undefined}
-			isCompacting={isCompacting}
-			summary={summary}
-			thinking={config.thinking}
-			variant={isWelcomeState ? "welcome" : "conversation"}
-		/>
+		<Profiler id="composer" onRender={recordReactRender}>
+			<ChatInputBar
+				sessionId={sessionId}
+				readOnly={isCloudSessionExpired || showingHistoryPreview}
+				attachments={attachmentList}
+				cloudHandoffAvailable={cloudAgentsEnabled}
+				environmentId={environmentId}
+				hasRunningAgents={agentActivity.running > 0}
+				onAbort={handleAbort}
+				onAttachFiles={handleAttachFiles}
+				onListGitBranches={listGitBranches}
+				onRemoveAttachment={handleRemoveAttachment}
+				onSwitchGitBranch={switchGitBranch}
+				onModelChange={handleModelChange}
+				onModeToggle={handleModeToggle}
+				onPromptInputChange={handlePromptInputChange}
+				onOpenModelSettings={onOpenModelSettings}
+				onOpenLocalModels={onOpenLocalModels}
+				onReasoningChange={handleReasoningChange}
+				onSteerPromptInQueue={steerPromptInQueue}
+				onEditPromptInQueue={updatePromptInQueue}
+				onRemovePromptInQueue={handleRemoveQueuedPrompt}
+				onProviderChange={handleProviderChange}
+				onSend={handleSendPrompt}
+				onDisableMultitask={handleDisableMultitask}
+				gitBranch={gitBranch}
+				cloudBranch={config.branch}
+				executionTarget={isCloudSession ? "cloud" : "local"}
+				hasActiveSession={Boolean(sessionId)}
+				repoUrl={config.repoUrl}
+				model={config.model}
+				modelContextWindow={modelContextWindow}
+				mode={config.mode}
+				multitaskEnabled={multitaskEnabled}
+				activeTeammateRuns={activeTeammateRuns}
+				waitingTeammateRuns={waitingTeammateRuns}
+				promptsInQueue={promptsInQueue}
+				promptDraft={promptDraft}
+				provider={config.provider}
+				reasoningEffort={config.reasoningEffort}
+				status={status}
+				placeholder={
+					showingHistoryPreview ? "Getting session ready…" : undefined
+				}
+				isCompacting={isCompacting}
+				summary={summary}
+				thinking={config.thinking}
+				variant={isWelcomeState ? "welcome" : "conversation"}
+			/>
+		</Profiler>
 	);
 	const composer = (
-		<div className="w-full">
+		<div className="w-full" data-ui-performance="composer">
 			{handoffUi && sourceSessionId && (
 				<CloudHandoffStatus
 					state={handoffUi}
@@ -3545,61 +3567,63 @@ function ChatThreadPane({
 							// Keep opening an existing cloud session visually continuous.
 							<CloudProvisioningPane phase="Opening session..." />
 						) : (
-							<ChatMessages
-								environmentId={environmentId}
-								hasOlderMessages={hasOlderMessages}
-								isLoadingOlderMessages={isLoadingOlderMessages}
-								onLoadOlderMessages={loadOlderMessages}
-								onAnswerAskQuestion={handleAnswerAskQuestion}
-								onApproveToolApproval={handleApproveToolApproval}
-								onRejectToolApproval={handleRejectToolApproval}
-								chatTransportState={chatTransportState}
-								activityLabel={activityLabel}
-								error={cloudSessionError?.message ?? displayedError}
-								errorAction={
-									cloudConnectUrl
-										? {
-												label: "Connect GitHub",
-												onClick: () => openGitHubConnect(cloudConnectUrl),
-											}
-										: undefined
-								}
-								importedFromTool={importedFromTool}
-								messages={displayedMessages}
-								onEditMessage={isCloudSession ? undefined : handleEditMessage}
-								onRestoreCheckpoint={
-									isCloudSession ? undefined : handleRestoreCheckpoint
-								}
-								onForkSession={isCloudSession ? undefined : handleForkSession}
-								onProceedWhileRunning={
-									isCloudSession ? undefined : proceedWhileRunning
-								}
-								startingLabel={
-									isProvisioningCloudSession
-										? provisioningPhase
-										: isCloudSession && !displayedSessionId
-											? provisioningPhase
+							<Profiler id="conversation" onRender={recordReactRender}>
+								<ChatMessages
+									environmentId={environmentId}
+									hasOlderMessages={hasOlderMessages}
+									isLoadingOlderMessages={isLoadingOlderMessages}
+									onLoadOlderMessages={loadOlderMessages}
+									onAnswerAskQuestion={handleAnswerAskQuestion}
+									onApproveToolApproval={handleApproveToolApproval}
+									onRejectToolApproval={handleRejectToolApproval}
+									chatTransportState={chatTransportState}
+									activityLabel={activityLabel}
+									error={cloudSessionError?.message ?? displayedError}
+									errorAction={
+										cloudConnectUrl
+											? {
+													label: "Connect GitHub",
+													onClick: () => openGitHubConnect(cloudConnectUrl),
+												}
 											: undefined
-								}
-								onFixCredentials={handleFixCredentials}
-								lastTurnChanges={
-									canBrowseFiles && sessionChangesCurrent
-										? sessionChanges?.lastTurn
-										: undefined
-								}
-								onReviewLastTurn={canBrowseFiles ? reviewLastTurn : undefined}
-								pendingToolApprovals={pendingToolApprovals}
-								pendingAskQuestions={pendingAskQuestions}
-								sessionId={displayedSessionId}
-								streamingMessageId={activeAssistantMessageId}
-								isHistoryPreview={showingHistoryPreview}
-								isSessionSwitching={
-									displayedIsSwitching && !showingHistoryPreview
-								}
-								status={
-									isProvisioningCloudSession ? "starting" : displayedStatus
-								}
-							/>
+									}
+									importedFromTool={importedFromTool}
+									messages={displayedMessages}
+									onEditMessage={isCloudSession ? undefined : handleEditMessage}
+									onRestoreCheckpoint={
+										isCloudSession ? undefined : handleRestoreCheckpoint
+									}
+									onForkSession={isCloudSession ? undefined : handleForkSession}
+									onProceedWhileRunning={
+										isCloudSession ? undefined : proceedWhileRunning
+									}
+									startingLabel={
+										isProvisioningCloudSession
+											? provisioningPhase
+											: isCloudSession && !displayedSessionId
+												? provisioningPhase
+												: undefined
+									}
+									onFixCredentials={handleFixCredentials}
+									lastTurnChanges={
+										canBrowseFiles && sessionChangesCurrent
+											? sessionChanges?.lastTurn
+											: undefined
+									}
+									onReviewLastTurn={canBrowseFiles ? reviewLastTurn : undefined}
+									pendingToolApprovals={pendingToolApprovals}
+									pendingAskQuestions={pendingAskQuestions}
+									sessionId={displayedSessionId}
+									streamingMessageId={activeAssistantMessageId}
+									isHistoryPreview={showingHistoryPreview}
+									isSessionSwitching={
+										displayedIsSwitching && !showingHistoryPreview
+									}
+									status={
+										isProvisioningCloudSession ? "starting" : displayedStatus
+									}
+								/>
+							</Profiler>
 						)
 					}
 					composer={composer}

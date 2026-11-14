@@ -1521,6 +1521,7 @@ export function ProjectFilesPanel({
 			>
 				<div
 					aria-hidden
+					data-ui-performance="resize"
 					className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize hover:bg-primary/30"
 					onDoubleClick={() => setColumnWidth(COLUMN_WIDTH)}
 					onPointerDown={(event) => {

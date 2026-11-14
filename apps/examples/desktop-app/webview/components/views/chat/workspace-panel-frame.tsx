@@ -76,6 +76,7 @@ export function WorkspacePanelFrame({
 		>
 			<div
 				aria-hidden
+				data-ui-performance="resize"
 				className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-primary/30"
 				onPointerDown={(event) => {
 					dragStateRef.current = { startX: event.clientX, startWidth: width };

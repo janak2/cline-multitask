@@ -16,6 +16,7 @@ import type {
 	DesktopTransportResponse,
 	DesktopTransportState,
 } from "@/lib/desktop-transport";
+import { uiPerformance } from "@/lib/ui-performance";
 
 // Lazily import the Tauri invoke API only when available. When running in
 // sidecar/web mode (without Tauri), this module may not exist or the bridge
@@ -428,6 +429,23 @@ class DesktopClient {
 	}
 
 	private handleMessage(raw: string) {
+		if (!uiPerformance.recording) {
+			this.processMessage(raw);
+			return;
+		}
+		const start = performance.now();
+		try {
+			this.processMessage(raw);
+		} finally {
+			uiPerformance.record(
+				"javascript:transport-parse-and-dispatch",
+				start,
+				performance.now() - start,
+			);
+		}
+	}
+
+	private processMessage(raw: string) {
 		let parsed: DesktopTransportMessage;
 		try {
 			parsed = JSON.parse(raw) as DesktopTransportMessage;
