@@ -163,6 +163,7 @@ afterEach(async () => {
 async function render(
 	onClose = vi.fn(),
 	onPickFolder?: () => Promise<string | null>,
+	onAddToChat?: (text: string) => void,
 ) {
 	await act(async () => {
 		root.render(
@@ -170,6 +171,7 @@ async function render(
 				cwd="/repo"
 				environmentId="local"
 				fileDiffs={fileDiffs}
+				onAddToChat={onAddToChat}
 				onClose={onClose}
 				onPickFolder={onPickFolder}
 				workspaceRoot="/repo"
@@ -1780,4 +1782,27 @@ describe("ProjectFilesPanel file changes", () => {
 			"{}",
 		);
 	});
+});
+
+it.each([
+	"README.md",
+	"notes.txt",
+])("adds selected %s preview text to the chat draft", async (name) => {
+	const add = vi.fn();
+	await render(undefined, undefined, add);
+	await click(button(new RegExp(`^${name.replace(/\./g, "\\.")}`)));
+	await click(button(/^file$/i));
+	const preview = container.querySelector("[data-file-tab]:not([aria-hidden])");
+	if (!preview) throw new Error("Missing active preview");
+	await act(async () => {
+		const range = document.createRange();
+		range.selectNodeContents(preview);
+		window.getSelection()?.removeAllRanges();
+		window.getSelection()?.addRange(range);
+		document.dispatchEvent(new Event("selectionchange"));
+	});
+	const selected = window.getSelection()?.toString();
+	await click(button(/^Add to chat$/));
+	expect(add).toHaveBeenCalledExactlyOnceWith(selected);
+	window.getSelection()?.removeAllRanges();
 });

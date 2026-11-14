@@ -1,0 +1,43 @@
+.pdf-text-layer {
+	position: absolute;
+	inset: 0;
+	overflow: clip;
+	line-height: 1;
+	text-align: initial;
+	letter-spacing: normal;
+	word-spacing: normal;
+	text-size-adjust: none;
+	-webkit-text-size-adjust: none;
+	transform-origin: 0 0;
+	--min-font-size: 1;
+	--text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+	--min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-text-layer :is(span, br) {
+	position: absolute;
+	color: transparent;
+	white-space: pre;
+	cursor: text;
+	transform-origin: 0 0;
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+	--font-height: 0;
+	--scale-x: 1;
+	--rotate: 0deg;
+	font-size: calc(var(--text-scale-factor) * var(--font-height));
+	transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+		scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+	display: contents;
+}
+
+.pdf-text-layer ::selection {
+	background: rgb(0 100 255 / 30%);
+}

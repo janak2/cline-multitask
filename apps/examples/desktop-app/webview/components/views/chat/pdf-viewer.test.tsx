@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
 			height: 800 * scale,
 		}),
 		render,
+		getTextContent: vi.fn(async () => ({ items: [], styles: {} })),
 		cleanup,
 	}));
 	const destroy = vi.fn(async () => {});
@@ -38,6 +39,18 @@ vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
 	getDocument: mocks.getDocument,
 	version: "test",
 	GlobalWorkerOptions: {},
+	TextLayer: class {
+		container: HTMLElement;
+		constructor({ container }: { container: HTMLElement }) {
+			this.container = container;
+		}
+		async render() {
+			const span = document.createElement("span");
+			span.textContent = "Selectable PDF text";
+			this.container.append(span);
+		}
+		cancel() {}
+	},
 }));
 
 let container: HTMLDivElement;
@@ -81,6 +94,9 @@ it("loads authorized bytes, renders pages with local assets and destroys the doc
 	});
 	expect(container.textContent).toContain("2 pages");
 	expect(container.querySelectorAll("canvas")).toHaveLength(2);
+	expect(container.querySelector(".pdf-text-layer span")?.textContent).toBe(
+		"Selectable PDF text",
+	);
 	expect(container.querySelectorAll("button")).toHaveLength(0);
 	expect(mocks.getPage).toHaveBeenCalledWith(2);
 

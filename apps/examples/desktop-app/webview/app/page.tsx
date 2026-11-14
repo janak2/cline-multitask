@@ -3401,6 +3401,15 @@ function ChatThreadPane({
 		</div>
 	);
 
+	const addFileSelectionToChat =
+		isCloudSessionExpired || showingHistoryPreview
+			? undefined
+			: (text: string) => {
+					const draft = promptDrafts.get(threadId)?.text ?? "";
+					setPromptInput(draft ? `${draft}\n\n${text}` : text);
+					requestPromptInputFocus();
+				};
+
 	const cloudConnectUrl =
 		cloudSessionError?.code === "github_not_connected"
 			? cloudSessionError.connectUrl
@@ -3649,6 +3658,7 @@ function ChatThreadPane({
 							environmentId={environmentId}
 							fileDiffs={fileDiffs}
 							key={fileViewKey ?? `${environmentId}:${resolvedWorkspaceRoot}`}
+							onAddToChat={addFileSelectionToChat}
 							onClose={toggleFilesPanel}
 							onPickFolder={pickWorkspaceDirectory}
 							workspaceRoot={resolvedWorkspaceRoot}

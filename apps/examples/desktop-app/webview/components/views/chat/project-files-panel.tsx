@@ -73,6 +73,7 @@ import {
 	resolveWorkspaceFilePath,
 } from "@/lib/workspace-paths";
 import { FileIcon, FolderIcon } from "./file-icons";
+import { FileSelectionToChat } from "./file-selection-to-chat";
 import { CodeDiff, CodeFile } from "./highlighted-code";
 import { ImageFileViewer, isImageFile } from "./image-file-viewer";
 import { MarkdownFileViewer } from "./markdown-file-viewer";
@@ -154,6 +155,7 @@ type ProjectFilesPanelProps = {
 	cwd: string;
 	fileDiffs: SessionFileDiff[];
 	onClose: () => void;
+	onAddToChat?: (text: string) => void;
 	/** Picks a folder to add to the tree's folder list; null when cancelled. */
 	onPickFolder?: () => Promise<string | null>;
 };
@@ -230,6 +232,7 @@ export function ProjectFilesPanel({
 	fileDiffs,
 	onClose,
 	onPickFolder,
+	onAddToChat,
 }: ProjectFilesPanelProps) {
 	const [view, setView] = useFileViewState<PanelView>("view", "source-control");
 	// The sidecar changes files only on this machine; SSH trees stay read-only.
@@ -2025,7 +2028,10 @@ export function ProjectFilesPanel({
 								</Button>
 							</span>
 						</div>
-						<div className="relative min-h-0 flex-1">
+						<FileSelectionToChat
+							resourceKey={`${activeId}:${effectiveMode}`}
+							onAddToChat={onAddToChat}
+						>
 							{effectiveMode === "diff" ? (
 								<FileViewScrollArea
 									stateId={`fileScroll:${activeId}:diff`}
@@ -2103,7 +2109,7 @@ export function ProjectFilesPanel({
 									</FileViewScrollArea>
 								);
 							})}
-						</div>
+						</FileSelectionToChat>
 					</>
 				) : (
 					<Centered className="p-6 text-center">

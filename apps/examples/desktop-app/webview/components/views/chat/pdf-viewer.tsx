@@ -1,6 +1,8 @@
 "use client";
 
-import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+import "./pdf-text-layer.css";
+
+import type { PDFDocumentProxy, RenderTask, TextLayer } from "pdfjs-dist";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { desktopClient } from "@/lib/desktop-client";
 import { useFileViewState } from "@/lib/file-view-state";
@@ -204,12 +206,14 @@ function PdfPage({
 	onSize: (size: { width: number; height: number }) => void;
 }) {
 	const canvas = useRef<HTMLCanvasElement>(null);
+	const textContainer = useRef<HTMLDivElement>(null);
 	const sizeCallback = useRef(onSize);
 	sizeCallback.current = onSize;
 	const [state, setState] = useState("Rendering page…");
 	useEffect(() => {
 		let cancelled = false;
 		let task: RenderTask | undefined;
+		let textLayer: TextLayer | undefined;
 		let page: Awaited<ReturnType<PDFDocumentProxy["getPage"]>> | undefined;
 		const target = canvas.current;
 		void (async () => {
@@ -228,7 +232,22 @@ function PdfPage({
 			target.height = Math.ceil(bounded.height);
 			task = page.render({ canvas: target, viewport: bounded });
 			await task.promise;
-			if (!cancelled) setState("");
+			if (cancelled) return;
+			setState("");
+			const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+			const text = await page.getTextContent();
+			if (cancelled || !textContainer.current) return;
+			textContainer.current.replaceChildren();
+			textContainer.current.style.setProperty(
+				"--total-scale-factor",
+				String(viewport.scale),
+			);
+			textLayer = new pdfjs.TextLayer({
+				textContentSource: text,
+				container: textContainer.current,
+				viewport,
+			});
+			await textLayer.render();
 		})()
 			.catch((reason) => {
 				if (!cancelled)
@@ -240,6 +259,7 @@ function PdfPage({
 		return () => {
 			cancelled = true;
 			task?.cancel();
+			textLayer?.cancel();
 			void (task?.promise ?? Promise.resolve())
 				.catch(() => {})
 				.finally(() => {
@@ -263,6 +283,7 @@ function PdfPage({
 					visibility: state ? "hidden" : "visible",
 				}}
 			/>
+			<div ref={textContainer} className="pdf-text-layer" />
 		</div>
 	);
 }
