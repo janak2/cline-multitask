@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
@@ -184,6 +185,22 @@ export function resolveDiagnosticsOutputDir(): string {
 	return existsSync(downloads)
 		? downloads
 		: join(resolveClineDataDir(), "diagnostics");
+}
+
+export function writeUiPerformanceReport(
+	report: unknown,
+	outputDir = resolveDiagnosticsOutputDir(),
+): { path: string } {
+	if (!report || typeof report !== "object" || Array.isArray(report)) {
+		throw new Error("A recording report is required");
+	}
+	if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+	const path = join(outputDir, `cline-ui-performance-${randomUUID()}.json`);
+	writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, {
+		flag: "wx",
+		mode: 0o600,
+	});
+	return { path };
 }
 
 export function writeDiagnosticsReport(

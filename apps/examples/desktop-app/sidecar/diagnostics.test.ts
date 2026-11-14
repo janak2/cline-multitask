@@ -15,10 +15,37 @@ import {
 	dropHubPollingLines,
 	redactDiagnosticsText,
 	writeDiagnosticsReport,
+	writeUiPerformanceReport,
 } from "./diagnostics";
 
 let dataDir: string;
 const savedEnv: Record<string, string | undefined> = {};
+
+describe("writeUiPerformanceReport", () => {
+	it("writes the full recording as JSON to a new file on each export", () => {
+		const report = {
+			schemaVersion: 1,
+			samples: [{ name: "render", durationMs: 12 }],
+		};
+		const directory = join(dataDir, "recordings");
+		const first = writeUiPerformanceReport(report, directory);
+		const second = writeUiPerformanceReport(report, directory);
+		expect(first.path).not.toBe(second.path);
+		expect(JSON.parse(readFileSync(first.path, "utf8"))).toEqual(report);
+		expect(JSON.parse(readFileSync(second.path, "utf8"))).toEqual(report);
+	});
+
+	it("rejects missing recordings and surfaces file write failures", () => {
+		expect(() => writeUiPerformanceReport(undefined, dataDir)).toThrow(
+			"required",
+		);
+		const file = join(dataDir, "not-a-directory");
+		writeFileSync(file, "occupied");
+		expect(() =>
+			writeUiPerformanceReport({ schemaVersion: 1 }, file),
+		).toThrow();
+	});
+});
 
 beforeEach(() => {
 	dataDir = mkdtempSync(join(tmpdir(), "cline-diagnostics-"));

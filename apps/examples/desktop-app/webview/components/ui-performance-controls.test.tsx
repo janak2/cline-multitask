@@ -6,6 +6,12 @@ import { expect, it, vi } from "vitest";
 import { uiPerformance } from "@/lib/ui-performance";
 import { UiPerformanceControls } from "./ui-performance-controls";
 
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), toast: vi.fn() }));
+vi.mock("@/lib/desktop-client", () => ({
+	desktopClient: { invoke: mocks.invoke },
+}));
+vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast }));
+
 it("starts from Debug, keeps stop/export available outside settings, and exports a report", async () => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal(
@@ -15,6 +21,7 @@ it("starts from Debug, keeps stop/export available outside settings, and exports
 	vi.stubGlobal("cancelAnimationFrame", vi.fn());
 	vi.stubGlobal("PerformanceObserver", undefined);
 	vi.useFakeTimers();
+	mocks.invoke.mockResolvedValue({ path: "saved-recording.json" });
 	const originalCreateUrl = Object.getOwnPropertyDescriptor(
 		URL,
 		"createObjectURL",
@@ -55,6 +62,7 @@ it("starts from Debug, keeps stop/export available outside settings, and exports
 		await act(async () => start?.click());
 		expect(uiPerformance.recording).toBe(true);
 		expect(container.querySelectorAll("section")).toHaveLength(2);
+		vi.advanceTimersByTime(100);
 		await act(async () => root.render(<UiPerformanceControls floating />));
 		const exportButton = [...container.querySelectorAll("button")].find(
 			(button) => button.textContent === "Stop and export",
@@ -62,10 +70,36 @@ it("starts from Debug, keeps stop/export available outside settings, and exports
 		await act(async () => exportButton?.click());
 		expect(uiPerformance.recording).toBe(false);
 		expect(container.querySelector("section")).toBeNull();
-		expect(createUrl).toHaveBeenCalledWith(expect.any(Blob));
-		expect(click).toHaveBeenCalledOnce();
+		expect(mocks.invoke).toHaveBeenCalledWith("export_ui_performance", {
+			report: expect.objectContaining({ schemaVersion: 1 }),
+		});
+		expect(mocks.toast).toHaveBeenCalledWith({
+			title: "Recording exported",
+			description: "saved-recording.json",
+		});
+		expect(createUrl).not.toHaveBeenCalled();
+		expect(click).not.toHaveBeenCalled();
 		vi.advanceTimersByTime(1000);
-		expect(revokeUrl).toHaveBeenCalledWith("blob:performance-report");
+		expect(revokeUrl).not.toHaveBeenCalled();
+		await act(async () => root.render(<UiPerformanceControls />));
+		const retry = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "Export recording",
+		);
+		expect(retry).toBeDefined();
+		mocks.invoke.mockRejectedValueOnce(new Error("Disk is full"));
+		await act(async () => retry?.click());
+		expect(mocks.toast).toHaveBeenCalledWith({
+			title: "Could not export recording",
+			description: "Disk is full",
+			variant: "destructive",
+		});
+		expect(uiPerformance.hasReport).toBe(true);
+		mocks.invoke.mockResolvedValueOnce({ path: "retried-recording.json" });
+		await act(async () => retry?.click());
+		expect(mocks.toast).toHaveBeenLastCalledWith({
+			title: "Recording exported",
+			description: "retried-recording.json",
+		});
 	} finally {
 		await act(async () => root.unmount());
 		uiPerformance.stop();

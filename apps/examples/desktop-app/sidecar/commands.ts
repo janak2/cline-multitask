@@ -131,7 +131,10 @@ import {
 	resolveSidecarAskQuestion,
 	sendEventToClient,
 } from "./context";
-import { writeDiagnosticsReport } from "./diagnostics";
+import {
+	writeDiagnosticsReport,
+	writeUiPerformanceReport,
+} from "./diagnostics";
 import {
 	identifyDesktopFeatureFlagsAccount,
 	isCloudAgentsEnabled,
@@ -3523,6 +3526,9 @@ export async function handleCommand(
 		}
 		openFileInEditor(filePath);
 		return { path: filePath };
+	}
+	if (command === "export_ui_performance") {
+		return writeUiPerformanceReport(args?.report);
 	}
 	if (command === "export_diagnostics") {
 		const sessionIds = Array.isArray(args?.sessionIds)

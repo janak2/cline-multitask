@@ -1,7 +1,9 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
+import { desktopClient } from "@/lib/desktop-client";
 import { uiPerformance } from "@/lib/ui-performance";
 
 function useRecording() {
@@ -12,25 +14,31 @@ function useRecording() {
 	);
 }
 
-function exportReport() {
-	uiPerformance.stop();
-	const url = URL.createObjectURL(
-		new Blob([JSON.stringify(uiPerformance.report(), null, 2)], {
-			type: "application/json",
-		}),
-	);
-	const link = document.createElement("a");
-	link.href = url;
-	link.download = "cline-ui-performance.json";
-	link.click();
-	window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 export function UiPerformanceControls({
 	floating = false,
 }: {
 	floating?: boolean;
 }) {
+	const [exporting, setExporting] = useState(false);
+	async function exportReport() {
+		setExporting(true);
+		uiPerformance.stop();
+		try {
+			const result = await desktopClient.invoke<{ path: string }>(
+				"export_ui_performance",
+				{ report: uiPerformance.report() },
+			);
+			toast({ title: "Recording exported", description: result.path });
+		} catch (error) {
+			toast({
+				title: "Could not export recording",
+				description: error instanceof Error ? error.message : String(error),
+				variant: "destructive",
+			});
+		} finally {
+			setExporting(false);
+		}
+	}
 	const recording = useRecording();
 	const hasReport = useSyncExternalStore(
 		uiPerformance.subscribe,
@@ -78,7 +86,9 @@ export function UiPerformanceControls({
 					<Button variant="outline" onClick={() => uiPerformance.stop()}>
 						Stop
 					</Button>
-					<Button onClick={exportReport}>Stop and export</Button>
+					<Button disabled={exporting} onClick={exportReport}>
+						Stop and export
+					</Button>
 				</>
 			) : (
 				<div className="flex gap-3">
@@ -87,7 +97,7 @@ export function UiPerformanceControls({
 					</Button>
 					<Button
 						variant="outline"
-						disabled={!hasReport}
+						disabled={!hasReport || exporting}
 						onClick={exportReport}
 					>
 						Export recording

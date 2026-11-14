@@ -5,7 +5,11 @@ export type HubStartupStatus = DesktopHubStatus;
 const HUB_STARTUP_TIMEOUT_MS = 30_000;
 
 /** Commands the startup screen needs before the Hub is ready. */
-const HUB_INDEPENDENT_COMMANDS = new Set(["retry_hub", "export_diagnostics"]);
+const HUB_INDEPENDENT_COMMANDS = new Set([
+	"retry_hub",
+	"export_diagnostics",
+	"export_ui_performance",
+]);
 
 export function isHubIndependentCommand(command: string): boolean {
 	return HUB_INDEPENDENT_COMMANDS.has(command);
