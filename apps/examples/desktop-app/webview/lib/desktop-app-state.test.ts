@@ -19,6 +19,41 @@ function createSession(sessionId: string): SessionHistoryItem {
 }
 
 describe("desktopAppReducer", () => {
+	it("preserves workspace identity through older-message edits without changing other chats", () => {
+		let state = createDesktopAppState("welcome", settingsSection, "local");
+		for (const sessionId of ["original", "edited", "edited-again"]) {
+			state = desktopAppReducer(state, {
+				type: "open-session",
+				session: createSession(sessionId),
+				environmentId: "local",
+				workspaceSessionId: sessionId === "original" ? undefined : "original",
+			});
+			const active = state.threads.find(
+				(thread) => thread.id === state.navigation.current.activeThreadId,
+			);
+			expect(
+				active?.workspaceSessionId ?? active?.historySession?.sessionId,
+			).toBe("original");
+			expect(active?.historySession?.sessionId).toBe(sessionId);
+		}
+		state = desktopAppReducer(state, {
+			type: "open-session",
+			session: createSession("edited"),
+			environmentId: "local",
+		});
+		expect(
+			state.threads.find(
+				(thread) => thread.historySession?.sessionId === "edited",
+			)?.workspaceSessionId,
+		).toBe("original");
+		state = desktopAppReducer(state, {
+			type: "open-session",
+			session: createSession("unrelated"),
+			environmentId: "local",
+		});
+		expect(state.threads.at(-1)?.workspaceSessionId).toBeUndefined();
+	});
+
 	it("reuses a bound thread when opening its session and keeps other environments separate", () => {
 		let state = createDesktopAppState("new-local", settingsSection, "local");
 		state = desktopAppReducer(state, {

@@ -863,6 +863,7 @@ function App() {
 			session: SessionHistoryItem,
 			initialPromptDraft?: string,
 			initialAttachments?: File[],
+			workspaceSessionId?: string,
 		): Promise<HandoffOpenResult> => {
 			if (initialAttachments) {
 				const thread = threadsRef.current.find(
@@ -887,6 +888,7 @@ function App() {
 				environmentId: session.environmentId,
 				initialPromptDraft,
 				initialAttachments,
+				workspaceSessionId,
 			});
 			return { opened: true };
 		},
@@ -959,7 +961,12 @@ function App() {
 	// The chat the terminal panel belongs to: its saved session once it has
 	// one, otherwise the new chat's own thread id.
 	const terminalChatKey =
-		activeHistorySessionId ??
+		(activeThread?.workspaceSessionId
+			? sessionKey({
+					environmentId: activeThread.environmentId,
+					sessionId: activeThread.workspaceSessionId,
+				})
+			: activeHistorySessionId) ??
 		(activeThread ? `thread:${activeThread.id}` : null);
 	terminalChatKeyRef.current = terminalChatKey;
 	const terminalOpenForChat = Boolean(
@@ -1394,6 +1401,7 @@ function App() {
 												)
 											}
 											threadId={activeThread.id}
+											workspaceSessionId={activeThread.workspaceSessionId}
 											onDeleteSession={(sessionId, threadId) =>
 												handleDeleteSession(
 													sessionId,
@@ -1524,6 +1532,7 @@ let workspacesLoadedOnce = false;
 function ChatThreadPane({
 	confirmHandoffGit,
 	threadId,
+	workspaceSessionId,
 	promptDrafts,
 	environmentId,
 	environmentProfiles,
@@ -1555,6 +1564,7 @@ function ChatThreadPane({
 	terminal,
 }: {
 	threadId: string;
+	workspaceSessionId?: string;
 	promptDrafts: PromptDraftCache;
 	environmentId: string;
 	environmentProfiles: RemoteEnvironmentProfile[];
@@ -1577,6 +1587,8 @@ function ChatThreadPane({
 	onOpenSession?: (
 		session: SessionHistoryItem,
 		initialPromptDraft?: string,
+		initialAttachments?: File[],
+		workspaceSessionId?: string,
 	) => void;
 	onOpenSessionById?: (
 		sessionId: string,
@@ -1674,7 +1686,7 @@ function ChatThreadPane({
 	// Files, changes, and the terminal share the right-hand column.
 	const fileViewKey = fileViewStorageKey(
 		environmentId,
-		sessionId ?? historySession?.sessionId ?? null,
+		workspaceSessionId ?? sessionId ?? historySession?.sessionId ?? null,
 		config.workspaceRoot || config.cwd || "",
 		config.cwd || config.workspaceRoot || "",
 	);
@@ -2814,9 +2826,16 @@ function ChatThreadPane({
 					},
 				},
 			};
-			onOpenSession(forkedHistorySession, editedPrompt);
+			onOpenSession(
+				forkedHistorySession,
+				editedPrompt,
+				undefined,
+				editedPrompt === undefined
+					? undefined
+					: (workspaceSessionId ?? result.forkedFromSessionId),
+			);
 		},
-		[config, onOpenSession],
+		[config, onOpenSession, workspaceSessionId],
 	);
 
 	const handleForkSession = useCallback(async () => {

@@ -83,6 +83,37 @@ it("ignores an old session's asynchronous setter after switching and tolerates c
 	expect(container.textContent).toBe("closed");
 });
 
+it("restores the viewer and selected file when an edited branch remounts with the same workspace identity", async () => {
+	const key = fileViewStorageKey("local", "original", "/repo", "/repo");
+	function Viewer() {
+		const [panel, setPanel] = useFileViewState<"files" | null>("panel", null);
+		const [path, setPath] = useFileViewState<string | null>(
+			"selectedPath",
+			null,
+		);
+		return (
+			<button
+				type="button"
+				onClick={() => {
+					setPanel("files");
+					setPath("src/index.ts");
+				}}
+			>
+				{panel}:{path}
+			</button>
+		);
+	}
+	const render = (chat: string) => (
+		<FileViewStateProvider key={chat} value={key}>
+			<Viewer />
+		</FileViewStateProvider>
+	);
+	await act(async () => root.render(render("original")));
+	await act(async () => container.querySelector("button")?.click());
+	await act(async () => root.render(render("edited")));
+	expect(container.textContent).toBe("files:src/index.ts");
+});
+
 it("restores scroll after delayed content but stops restoring after user interaction", async () => {
 	const key = fileViewStorageKey("local", "A", "/repo", "/repo")!;
 	window.localStorage.setItem(
