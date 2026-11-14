@@ -1236,11 +1236,18 @@ export function useChatSession(environmentId: string) {
 				setPromptsInQueue([]);
 				return;
 			}
+			const queueRevision = queueRevisionRef.current;
 			try {
 				const payload = await postSession({
 					action: "pending_prompts",
 					sessionId: targetSessionId,
 				});
+				if (
+					activeSessionIdRef.current !== targetSessionId ||
+					queueRevisionRef.current !== queueRevision
+				) {
+					return;
+				}
 				setPromptsInQueue(
 					Array.isArray(payload.promptsInQueue) ? payload.promptsInQueue : [],
 				);
@@ -3347,7 +3354,9 @@ export function useChatSession(environmentId: string) {
 					turnEpochRef.current !== turnEpochAtDispatch;
 
 				const result = payload.result as ChatApiResult | undefined;
-				applyPromptsInQueue(payload.promptsInQueue);
+				if (!newerTurnOwnsTranscript()) {
+					applyPromptsInQueue(payload.promptsInQueue);
+				}
 				if (settleAbortedSend()) return true;
 				// On a failed run the runtime reports the error string in
 				// result.text — it is not assistant content and must not be

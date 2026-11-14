@@ -7557,6 +7557,78 @@ describe("coerced-queue first turn vs stale send response", () => {
 		}
 	}
 
+	it("ignores a queue refresh captured before the queued turn started", async () => {
+		mockTransport();
+		const invoke = invokeMock.getMockImplementation();
+		if (!invoke) throw new Error("Expected the mock transport to be installed");
+		const snapshot = deferred<unknown>();
+		invokeMock.mockImplementation((command, args) => {
+			if (
+				command === "chat_session_command" &&
+				args?.request?.action === "pending_prompts"
+			) {
+				return snapshot.promise;
+			}
+			return invoke(command, args);
+		});
+		await dispatchPrompt("Start working");
+		const sid = current.sessionId;
+		await act(async () => {
+			emitTurnEvents(getChatEventHandler(), sid, [
+				{
+					stream: "chat_queued_prompt_start",
+					chunk: JSON.stringify({
+						promptId: "started",
+						prompt: "Start working",
+					}),
+					index: 1,
+				},
+			]);
+		});
+		await act(async () => {
+			snapshot.resolve({
+				sessionId: sid,
+				promptsInQueue: [
+					{ id: "started", prompt: "Start working", steer: false },
+				],
+			});
+			await snapshot.promise;
+		});
+		expect(current.promptsInQueue).toEqual([]);
+		expect(current.status).toBe("running");
+	});
+
+	it("ignores an older blocking send's queue snapshot after its successor starts", async () => {
+		const sendResolvers = mockTransport();
+		const { sendPromise } = await dispatchPrompt("First prompt");
+		const sid = current.sessionId;
+		await act(async () => {
+			emitTurnEvents(getChatEventHandler(), sid, [
+				{
+					stream: "chat_queued_prompt_start",
+					chunk: JSON.stringify({
+						promptId: "successor",
+						prompt: "Next prompt",
+					}),
+					index: 1,
+				},
+			]);
+		});
+		await act(async () => {
+			sendResolvers[0]?.({
+				sessionId: sid,
+				ok: true,
+				result: { finishReason: "completed", text: "First answer" },
+				promptsInQueue: [
+					{ id: "successor", prompt: "Next prompt", steer: false },
+				],
+			});
+			await sendPromise;
+		});
+		expect(current.promptsInQueue).toEqual([]);
+		expect(current.status).toBe("running");
+	});
+
 	it("ignores a stale queued response that lands after the turn completed", async () => {
 		const sendResolvers = mockTransport();
 		const { sendPromise } = await dispatchPrompt("Say the word ready");
