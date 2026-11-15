@@ -54,6 +54,48 @@ async function renderMessages(
 	});
 }
 
+it("offers Add to chat for selected text from a previous message", async () => {
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+		configurable: true,
+		value: () => new DOMRect(100, 100, 120, 20),
+	});
+	const add = vi.fn();
+	try {
+		await renderMessages(
+			[
+				{
+					id: "previous-answer",
+					sessionId: "session-1",
+					role: "assistant",
+					content: "Reuse this answer",
+					createdAt: 1,
+				},
+			],
+			{ onAddToChat: add },
+		);
+		const paragraph = [...container.querySelectorAll("p")].find(
+			(element) => element.textContent === "Reuse this answer",
+		);
+		if (!paragraph) throw new Error("Missing previous answer");
+		await act(async () => {
+			const range = document.createRange();
+			range.selectNodeContents(paragraph);
+			window.getSelection()?.removeAllRanges();
+			window.getSelection()?.addRange(range);
+			document.dispatchEvent(new Event("selectionchange"));
+		});
+		const button = [...document.querySelectorAll("button")].find((element) =>
+			element.textContent?.includes("Add to chat"),
+		);
+		if (!button) throw new Error("Missing Add to chat popup");
+		await act(async () => button.click());
+		expect(add).toHaveBeenCalledExactlyOnceWith("Reuse this answer");
+	} finally {
+		window.getSelection()?.removeAllRanges();
+		Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+	}
+});
+
 describe("ChatMessages teammate updates", () => {
 	it.each([
 		"running",

@@ -3548,6 +3548,7 @@ function ChatThreadPane({
 						) : (
 							<Profiler id="conversation" onRender={recordReactRender}>
 								<ChatMessages
+									onAddToChat={addFileSelectionToChat}
 									environmentId={environmentId}
 									hasOlderMessages={hasOlderMessages}
 									isLoadingOlderMessages={isLoadingOlderMessages}
