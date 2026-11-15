@@ -413,6 +413,9 @@ export function AgentSidebar({
 	);
 	const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 	const [editingTitle, setEditingTitle] = useState("");
+	const [forkConfirmThread, setForkConfirmThread] = useState<Thread | null>(
+		null,
+	);
 	const [deleteConfirmThread, setDeleteConfirmThread] = useState<Thread | null>(
 		null,
 	);
@@ -790,7 +793,7 @@ export function AgentSidebar({
 			onCommitRename={() => void commitRenameThread(thread)}
 			onDelete={() => requestDeleteThread(thread)}
 			onEditTitleChange={setEditingTitle}
-			onFork={() => void forkThread(thread)}
+			onFork={() => setForkConfirmThread(thread)}
 			onRename={() => startRenameThread(thread)}
 			onTogglePin={() => void togglePinned(thread)}
 			pendingAction={
@@ -1373,6 +1376,35 @@ export function AgentSidebar({
 					)}
 				</div>
 			</div>
+			<AlertDialog
+				open={forkConfirmThread !== null}
+				onOpenChange={(open) => {
+					if (!open) setForkConfirmThread(null);
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Fork session?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This copies "
+							{normalizeTitle(forkConfirmThread?.title ?? "this session")}" into
+							a new session. Your current session is kept.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								const thread = forkConfirmThread;
+								setForkConfirmThread(null);
+								if (thread) void forkThread(thread);
+							}}
+						>
+							Fork session
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 			<AlertDialog
 				open={deleteConfirmThread !== null}
 				onOpenChange={(open) => {

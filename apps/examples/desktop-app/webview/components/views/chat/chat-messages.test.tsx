@@ -96,6 +96,45 @@ it("offers Add to chat for selected text from a previous message", async () => {
 	}
 });
 
+it("requires confirmation before forking from a message action and lets the user cancel", async () => {
+	const fork = vi.fn();
+	await renderMessages(
+		[
+			{
+				id: "answer",
+				sessionId: "session-1",
+				role: "assistant",
+				content: "Answer",
+				createdAt: 1,
+			},
+		],
+		{ onForkSession: fork },
+	);
+	const trigger = container.querySelector<HTMLButtonElement>(
+		'[aria-label="Fork session"]',
+	);
+	if (!trigger) throw new Error("Missing fork action");
+	const dialogButton = (text: string) => {
+		const button = [
+			...document.querySelectorAll<HTMLButtonElement>(
+				'[role="alertdialog"] button',
+			),
+		].find((element) => element.textContent === text);
+		if (!button) throw new Error(`Missing ${text} button`);
+		return button;
+	};
+	await act(async () => trigger.click());
+	expect(fork).not.toHaveBeenCalled();
+	expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+		"Fork session?",
+	);
+	await act(async () => dialogButton("Cancel").click());
+	expect(fork).not.toHaveBeenCalled();
+	await act(async () => trigger.click());
+	await act(async () => dialogButton("Fork session").click());
+	expect(fork).toHaveBeenCalledOnce();
+});
+
 describe("ChatMessages teammate updates", () => {
 	it.each([
 		"running",

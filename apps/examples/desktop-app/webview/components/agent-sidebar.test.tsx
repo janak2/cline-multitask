@@ -194,6 +194,49 @@ afterEach(async () => {
 });
 
 describe("AgentSidebar session ID", () => {
+	it("requires confirmation before a context-menu fork creates a session", async () => {
+		const thread = makeThread("alpha", 1);
+		const history = makeSessionHistory([thread], vi.fn());
+		await act(async () =>
+			root.render(
+				<SidebarProvider>
+					<AgentSidebar
+						onHome={vi.fn()}
+						onSettingsSectionChange={vi.fn()}
+						sessionHistory={history}
+						setView={vi.fn()}
+						settingsSection="General"
+						view="chat"
+					/>
+				</SidebarProvider>,
+			),
+		);
+		const openFork = async () => {
+			await act(async () =>
+				buttonWithText(thread.title).dispatchEvent(
+					new MouseEvent("contextmenu", {
+						bubbles: true,
+						cancelable: true,
+						button: 2,
+					}),
+				),
+			);
+			const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+				(element) => element.textContent === "Fork",
+			);
+			if (!item) throw new Error("Missing Fork menu item");
+			await click(item);
+		};
+		await openFork();
+		expect(history.forkThread).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain("Fork session?");
+		await click(buttonWithText("Cancel", document.body));
+		expect(history.forkThread).not.toHaveBeenCalled();
+		await openFork();
+		await click(buttonWithText("Fork session", document.body));
+		expect(history.forkThread).toHaveBeenCalledExactlyOnceWith(thread.id);
+	});
+
 	it("copies a session's own ID from its context menu", async () => {
 		const writeText = vi.fn(async () => {});
 		Object.assign(navigator, { clipboard: { writeText } });

@@ -238,6 +238,10 @@ function ChatMessagesImpl({
 	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 	const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 	const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+	const [forkConfirmation, setForkConfirmation] = useState<{
+		messageId: string;
+		sessionId: string | null;
+	} | null>(null);
 	const [forkErrors, setForkErrors] = useState<Record<string, string>>({});
 	const [expandedImage, setExpandedImage] = useState<{
 		sessionId: string | null;
@@ -325,6 +329,7 @@ function ChatMessagesImpl({
 		void sessionId;
 		setCheckpointConfirmation(null);
 		setEditConfirmation(null);
+		setForkConfirmation(null);
 	}, [sessionId]);
 
 	useEffect(() => {
@@ -772,7 +777,10 @@ function ChatMessagesImpl({
 													}
 													wasCopied={copiedMessageId === message.id}
 													onForkSession={
-														onForkSession ? handleForkSession : undefined
+														onForkSession
+															? (messageId) =>
+																	setForkConfirmation({ messageId, sessionId })
+															: undefined
 													}
 													forkDisabled={
 														status === "starting" ||
@@ -927,6 +935,38 @@ function ChatMessagesImpl({
 							onClose={() => setExpandedImage(null)}
 						/>
 					) : null}
+					<AlertDialog
+						open={
+							forkConfirmation !== null &&
+							forkConfirmation.sessionId === sessionId
+						}
+						onOpenChange={(open) => {
+							if (!open) setForkConfirmation(null);
+						}}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Fork session?</AlertDialogTitle>
+								<AlertDialogDescription>
+									This copies the full conversation into a new session. Your
+									current session is kept.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									onClick={() => {
+										const confirmation = forkConfirmation;
+										setForkConfirmation(null);
+										if (confirmation?.sessionId === sessionId)
+											void handleForkSession(confirmation.messageId);
+									}}
+								>
+									Fork session
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 					<AlertDialog
 						open={checkpointConfirmation !== null}
 						onOpenChange={(open) => {
