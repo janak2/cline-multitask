@@ -7893,6 +7893,45 @@ describe("coerced-queue first turn vs stale send response", () => {
 		expect(current.status).toBe("idle");
 	});
 
+	it("restores a reflected queued prompt when this window has no matching user bubble", async () => {
+		const sendResolvers = mockTransport();
+		const { sendPromise } = await dispatchPrompt("Missing latest prompt");
+		const sid = current.sessionId;
+		await act(async () => {
+			sendResolvers[0]?.({
+				sessionId: sid,
+				ok: true,
+				queued: true,
+				promptsInQueue: [
+					{ id: "missing", prompt: "Missing latest prompt", steer: false },
+				],
+			});
+			await sendPromise;
+		});
+		expect(
+			current.messages.filter((message) => message.role === "user"),
+		).toEqual([]);
+		await act(async () =>
+			emitTurnEvents(getChatEventHandler(), sid, [
+				{
+					stream: "chat_queued_prompt_start",
+					chunk: JSON.stringify({
+						promptId: "missing",
+						prompt: "Missing latest prompt",
+						transcriptReflected: true,
+					}),
+					index: 1,
+				},
+			]),
+		);
+		expect(current.promptsInQueue).toEqual([]);
+		expect(
+			current.messages
+				.filter((message) => message.role === "user")
+				.map((message) => message.content),
+		).toEqual(["Missing latest prompt"]);
+	});
+
 	it("preserves reflected queued-start lifecycle without duplicating its snapshot bubble", async () => {
 		const sendResolvers = mockTransport();
 		const { sendPromise } = await dispatchPrompt("First turn");

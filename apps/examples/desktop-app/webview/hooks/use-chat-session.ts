@@ -2086,10 +2086,7 @@ export function useChatSession(environmentId: string) {
 				});
 				// Reconnect may already have hydrated this user bubble, but the
 				// queued-start lifecycle above still belongs to the new turn.
-				if (
-					!parsed.transcriptReflected &&
-					(userLabel || userImages.length > 0)
-				) {
+				if (userLabel || userImages.length > 0) {
 					// Computed outside the updater: makeId() inside would mint a
 					// different id on each StrictMode re-invocation.
 					const userMessageId = promptId
@@ -2099,6 +2096,19 @@ export function useChatSession(environmentId: string) {
 						if (prev.some((message) => message.id === userMessageId)) {
 							return prev;
 						}
+						// A reflected event describes backend history, not necessarily
+						// what this window has loaded. Skip only an existing bubble.
+						if (
+							parsed.transcriptReflected &&
+							prev.some(
+								(message) =>
+									message.sessionId === listeningSessionId &&
+									message.role === "user" &&
+									comparableUserContent(message.content) ===
+										comparableUserContent(userLabel),
+							)
+						)
+							return prev;
 						const images = toChatMessageImages(userImages, userMessageId);
 						// A prompt dispatched while the session was idle already has
 						// an optimistic bubble from the send path; when the runtime
