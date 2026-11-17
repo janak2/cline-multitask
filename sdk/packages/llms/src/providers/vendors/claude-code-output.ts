@@ -59,6 +59,8 @@ export function formatClaudeCodeNotice(value: unknown): string | undefined {
 			body = `Retry ${message.attempt}/${message.max_retries} in ${message.retry_delay_ms}ms: ${text(message.error)}`;
 			break;
 		case "status":
+			// "requesting" fires before every model request: pure noise.
+			if (message.status === "requesting" && !message.compact_error) return;
 			body = [text(message.status), text(message.compact_error)]
 				.filter(Boolean)
 				.join("\n");

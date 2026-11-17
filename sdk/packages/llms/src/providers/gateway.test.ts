@@ -4919,6 +4919,45 @@ describe("sdk-gateway", () => {
 		expect(streamTextOptions).not.toHaveProperty("tools");
 	});
 
+	it("streams provider-run tool turns live instead of buffering them for stream retries", async () => {
+		// streamRetries makes the AI SDK hold every part after the first tool
+		// call until the model call ends. Claude Code runs a whole turn in one
+		// model call, so retries would hide the reply until it finished.
+		streamTextSpy.mockReturnValue({
+			fullStream: makeStreamParts([
+				{ type: "finish", usage: { inputTokens: 1, outputTokens: 1 } },
+			]),
+		});
+		const gateway = createGateway({
+			providerConfigs: [
+				{ providerId: "claude-code" },
+				{ providerId: "anthropic", apiKey: "anthropic-key" },
+			],
+		});
+
+		await collect(
+			await gateway.stream({
+				providerId: "claude-code",
+				modelId: "sonnet",
+				messages: baseMessages,
+			}),
+		);
+		expect(streamTextSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty(
+			"streamRetries",
+		);
+
+		await collect(
+			await gateway.stream({
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-5",
+				messages: baseMessages,
+			}),
+		);
+		expect(streamTextSpy.mock.calls.at(-1)?.[0]).toHaveProperty(
+			"streamRetries",
+		);
+	});
+
 	it("anchors the Claude Code session on workspace cwd, user settings, and the requested bypass default", async () => {
 		streamTextSpy.mockReturnValue({
 			fullStream: makeStreamParts([

@@ -2456,7 +2456,14 @@ function createAiSdkProvider(
 								? { stopWhen: stepCountIs(8) }
 								: {}),
 							...requestConfig,
-							streamRetries: MODEL_STREAM_MAX_RETRIES,
+							// streamRetries makes the AI SDK hold every part from the first
+							// tool call until the model call ends, so it can discard them on
+							// retry. A provider that runs its own tools (Claude Code) spends
+							// the whole turn in one model call, so its entire reply would
+							// arrive at once, and a retry would re-run tools that already ran.
+							...(externalToolExecutionDisabled
+								? {}
+								: { streamRetries: MODEL_STREAM_MAX_RETRIES }),
 							...(portableReasoning ? { reasoning: portableReasoning } : {}),
 							onLanguageModelCallStart: () => {
 								capturedError.current = undefined;

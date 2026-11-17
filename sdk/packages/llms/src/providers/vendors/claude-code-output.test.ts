@@ -30,6 +30,13 @@ describe("Claude Code output", () => {
 		expect(
 			formatClaudeCodeNotice({
 				type: "system",
+				subtype: "status",
+				status: "requesting",
+			}),
+		).toBeUndefined();
+		expect(
+			formatClaudeCodeNotice({
+				type: "system",
 				subtype: "permission_denied",
 				tool_name: "Write",
 				message: "Write was denied",
