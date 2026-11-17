@@ -765,6 +765,7 @@ export type HubCommandName =
 	| "session.detach"
 	| "session.get"
 	| "session.messages"
+	| "session.in_flight_reply"
 	| "session.restore"
 	| "session.delete"
 	| "session.update"

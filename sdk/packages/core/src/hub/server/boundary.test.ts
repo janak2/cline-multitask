@@ -270,6 +270,45 @@ describe("HubServerTransport boundaries", () => {
 		}
 	});
 
+	it("serves a running session's in-flight reply draft apart from its transcript", async () => {
+		const draft = {
+			role: "assistant",
+			content: [{ type: "text", text: "so far" }],
+		};
+		const readSessionMessages = vi.fn();
+		const transport = createTransport({
+			sessionHost: {
+				getSession: vi.fn().mockResolvedValue({ sessionId: "running" }),
+				readSessionMessages,
+				readInFlightReply: vi
+					.fn()
+					.mockImplementation(async (id: string) =>
+						id === "running" ? draft : undefined,
+					),
+			},
+		});
+		try {
+			await expect(
+				transport.handleCommand({
+					version: "v1",
+					command: "session.in_flight_reply",
+					payload: { sessionId: "running" },
+				}),
+			).resolves.toMatchObject({ ok: true, payload: { reply: draft } });
+			await expect(
+				transport.handleCommand({
+					version: "v1",
+					command: "session.in_flight_reply",
+					payload: { sessionId: "idle" },
+				}),
+			).resolves.toMatchObject({ ok: true, payload: { reply: null } });
+			// The draft is never mixed into the transcript read.
+			expect(readSessionMessages).not.toHaveBeenCalled();
+		} finally {
+			await transport.stop();
+		}
+	});
+
 	it("does not start a runtime when reading saved history fails", async () => {
 		const startSession = vi.fn();
 		const transport = createTransport({

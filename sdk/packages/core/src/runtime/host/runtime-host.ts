@@ -457,6 +457,16 @@ export interface RuntimeHost {
 	readLiveSessionMessages?(
 		sessionId: string,
 	): Promise<LlmsProviders.MessageWithMetadata[]>;
+	/**
+	 * Display-only draft of the reply a resident session is still streaming.
+	 * A provider that runs its own tools (Claude Code) streams a whole reply
+	 * as one model call, so neither the live conversation nor the file holds
+	 * any of it until it ends. Render it after the transcript; never seed,
+	 * fork, or replay a session from it.
+	 */
+	readInFlightReply?(
+		sessionId: string,
+	): Promise<LlmsProviders.MessageWithMetadata | undefined>;
 	dispatchHookEvent(payload: HookEventPayload): Promise<void>;
 	subscribe(
 		listener: (event: CoreSessionEvent) => void,

@@ -1653,6 +1653,24 @@ export class HubRuntimeHost implements RuntimeHost {
 			: [];
 	}
 
+	async readInFlightReply(
+		sessionId: string,
+	): Promise<import("@cline/llms").MessageWithMetadata | undefined> {
+		const target = sessionId.trim();
+		if (!target) return undefined;
+		const reply = await this.client.command(
+			"session.in_flight_reply",
+			{ sessionId: target },
+			target,
+		);
+		// An older Hub without this command just has no draft to show.
+		if (!reply.ok) return undefined;
+		const draft = reply.payload?.reply;
+		return draft && typeof draft === "object" && !Array.isArray(draft)
+			? (draft as import("@cline/llms").MessageWithMetadata)
+			: undefined;
+	}
+
 	async dispatchHookEvent(_payload: HookEventPayload): Promise<void> {
 		await this.client.command("session.hook", { payload: _payload });
 	}

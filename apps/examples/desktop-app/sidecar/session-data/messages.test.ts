@@ -75,6 +75,48 @@ describe("readSessionMessages", () => {
 			expect.objectContaining({ role: "assistant", content: "Spaces" }),
 		]);
 	});
+	it("renders a Claude Code reply draft, tool rows included, after the live transcript", async () => {
+		const ctx = { liveSessions: new Map() } as Parameters<
+			typeof readSessionMessages
+		>[0];
+		const live = [
+			{
+				id: "u1",
+				role: "user",
+				content: [{ type: "text", text: "go" }],
+				ts: 1,
+			},
+			{
+				id: "draft",
+				role: "assistant",
+				ts: 2,
+				content: [{ type: "text", text: "Checking the file." }],
+				metadata: {
+					modelToolActivities: [
+						{
+							toolCallId: "cli_read_1",
+							toolName: "Read",
+							execution: "provider",
+							input: { file_path: "/tmp/a.txt" },
+							output: "hello",
+						},
+					],
+				},
+			},
+		];
+		const rows = (await readSessionMessages(
+			ctx,
+			`draft-${Date.now()}`,
+			800,
+			undefined,
+			undefined,
+			false,
+			live,
+		)) as Array<{ role: string; content: string }>;
+		expect(rows.map((row) => row.role)).toEqual(["user", "tool", "assistant"]);
+		expect(rows.at(-1)?.content).toBe("Checking the file.");
+	});
+
 	it("shows a running session's live transcript over its lagging saved file", async () => {
 		const sessionId = `live-over-saved-${Date.now()}`;
 		const dataDir = mkdtempSync(join(tmpdir(), "session-data-"));

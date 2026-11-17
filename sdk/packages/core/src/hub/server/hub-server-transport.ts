@@ -112,6 +112,7 @@ import {
 	handleSessionDelete,
 	handleSessionDetach,
 	handleSessionGet,
+	handleSessionInFlightReply,
 	handleSessionList,
 	handleSessionMessages,
 	handleSessionPendingPrompts,
@@ -1061,6 +1062,8 @@ export class HubServerTransport implements NativeHubTransport {
 				return await handleSessionGet(this.ctx, envelope);
 			case "session.messages":
 				return await handleSessionMessages(this.ctx, envelope);
+			case "session.in_flight_reply":
+				return await handleSessionInFlightReply(this.ctx, envelope);
 			case "session.compaction.get":
 				return await handleSessionCompactionGet(this.ctx, envelope);
 			case "session.list": {

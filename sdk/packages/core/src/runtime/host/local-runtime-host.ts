@@ -1949,6 +1949,12 @@ export class LocalRuntimeHost implements RuntimeHost {
 		return this.readSessionMessages(target);
 	}
 
+	async readInFlightReply(
+		sessionId: string,
+	): Promise<LlmsProviders.MessageWithMetadata | undefined> {
+		return this.sessions.get(sessionId.trim())?.agent.getInFlightReply();
+	}
+
 	async readSessionMessages(
 		sessionId: string,
 	): Promise<LlmsProviders.MessageWithMetadata[]> {

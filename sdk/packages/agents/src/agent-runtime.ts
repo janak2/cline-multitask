@@ -382,6 +382,18 @@ function createMessage(
 	};
 }
 
+/** Runs `onSettle` once the stream ends, fails, or its consumer stops early. */
+async function* withFinally<T>(
+	source: AsyncIterable<T>,
+	onSettle: () => void,
+): AsyncGenerator<T> {
+	try {
+		yield* source;
+	} finally {
+		onSettle();
+	}
+}
+
 function cloneUsage(usage: AgentUsage): AgentUsage {
 	return { ...usage };
 }
@@ -612,6 +624,19 @@ export class AgentRuntime {
 	private initialization?: Promise<void>;
 	private abortController?: AbortController;
 	private modelSteerController?: AbortController;
+	/**
+	 * The model response currently streaming, kept by reference so hosts can
+	 * show it before the turn finishes. A provider that runs its own tools
+	 * (e.g. the Claude Code CLI) streams a whole reply as one model call, so
+	 * without this a mid-turn transcript read has nothing of that reply.
+	 */
+	private inFlightReply?: {
+		id: string;
+		sequence: ReadonlyArray<
+			{ type: "tool"; key: string } | { type: "part"; part: AgentMessagePart }
+		>;
+		modelToolActivities: ReadonlyMap<string, AgentModelToolActivity>;
+	};
 	private toolSteerController?: AbortController;
 	private readonly telemetryProviderId?: string;
 	private readonly telemetryModelId?: string;
@@ -700,6 +725,37 @@ export class AgentRuntime {
 		this.config = {
 			...this.config,
 			initialMessages: cloneMessages(messages),
+		};
+	}
+
+	/**
+	 * Display-only draft of the reply still streaming: its text, reasoning
+	 * and provider-run tool activity so far. Unfinished local tool calls are
+	 * left out. Never replay this to a model; the finished message replaces it.
+	 */
+	getInFlightReply(): AgentMessage | undefined {
+		const draft = this.inFlightReply;
+		if (!draft) return undefined;
+		const content: AgentMessagePart[] = [];
+		for (const item of draft.sequence) {
+			if (
+				item.type === "part" &&
+				(item.part.type === "text" || item.part.type === "reasoning")
+			) {
+				content.push({ ...item.part });
+			}
+		}
+		const activities = [...draft.modelToolActivities.values()].map(
+			(activity) => ({ ...activity }),
+		);
+		if (content.length === 0 && activities.length === 0) return undefined;
+		return {
+			...createMessage(
+				"assistant",
+				content,
+				activities.length > 0 ? { modelToolActivities: activities } : undefined,
+			),
+			id: draft.id,
 		};
 	}
 
@@ -1822,8 +1878,17 @@ export class AgentRuntime {
 		let requestId: string | undefined;
 		let accumulatedText = "";
 		let accumulatedReasoning = "";
+		const draft = {
+			id: createUID("msg"),
+			sequence,
+			modelToolActivities,
+		};
+		this.inFlightReply = draft;
+		const clearDraft = () => {
+			if (this.inFlightReply === draft) this.inFlightReply = undefined;
+		};
 
-		for await (const event of stream) {
+		for await (const event of withFinally(stream, clearDraft)) {
 			if (steerController.signal.aborted) break;
 			this.throwIfAborted();
 			switch (event.type) {

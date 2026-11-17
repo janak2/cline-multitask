@@ -1076,6 +1076,27 @@ export async function handleSessionMessages(
 	return okReply(envelope, { sessionId, messages });
 }
 
+/**
+ * Display-only draft of the reply a running session is still streaming, so a
+ * chat reopened mid-reply can show it. Kept apart from session.messages,
+ * which forks and restores read: a draft must never seed a session.
+ */
+export async function handleSessionInFlightReply(
+	ctx: HubTransportContext,
+	envelope: HubCommandEnvelope,
+): Promise<HubReplyEnvelope> {
+	const sessionId = extractSessionId(envelope);
+	if (!sessionId) {
+		return errorReply(
+			envelope,
+			"invalid_session_id",
+			"session.in_flight_reply requires a session id",
+		);
+	}
+	const reply = await ctx.sessionHost.readInFlightReply?.(sessionId);
+	return okReply(envelope, { sessionId, reply: reply ?? null });
+}
+
 export async function handleSessionCompactionGet(
 	ctx: HubTransportContext,
 	envelope: HubCommandEnvelope,

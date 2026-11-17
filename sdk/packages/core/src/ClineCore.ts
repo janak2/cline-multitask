@@ -562,6 +562,18 @@ export class ClineCore {
 			? this.host.readLiveSessionMessages(sessionId)
 			: this.host.readSessionMessages(sessionId);
 
+	/**
+	 * Display-only draft of the reply a running session is still streaming,
+	 * or undefined. Render it after the transcript so a chat reopened
+	 * mid-reply shows the reply so far. Never seed, fork, or replay from it.
+	 */
+	readInFlightReply: NonNullable<RuntimeHost["readInFlightReply"]> = async (
+		sessionId,
+	) =>
+		this.host.readInFlightReply
+			? this.host.readInFlightReply(sessionId)
+			: undefined;
+
 	async restore(input: RestoreInput): Promise<RestoreResult> {
 		const normalizedStart = input.start
 			? normalizeClineCoreStartInput(input.start, {

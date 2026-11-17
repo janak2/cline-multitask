@@ -529,6 +529,16 @@ export class SessionRuntime {
 		return this.conversation.getMessages();
 	}
 
+	/**
+	 * Display-only draft of the reply still streaming in the active run, or
+	 * undefined between model calls. Not part of the conversation: callers
+	 * must never seed, fork, or replay a session from it.
+	 */
+	getInFlightReply(): MessageWithMetadata | undefined {
+		const draft = this.activeRuntime?.getInFlightReply();
+		return draft ? agentMessagesToMessagesWithMetadata([draft])[0] : undefined;
+	}
+
 	/** True when no run is currently active and the session is not shut down. */
 	canStartRun(): boolean {
 		return !this.running && !this.activeRunPromise && !this.shutdownCalled;

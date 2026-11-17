@@ -2410,12 +2410,24 @@ export async function handleCommand(
 			const record = await binding?.sessionManager
 				.get(sessionId)
 				.catch(() => undefined);
-			const liveMessages =
-				record?.status === "running"
-					? await binding?.sessionManager
+			const running = record?.status === "running";
+			const [transcript, inFlightReply] = running
+				? await Promise.all([
+						binding?.sessionManager
 							.readMessages(sessionId)
-							.catch(() => undefined)
-					: undefined;
+							.catch(() => undefined),
+						// The reply still streaming is in neither the transcript nor
+						// the file (Claude Code streams a whole reply as one model
+						// call), so show its draft after the transcript.
+						binding?.sessionManager
+							.readInFlightReply(sessionId)
+							.catch(() => undefined),
+					])
+				: [undefined, undefined];
+			const liveMessages =
+				transcript && transcript.length > 0 && inFlightReply
+					? [...transcript, inFlightReply]
+					: transcript;
 			return await readSessionMessages(
 				ctx,
 				sessionId,

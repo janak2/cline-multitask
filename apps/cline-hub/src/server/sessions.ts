@@ -216,7 +216,16 @@ export async function selectSession(
 ): Promise<void> {
 	peer.selectedSessionId = sessionId;
 	const tracked = ctx.sessions.get(sessionId);
-	const history = await loadHistoryFor(ctx, sessionId);
+	const [transcript, inFlightReply] = await Promise.all([
+		loadHistoryFor(ctx, sessionId),
+		// A reply still streaming is not in the transcript yet (Claude Code
+		// streams a whole reply as one model call): show its draft after it.
+		ctx.cline?.readInFlightReply(sessionId).catch(() => undefined),
+	]);
+	const history =
+		transcript.length > 0 && inFlightReply
+			? [...transcript, inFlightReply]
+			: transcript;
 	const record = await ctx.cline?.get(sessionId).catch(() => undefined);
 	ctx.send(peer, { type: "session_started", sessionId });
 	ctx.send(peer, {

@@ -476,6 +476,71 @@ describe("AgentRuntime", () => {
 		});
 	});
 
+	it("exposes the still-streaming reply as a display draft until it finishes", async () => {
+		// Claude Code streams a whole reply, tools included, as one model call.
+		// A chat reopened mid-reply needs that reply so far.
+		let release!: () => void;
+		const paused = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let reachedPause!: () => void;
+		const atPause = new Promise<void>((resolve) => {
+			reachedPause = resolve;
+		});
+		const model = {
+			async *stream(): AsyncGenerator<AgentModelEvent> {
+				yield { type: "reasoning-delta", text: "Planning" };
+				yield { type: "text-delta", text: "Checking " };
+				yield { type: "text-delta", text: "the file." };
+				yield {
+					type: "tool-call-delta",
+					toolCallId: "cli_read_1",
+					toolName: "Read",
+					execution: "provider",
+					input: { file_path: "/tmp/a.txt" },
+				};
+				yield {
+					type: "tool-result",
+					toolCallId: "cli_read_1",
+					toolName: "Read",
+					execution: "provider",
+					output: { content: "hello" },
+				};
+				reachedPause();
+				await paused;
+				yield { type: "text-delta", text: " Done." };
+				yield { type: "finish", reason: "stop" };
+			},
+		};
+		const runtime = new AgentRuntime({ model });
+		expect(runtime.getInFlightReply()).toBeUndefined();
+
+		const run = runtime.run("Read the file");
+		await atPause;
+		const draft = runtime.getInFlightReply();
+		expect(draft?.role).toBe("assistant");
+		expect(draft?.content).toEqual([
+			expect.objectContaining({ type: "reasoning", text: "Planning" }),
+			{ type: "text", text: "Checking the file." },
+		]);
+		expect(draft?.metadata).toEqual({
+			modelToolActivities: [
+				expect.objectContaining({
+					toolCallId: "cli_read_1",
+					toolName: "Read",
+					output: { content: "hello" },
+				}),
+			],
+		});
+		// The draft is never part of the conversation itself.
+		expect(runtime.snapshot().messages.at(-1)?.role).toBe("user");
+
+		release();
+		const result = await run;
+		expect(result.status).toBe("completed");
+		expect(runtime.getInFlightReply()).toBeUndefined();
+	});
+
 	it("stores generated model-tool media once and keeps activity metadata compact", async () => {
 		const data = "aGVsbG8=";
 		const model = new ScriptedModel([
