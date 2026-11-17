@@ -825,6 +825,54 @@ describe("sdk-gateway", () => {
 		expect(events.at(-1)).toEqual({ type: "finish", reason: "stop" });
 	});
 
+	it("preserves raw reasoning deltas and failed provider results", async () => {
+		streamTextSpy.mockReturnValue({
+			fullStream: makeStreamParts([
+				{ type: "reasoning-delta", delta: "Thinking" },
+				{
+					type: "tool-call",
+					toolCallId: "failed",
+					toolName: "Bash",
+					input: { command: "false" },
+					providerExecuted: true,
+				},
+				{
+					type: "tool-result",
+					toolCallId: "failed",
+					toolName: "Bash",
+					result: "Command failed",
+					isError: true,
+				},
+				{ type: "finish", finishReason: "stop" },
+			]),
+		});
+		const gateway = createGateway({
+			providerConfigs: [{ providerId: "claude-code" }],
+		});
+		const events = await collect(
+			await gateway.stream({
+				providerId: "claude-code",
+				modelId: "sonnet",
+				messages: baseMessages,
+			}),
+		);
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: "reasoning-delta", text: "Thinking" }),
+		);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: "tool-result",
+				toolCallId: "failed",
+				execution: "provider",
+				output: "Command failed",
+				isError: true,
+			}),
+		);
+		expect(claudeCodeFactorySpy.mock.calls.at(-1)?.[0]).toMatchObject({
+			defaultSettings: { forwardSubagentText: true, includeHookEvents: true },
+		});
+	});
+
 	it("matches flag-less results and errors to observational provider tool calls by ID", async () => {
 		// Some provider packages set providerExecuted only on the call half of
 		// the pair. Results and errors are matched by tool-call ID so the

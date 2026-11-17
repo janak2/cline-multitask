@@ -1583,7 +1583,8 @@ async function* emitAiSdkEvents(
 					const text =
 						(part.textDelta as string | undefined) ??
 						(part.text as string | undefined) ??
-						(part.reasoning as string | undefined);
+						(part.reasoning as string | undefined) ??
+						(part.delta as string | undefined);
 					if (text) {
 						sawVisibleContent = true;
 						yield {
@@ -1767,6 +1768,7 @@ async function* emitAiSdkEvents(
 									part.providerExecuted === true ? "provider" : "client",
 								input: part.input ?? part.args,
 								output: part.output ?? part.result,
+								...(part.isError === true ? { isError: true } : {}),
 							};
 						}
 						continue;
@@ -1787,6 +1789,7 @@ async function* emitAiSdkEvents(
 								execution: "provider",
 								input: part.input ?? part.args,
 								output: part.output ?? part.result,
+								...(part.isError === true ? { isError: true } : {}),
 							};
 						}
 						continue;

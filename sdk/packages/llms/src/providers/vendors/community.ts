@@ -4,8 +4,10 @@ import { accessSync, existsSync, constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
 import { delimiter, dirname, join } from "node:path";
 import type { GatewayResolvedProviderConfig } from "@cline/shared";
+import { wrapLanguageModel } from "ai";
 import { createDifyProvider } from "dify-ai-provider";
 import { resolveApiKey } from "../http";
+import { claudeCodeOutputMiddleware } from "./claude-code-output";
 import type { ProviderFactoryResult } from "./types";
 
 type SapModel = Record<PropertyKey, unknown>;
@@ -169,9 +171,21 @@ export async function createClaudeCodeProviderModule(
 	if (defaultSettings.permissionMode === undefined) {
 		defaultSettings.permissionMode = "bypassPermissions";
 	}
+	if (defaultSettings.forwardSubagentText === undefined) {
+		defaultSettings.forwardSubagentText = true;
+	}
+	if (defaultSettings.includeHookEvents === undefined) {
+		defaultSettings.includeHookEvents = true;
+	}
 	const provider = createClaudeCode({ ...options, defaultSettings });
 	return {
-		operations: { language: (modelId) => provider(modelId) },
+		operations: {
+			language: (modelId) =>
+				wrapLanguageModel({
+					model: provider(modelId),
+					middleware: claudeCodeOutputMiddleware,
+				}),
+		},
 	};
 }
 
