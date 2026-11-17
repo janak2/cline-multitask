@@ -22,6 +22,23 @@ export const ChatSessionConfigSchema = z.object({
 	cwd: z.string().optional(),
 	environmentId: z.string().trim().min(1),
 	provider: z.string().min(1),
+	providerConfig: z
+		.object({
+			providerId: z.string(),
+			claudeCode: z
+				.object({
+					permissionMode: z.enum([
+						"default",
+						"acceptEdits",
+						"bypassPermissions",
+						"plan",
+						"dontAsk",
+						"auto",
+					]),
+				})
+				.optional(),
+		})
+		.optional(),
 	providerAuth: ProviderAuthInfoSchema.optional(),
 	model: z.string().min(1),
 	mode: z.enum(["act", "plan"]).default("act"),

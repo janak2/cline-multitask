@@ -206,6 +206,7 @@ export interface ProviderConfigFieldOption {
 }
 
 export interface ProviderConfigField {
+	chatControl?: "permission-mode";
 	path: string;
 	label: string;
 	type: ProviderConfigFieldType;
@@ -329,6 +330,15 @@ export type ProviderSettingsObjectPatch<T> = {
 export interface SaveProviderSettingsActionRequest {
 	action: "saveProviderSettings";
 	providerId: string;
+	claudeCode?: {
+		permissionMode?:
+			| "default"
+			| "acceptEdits"
+			| "bypassPermissions"
+			| "plan"
+			| "dontAsk"
+			| "auto";
+	};
 	enabled?: boolean;
 	// Authentication
 	apiKey?: string;

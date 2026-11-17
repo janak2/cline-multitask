@@ -746,8 +746,7 @@ const cline = createClineLikeSpec({
 	// A new user has no credits yet, so the offline default is the first free
 	// model. Core's resolveClineDefaultModelId prefers the live feed's first free.
 	defaultModelId:
-		GENERATED_CLINE_RECOMMENDED_MODELS.free?.[0]?.id ??
-		CLINE_DEFAULT_MODEL_ID,
+		GENERATED_CLINE_RECOMMENDED_MODELS.free?.[0]?.id ?? CLINE_DEFAULT_MODEL_ID,
 	defaults: {
 		options: {
 			onResponseError: async (response: Response) => {
@@ -1248,7 +1247,28 @@ const BUILTIN_SPEC_OVERRIDES: BuiltinSpecOverride[] = [
 		modelsFactory: buildClaudeCodeModels,
 		docsUrl: "https://code.claude.com/docs/en/setup",
 		defaults: { baseUrl: "" },
-		configFields: [],
+		configFields: [
+			{
+				path: "claudeCode.permissionMode",
+				label: "Claude Code permissions",
+				type: "select",
+				chatControl: "permission-mode",
+				defaultValue: "acceptEdits",
+				description:
+					"Saved for this provider; applies on the next turn. Bypass skips tool approval checks; use only in trusted workspaces. Modes that need approval may deny tools because interactive Claude Code approvals are not connected.",
+				options: [
+					{ label: "Accept edits (default)", value: "acceptEdits" },
+					{ label: "Default — check tool permissions", value: "default" },
+					{ label: "Plan — read-only planning", value: "plan" },
+					{ label: "Don't ask — deny unapproved tools", value: "dontAsk" },
+					{ label: "Auto — automatic permission review", value: "auto" },
+					{
+						label: "Bypass — skip tool approval checks",
+						value: "bypassPermissions",
+					},
+				],
+			},
+		],
 		// Claude Code is typically authenticated with a Pro/Max subscription,
 		// where any dollar figure would be an API-rate estimate rather than a
 		// real charge. The CLI does report a cost when it runs on API-key

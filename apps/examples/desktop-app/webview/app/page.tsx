@@ -84,7 +84,10 @@ import { useTerminalChatHandoff } from "@/hooks/use-terminal-chat-handoff";
 import { toast } from "@/hooks/use-toast";
 import { applyAppZoomAction, syncAppFontSize } from "@/lib/app-font-size";
 import { syncAppIcon } from "@/lib/app-icon";
-import type { ChatSessionConfig } from "@/lib/chat-schema";
+import {
+	type ChatSessionConfig,
+	ChatSessionConfigSchema,
+} from "@/lib/chat-schema";
 import { openPersonalGitHubInstallUrl } from "@/lib/cline-integrations";
 import {
 	HANDOFF_PROGRESS_LABELS,
@@ -3098,6 +3101,7 @@ function ChatThreadPane({
 				return {
 					...prev,
 					provider: nextProvider,
+					providerConfig: undefined,
 					apiKey: nextApiKey,
 					providerAuth: selected?.auth,
 				};
@@ -3379,6 +3383,21 @@ function ChatThreadPane({
 				onEditPromptInQueue={updatePromptInQueue}
 				onRemovePromptInQueue={handleRemoveQueuedPrompt}
 				onProviderChange={handleProviderChange}
+				onProviderSettingsChange={(settings) => {
+					const parsed = ChatSessionConfigSchema.shape.providerConfig.safeParse(
+						{ providerId: config.provider, ...settings },
+					);
+					if (parsed.success)
+						setConfig((previous) =>
+							JSON.stringify(previous.providerConfig) ===
+							JSON.stringify(parsed.data)
+								? previous
+								: {
+										...previous,
+										providerConfig: parsed.data,
+									},
+						);
+				}}
 				onSend={handleSendPrompt}
 				onDisableMultitask={handleDisableMultitask}
 				gitBranch={gitBranch}

@@ -444,6 +444,53 @@ afterEach(async () => {
 });
 
 describe("useChatSession", () => {
+	it("forwards explicitly selected native permission settings on the next chat request", async () => {
+		await act(async () =>
+			current.setConfig((previous) => ({
+				...previous,
+				provider: "claude-code",
+				model: "sonnet",
+				providerConfig: {
+					providerId: "claude-code",
+					claudeCode: { permissionMode: "dontAsk" },
+				},
+			})),
+		);
+		invokeMock.mockImplementation(
+			async (command: string, args?: Record<string, unknown>) => {
+				if (command === "chat_session_command") {
+					const request = args?.request as
+						| { action?: string; config?: { sessionId?: string } }
+						| undefined;
+					if (request?.action === "start")
+						return { sessionId: request.config?.sessionId };
+					if (request?.action === "send")
+						return {
+							ok: true,
+							result: { text: "Done", finishReason: "completed" },
+						};
+				}
+				return [];
+			},
+		);
+		await act(async () => {
+			await current.sendPrompt("Inspect the workspace", []);
+		});
+		expect(invokeMock).toHaveBeenCalledWith(
+			"chat_session_command",
+			expect.objectContaining({
+				request: expect.objectContaining({
+					config: expect.objectContaining({
+						providerConfig: {
+							providerId: "claude-code",
+							claudeCode: { permissionMode: "dontAsk" },
+						},
+					}),
+				}),
+			}),
+		);
+	});
+
 	it("sends the selected message boundary when forking an older answer", async () => {
 		await act(async () =>
 			current.hydrateSession({

@@ -1388,6 +1388,7 @@ async function saveLocalProviderSettingsUnlocked(
 		"gcp",
 		"azure",
 		"sap",
+		"claudeCode",
 		"oca",
 	] as const) {
 		if (Object.hasOwn(request, key) && request[key] != null) {

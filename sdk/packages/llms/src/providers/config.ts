@@ -244,6 +244,15 @@ export interface OpenCodeConfig {
  * Cloud provider configurations (grouped)
  */
 export interface CloudConfig {
+	claudeCode?: {
+		permissionMode?:
+			| "default"
+			| "acceptEdits"
+			| "bypassPermissions"
+			| "plan"
+			| "dontAsk"
+			| "auto";
+	};
 	/** AWS/Bedrock options */
 	aws?: AwsConfig;
 	/** Google Cloud/Vertex options */

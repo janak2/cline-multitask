@@ -107,6 +107,10 @@ vi.mock("@/lib/provider-model-catalog", () => ({
 	VOICE_INPUT_SETTINGS_CHANGED_EVENT: "cline:test-voice-input-settings-changed",
 }));
 
+vi.mock("./provider-permission-menu", () => ({
+	ProviderPermissionMenu: () => null,
+}));
+
 vi.mock("@/lib/streaming-transcription", () => ({
 	startStreamingTranscription: startStreamingTranscriptionMock,
 }));

@@ -51,6 +51,7 @@ export interface ProviderConfigFieldOption {
 }
 
 export interface ProviderConfigField {
+	chatControl?: "permission-mode";
 	path: string;
 	label: string;
 	type: ProviderConfigFieldType;

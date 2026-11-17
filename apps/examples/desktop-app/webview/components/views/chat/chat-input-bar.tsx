@@ -101,6 +101,7 @@ import { startStreamingTranscription } from "@/lib/streaming-transcription";
 import { cn } from "@/lib/utils";
 import { LOCAL_WORKSPACE_ENVIRONMENT_ID } from "@/lib/workspace-paths";
 import { LocalModelIndicator } from "./local-model-indicator";
+import { ProviderPermissionMenu } from "./provider-permission-menu";
 import { TokenUsageRing } from "./token-usage-ring";
 import { WorkspaceSelector as WorkspaceSelectorImpl } from "./workspace-selector";
 
@@ -368,6 +369,7 @@ type ChatInputBarProps = {
 	promptDraft: PromptDraft;
 	onPromptInputChange: (value: string) => void;
 	onProviderChange: (provider: string) => void;
+	onProviderSettingsChange?: (settings: Record<string, unknown>) => void;
 	onModelChange: (model: string) => void;
 	onModeToggle: () => void;
 	onReasoningChange: (
@@ -447,6 +449,7 @@ function ChatInputBarImpl({
 	promptDraft,
 	onPromptInputChange,
 	onProviderChange,
+	onProviderSettingsChange,
 	onModelChange,
 	onModeToggle,
 	onReasoningChange,
@@ -1850,6 +1853,13 @@ function ChatInputBarImpl({
 							provider={provider}
 						/>
 					</div>
+					{executionTarget !== "cloud" && (
+						<ProviderPermissionMenu
+							providerId={provider}
+							onChange={onProviderSettingsChange}
+							disabled={readOnly || isBusy || hasRunningAgents}
+						/>
+					)}
 					<Select
 						disabled={cloudSettingsLocked || modelSupportsReasoning !== true}
 						onValueChange={handleEffortChange}

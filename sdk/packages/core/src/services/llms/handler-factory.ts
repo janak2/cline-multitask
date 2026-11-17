@@ -34,7 +34,7 @@ function usesOpenAICompatibleClient(config: ProviderConfig): boolean {
 	);
 }
 
-function buildGatewayProviderOptions(
+export function buildGatewayProviderOptions(
 	config: ProviderConfig,
 ): Record<string, unknown> | undefined {
 	const options: Record<string, unknown> = {
@@ -84,6 +84,9 @@ function buildGatewayProviderOptions(
 		const workspace = config.extensionContext?.workspace;
 		Object.assign(options, {
 			cwd: workspace?.cwd ?? workspace?.rootPath,
+			defaultSettings: config.claudeCode?.permissionMode
+				? { permissionMode: config.claudeCode.permissionMode }
+				: undefined,
 		});
 	}
 

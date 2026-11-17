@@ -141,6 +141,20 @@ export type ModelCatalogConfig = ModelCatalogSettings;
 
 export const ProviderSettingsSchema = z.object({
 	provider: ProviderIdSchema,
+	claudeCode: z
+		.object({
+			permissionMode: z
+				.enum([
+					"default",
+					"acceptEdits",
+					"bypassPermissions",
+					"plan",
+					"dontAsk",
+					"auto",
+				])
+				.optional(),
+		})
+		.optional(),
 	apiKey: z.string().optional(),
 	auth: AuthSettingsSchema.optional(),
 	model: z.string().optional(),
@@ -290,6 +304,7 @@ export function toProviderConfig(
 				}
 			: undefined,
 		azure: settings.azure,
+		claudeCode: settings.claudeCode,
 		sap: settings.sap,
 		oca: settings.oca,
 		capabilities: (settings.capabilities ?? providerDefaults?.capabilities) as

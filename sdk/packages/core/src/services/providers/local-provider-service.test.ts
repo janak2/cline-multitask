@@ -62,6 +62,45 @@ function makeTempManager(): {
 	};
 }
 
+it("persists Claude Code permission selection and returns its chat-control metadata", async () => {
+	const { manager, cleanup } = makeTempManager();
+	try {
+		await saveLocalProviderSettings(manager, {
+			providerId: "claude-code",
+			claudeCode: { permissionMode: "bypassPermissions" },
+		});
+		const reloaded = new ProviderSettingsManager({
+			filePath: manager.getFilePath(),
+		});
+		expect(
+			reloaded.getProviderSettings("claude-code")?.claudeCode?.permissionMode,
+		).toBe("bypassPermissions");
+		const catalog = await listLocalProviders(reloaded);
+		const provider = catalog.providers.find(
+			(entry) => entry.id === "claude-code",
+		);
+		expect(provider?.configValues?.["claudeCode.permissionMode"]).toBe(
+			"bypassPermissions",
+		);
+		expect(
+			provider?.configFields?.find(
+				(field) => field.chatControl === "permission-mode",
+			)?.defaultValue,
+		).toBe("acceptEdits");
+		expect(
+			catalog.providers
+				.filter((entry) => entry.id !== "claude-code")
+				.some((entry) =>
+					entry.configFields?.some(
+						(field) => field.chatControl === "permission-mode",
+					),
+				),
+		).toBe(false);
+	} finally {
+		cleanup();
+	}
+});
+
 // ---------------------------------------------------------------------------
 // Shared state reset
 // ---------------------------------------------------------------------------

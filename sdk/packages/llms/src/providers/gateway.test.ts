@@ -4910,7 +4910,14 @@ describe("sdk-gateway", () => {
 		);
 	});
 
-	it("preserves explicit Claude Code session settings over the gateway defaults", async () => {
+	it.each([
+		"default",
+		"acceptEdits",
+		"bypassPermissions",
+		"plan",
+		"dontAsk",
+		"auto",
+	])("preserves explicit Claude Code permission mode %s over the gateway defaults", async (permissionMode) => {
 		streamTextSpy.mockReturnValue({
 			fullStream: makeStreamParts([
 				{ type: "finish", usage: { inputTokens: 1, outputTokens: 1 } },
@@ -4929,7 +4936,7 @@ describe("sdk-gateway", () => {
 						defaultSettings: {
 							cwd: explicitDir,
 							settingSources: [],
-							permissionMode: "default",
+							permissionMode,
 						},
 					},
 				},
@@ -4949,7 +4956,7 @@ describe("sdk-gateway", () => {
 				defaultSettings: expect.objectContaining({
 					cwd: explicitDir,
 					settingSources: [],
-					permissionMode: "default",
+					permissionMode,
 				}),
 			}),
 		);
