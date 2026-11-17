@@ -2,6 +2,7 @@
 
 import { AgentCommandOutput, GeneratedMediaContent } from "@cline/ui";
 import {
+	MessageAction,
 	ToolActivity,
 	ToolActivityCode,
 	ToolActivityContent,
@@ -11,9 +12,10 @@ import {
 import { ToolFileDiff } from "@cline/ui/components/agent-chat/tool-diff";
 import type { ToolLabelPart } from "@cline/ui/components/agent-chat/tool-summary";
 import Ansi from "ansi-to-react";
-import { AlertCircle, Loader2 } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { AlertCircle, Check, Copy, Loader2 } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 import {
 	type ChatMessage,
 	type ChatMessageImage,
@@ -43,6 +45,43 @@ type ProceedWhileRunningHandler = (
 	sessionId: string,
 	toolCallId?: string,
 ) => void | Promise<void>;
+
+function CommandCopyButton({
+	label,
+	getText,
+}: {
+	label: string;
+	getText: () => string;
+}) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = window.setTimeout(() => setCopied(false), 1600);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+	return (
+		<MessageAction
+			className="justify-self-start"
+			label={copied ? "Copied" : label}
+			title={label}
+			onClick={async () => {
+				try {
+					await navigator.clipboard.writeText(getText());
+					setCopied(true);
+				} catch {
+					toast({
+						variant: "destructive",
+						title: "Copy failed",
+						description:
+							"The terminal text could not be copied to the clipboard.",
+					});
+				}
+			}}
+		>
+			{copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+		</MessageAction>
+	);
+}
 
 function ToolLabel({
 	parts,
@@ -118,6 +157,7 @@ const ToolCallRow = memo(function ToolCallRow({
 	const commandOutput = commandOutputSource
 		? appendCappedCommandOutput("", commandOutputSource).output
 		: "";
+	const commandOutputRef = useRef<HTMLDivElement>(null);
 	const toolSessionId = message.sessionId;
 	const toolCallId = message.meta?.toolCallId;
 	const canProceed = Boolean(
@@ -251,12 +291,18 @@ const ToolCallRow = memo(function ToolCallRow({
 					<ToolActivityDetails
 						className={cn(
 							"whitespace-pre-wrap",
-							isCommand && "font-mono text-xs",
+							isCommand && "cline-chat-selectable font-mono text-xs",
 						)}
 					>
 						{details.map(({ detail, key }) => (
 							<div key={key}>{isCommand ? `$ ${detail}` : detail}</div>
 						))}
+						{isCommand ? (
+							<CommandCopyButton
+								label="Copy command"
+								getText={() => summary.details.join("\n")}
+							/>
+						) : null}
 					</ToolActivityDetails>
 				) : null}
 				{fileDiffs.map((entry) =>
@@ -285,9 +331,23 @@ const ToolCallRow = memo(function ToolCallRow({
 						sessionId={message.sessionId}
 					/>
 				) : commandOutput ? (
-					<AgentCommandOutput isRunning={isRunning} output={commandOutput}>
-						<Ansi>{commandOutput}</Ansi>
-					</AgentCommandOutput>
+					<div ref={commandOutputRef}>
+						<CommandCopyButton
+							label="Copy output"
+							getText={() =>
+								commandOutputRef.current?.querySelector("pre")?.textContent ??
+								""
+							}
+						/>
+						<AgentCommandOutput
+							classNames={{ viewport: "cline-chat-selectable" }}
+							isRunning={isRunning}
+							output={commandOutput}
+							tabIndex={0}
+						>
+							<Ansi>{commandOutput}</Ansi>
+						</AgentCommandOutput>
+					</div>
 				) : questionAnswer ? (
 					<div className="mt-1 min-w-0 max-w-full space-y-1 wrap-break-word text-foreground">
 						{questionText ? (
