@@ -1788,6 +1788,27 @@ export function ProjectFilesPanel({
 									<ContextMenuSeparator />
 									<ContextMenuItem
 										className="text-xs"
+										onSelect={() => {
+											const path = menuEntry;
+											void changeFiles(
+												"copy_project_entries",
+												{ path },
+												[],
+											).then((copied) => {
+												if (copied)
+													toast({
+														title: `Copied ${baseName(path)}`,
+														description:
+															"Paste it into a folder here or in your file manager.",
+													});
+											});
+										}}
+									>
+										<Copy className="size-3.5" />
+										Copy
+									</ContextMenuItem>
+									<ContextMenuItem
+										className="text-xs"
 										onSelect={() =>
 											setNameDialog({
 												mode: "rename",

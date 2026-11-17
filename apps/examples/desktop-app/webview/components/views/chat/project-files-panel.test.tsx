@@ -1444,6 +1444,17 @@ describe("ProjectFilesPanel file changes", () => {
 		);
 	});
 
+	it("copies the right-clicked entry to the system clipboard", async () => {
+		await render();
+		await showFiles();
+		await openContextMenu(button(/^src/));
+		await click(menuItem("Copy"));
+		expect(invokeMock).toHaveBeenCalledWith(
+			"copy_project_entries",
+			expect.objectContaining({ workspaceRoot: "/repo", path: "/repo/src" }),
+		);
+	});
+
 	it("deletes only after confirmation", async () => {
 		await render();
 		await showFiles();

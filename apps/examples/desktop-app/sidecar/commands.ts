@@ -179,6 +179,7 @@ import {
 	openContainingProjectFolder,
 	readCopiedFiles,
 	readDroppedFiles,
+	writeCopiedFiles,
 } from "./project-clipboard";
 import {
 	createLocalProjectDirectory,
@@ -2258,6 +2259,7 @@ export async function handleCommand(
 		command === "delete_project_entry" ||
 		command === "write_project_file" ||
 		command === "paste_project_entries" ||
+		command === "copy_project_entries" ||
 		command === "read_dropped_project_files" ||
 		command === "open_containing_project_folder"
 	) {
@@ -2274,6 +2276,8 @@ export async function handleCommand(
 			return await readDroppedFiles(String(args?.uriList ?? ""));
 		} else if (command === "paste_project_entries") {
 			await copyProjectEntries(root, path, await readCopiedFiles());
+		} else if (command === "copy_project_entries") {
+			await writeCopiedFiles(root, [path]);
 		} else if (command === "open_containing_project_folder") {
 			await openContainingProjectFolder(root, path);
 		} else if (command === "create_project_directory") {

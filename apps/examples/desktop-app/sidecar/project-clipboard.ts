@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import {
 	copyFile,
@@ -10,7 +10,7 @@ import {
 	rm,
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -123,6 +123,61 @@ export async function readCopiedFiles(): Promise<string[]> {
 	throw new Error(
 		"No supported copied files found. Copy files in your file manager; Linux paste requires xclip (X11) or wl-paste (Wayland).",
 	);
+}
+
+export async function writeCopiedFiles(
+	root: string,
+	paths: string[],
+): Promise<void> {
+	if (process.platform !== "linux")
+		throw new Error("File clipboard copy is currently supported only on Linux");
+	if (!paths.length) throw new Error("Nothing selected to copy");
+	if (!isAbsolute(root)) throw new Error("Absolute workspace path required");
+	const base = await realpath(root);
+	for (const path of paths) {
+		if (!isAbsolute(path)) throw new Error("Absolute path required");
+		if (!inside(base, await realpath(path)))
+			throw new Error("Path is outside the workspace");
+	}
+	// The GNOME format is what readCopiedFiles tries first and what GNOME-style
+	// file managers paste from.
+	const contents = [
+		"copy",
+		...paths.map((path) => pathToFileURL(path).href),
+	].join("\n");
+	const [command, args]: [string, string[]] = process.env.WAYLAND_DISPLAY
+		? ["wl-copy", ["--type", "x-special/gnome-copied-files"]]
+		: [
+				"xclip",
+				["-selection", "clipboard", "-target", "x-special/gnome-copied-files"],
+			];
+	// xclip and wl-copy stay in the background to serve the clipboard, so
+	// their output is ignored rather than piped: a pipe would never close.
+	await new Promise<void>((resolve, reject) => {
+		const child = spawn(command, args, {
+			stdio: ["pipe", "ignore", "ignore"],
+			timeout: 3000,
+		});
+		child.once("error", () =>
+			reject(
+				new Error(
+					"Could not copy to the clipboard. Linux copy requires xclip (X11) or wl-copy (Wayland).",
+				),
+			),
+		);
+		child.once("exit", (code) =>
+			code === 0
+				? resolve()
+				: reject(
+						new Error(
+							code === null
+								? `${command} timed out`
+								: `${command} exited with code ${code}`,
+						),
+					),
+		);
+		child.stdin?.end(contents);
+	});
 }
 
 function inside(root: string, path: string): boolean {

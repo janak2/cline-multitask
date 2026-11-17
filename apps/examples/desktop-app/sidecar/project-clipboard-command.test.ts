@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -7,11 +8,13 @@ import { createSidecarContext } from "./context";
 import {
 	openContainingProjectFolder,
 	readCopiedFiles,
+	writeCopiedFiles,
 } from "./project-clipboard";
 
 const mocks = vi.hoisted(() => ({
 	remote: false,
 	exec: vi.fn(),
+	spawn: vi.fn(),
 }));
 vi.mock("./context", async (original) => ({
 	...(await original<typeof import("./context")>()),
@@ -40,7 +43,22 @@ vi.mock("node:child_process", async (original) => {
 			stderr: "",
 		}),
 	});
-	return { ...actual, execFile };
+	const spawn = (command: string, args: string[]) => {
+		const child = new EventEmitter();
+		let input = "";
+		Object.assign(child, {
+			stdin: {
+				end: (data: string) => {
+					input = data;
+					queueMicrotask(() =>
+						child.emit("exit", mocks.spawn(command, args, input)),
+					);
+				},
+			},
+		});
+		return child;
+	};
+	return { ...actual, execFile, spawn };
 });
 
 let root: string;
@@ -48,6 +66,7 @@ beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "cline-clipboard-command-"));
 	mocks.remote = false;
 	mocks.exec.mockReset().mockReturnValue("");
+	mocks.spawn.mockReset().mockReturnValue(0);
 });
 afterEach(async () => rm(root, { recursive: true, force: true }));
 
@@ -64,6 +83,26 @@ it("uses actual native clipboard MIME requests and rejects cut selections", asyn
 	);
 	mocks.exec.mockReturnValue("1");
 	await expect(readCopiedFiles()).rejects.toThrow("Cut files");
+});
+
+it("writes workspace entries to the clipboard in the format paste reads", async () => {
+	const folder = join(root, "a b");
+	await mkdir(folder);
+	await writeFile(join(root, "c.txt"), "c");
+	await writeCopiedFiles(root, [folder, join(root, "c.txt")]);
+	const [command, args, input] = mocks.spawn.mock.calls[0];
+	expect(command).toMatch(/xclip|wl-copy/);
+	expect(args).toContain("x-special/gnome-copied-files");
+	expect(input).toBe(
+		`copy\nfile://${encodeURI(folder)}\nfile://${encodeURI(join(root, "c.txt"))}`,
+	);
+	mocks.exec.mockImplementation((_command, readArgs: string[]) =>
+		readArgs.includes("x-special/gnome-copied-files") ? input : "",
+	);
+	expect(await readCopiedFiles()).toEqual([folder, join(root, "c.txt")]);
+	await expect(writeCopiedFiles(root, [tmpdir()])).rejects.toThrow("outside");
+	mocks.spawn.mockReturnValue(1);
+	await expect(writeCopiedFiles(root, [folder])).rejects.toThrow("code 1");
 });
 
 it("opens the containing directory through an argument array, including shell characters", async () => {
@@ -88,6 +127,7 @@ it("requires a trusted local connection before reading the clipboard or opening 
 	};
 	for (const command of [
 		"paste_project_entries",
+		"copy_project_entries",
 		"read_dropped_project_files",
 		"open_containing_project_folder",
 	]) {
@@ -101,4 +141,5 @@ it("requires a trusted local connection before reading the clipboard or opening 
 		mocks.remote = false;
 	}
 	expect(mocks.exec).not.toHaveBeenCalled();
+	expect(mocks.spawn).not.toHaveBeenCalled();
 });
