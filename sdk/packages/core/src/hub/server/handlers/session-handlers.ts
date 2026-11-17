@@ -1070,7 +1070,9 @@ export async function handleSessionMessages(
 			`Unknown session: ${sessionId}`,
 		);
 	}
-	const messages = await ctx.sessionHost.readSessionMessages(sessionId);
+	const messages = await (ctx.sessionHost.readLiveSessionMessages
+		? ctx.sessionHost.readLiveSessionMessages(sessionId)
+		: ctx.sessionHost.readSessionMessages(sessionId));
 	return okReply(envelope, { sessionId, messages });
 }
 

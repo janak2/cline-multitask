@@ -2407,6 +2407,15 @@ export async function handleCommand(
 		}
 		const binding = await getCommandSessionBinding(ctx, sessionId, args);
 		if (binding?.kind !== "ssh") {
+			const record = await binding?.sessionManager
+				.get(sessionId)
+				.catch(() => undefined);
+			const liveMessages =
+				record?.status === "running"
+					? await binding?.sessionManager
+							.readMessages(sessionId)
+							.catch(() => undefined)
+					: undefined;
 			return await readSessionMessages(
 				ctx,
 				sessionId,
@@ -2414,6 +2423,7 @@ export async function handleCommand(
 				undefined,
 				undefined,
 				alignToTurn,
+				liveMessages,
 			);
 		}
 		const [remoteMessages, remoteSession] = await Promise.all([

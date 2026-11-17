@@ -366,15 +366,19 @@ export function readSessionMessagesSync(
 	/** Where a remote session resolved `@` mentions (its workspace root). */
 	remoteMentionBaseDir?: string,
 	alignToTurn = false,
+	/** A running local session's resident transcript, newer than its file. */
+	liveMessages?: unknown[],
 ): unknown[] {
 	const isRemoteRead = sourceMessages !== undefined;
 	const persisted = isRemoteRead
 		? (sourceMessages as MessageWithMetadata[])
-		: (readPersistedChatMessages(sessionId) ??
-			// A child agent's transcript is not stored under its own session
-			// directory — it lives beside the root session's artifacts — so opening a
-			// subagent session has to resolve the path recorded on its row.
-			readChildSessionMessages(sessionId));
+		: liveMessages && liveMessages.length > 0
+			? (liveMessages as MessageWithMetadata[])
+			: (readPersistedChatMessages(sessionId) ??
+				// A child agent's transcript is not stored under its own session
+				// directory — it lives beside the root session's artifacts — so opening a
+				// subagent session has to resolve the path recorded on its row.
+				readChildSessionMessages(sessionId));
 	const messages =
 		persisted && persisted.length > 0
 			? persisted
@@ -813,6 +817,7 @@ export async function readSessionMessages(
 	sourceMessages?: unknown[],
 	remoteMentionBaseDir?: string,
 	alignToTurn = false,
+	liveMessages?: unknown[],
 ): Promise<unknown[]> {
 	return readSessionMessagesSync(
 		ctx,
@@ -821,5 +826,6 @@ export async function readSessionMessages(
 		sourceMessages,
 		remoteMentionBaseDir,
 		alignToTurn,
+		liveMessages,
 	);
 }

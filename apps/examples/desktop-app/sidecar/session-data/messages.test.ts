@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { writeSessionManifest } from "../paths";
+import { sharedSessionMessagesPath, writeSessionManifest } from "../paths";
 import { readSessionMessages } from "./messages";
 
 describe("readSessionMessages", () => {
@@ -75,6 +75,52 @@ describe("readSessionMessages", () => {
 			expect.objectContaining({ role: "assistant", content: "Spaces" }),
 		]);
 	});
+	it("shows a running session's live transcript over its lagging saved file", async () => {
+		const sessionId = `live-over-saved-${Date.now()}`;
+		const dataDir = mkdtempSync(join(tmpdir(), "session-data-"));
+		const previousDataDir = process.env.CLINE_SESSION_DATA_DIR;
+		process.env.CLINE_SESSION_DATA_DIR = dataDir;
+		try {
+			const saved = [{ id: "u1", role: "user", content: "hi", ts: 1 }];
+			mkdirSync(join(dataDir, sessionId), { recursive: true });
+			writeFileSync(
+				sharedSessionMessagesPath(sessionId),
+				JSON.stringify({ messages: saved }),
+			);
+			const live = [
+				...saved,
+				{ id: "a1", role: "assistant", content: "in flight", ts: 2 },
+			];
+			const ctx = { liveSessions: new Map() } as Parameters<
+				typeof readSessionMessages
+			>[0];
+			await expect(
+				readSessionMessages(ctx, sessionId, 800, undefined, undefined, false),
+			).resolves.toEqual([expect.objectContaining({ content: "hi" })]);
+			await expect(
+				readSessionMessages(
+					ctx,
+					sessionId,
+					800,
+					undefined,
+					undefined,
+					false,
+					live,
+				),
+			).resolves.toEqual([
+				expect.objectContaining({ content: "hi" }),
+				expect.objectContaining({ role: "assistant", content: "in flight" }),
+			]);
+		} finally {
+			if (previousDataDir === undefined) {
+				delete process.env.CLINE_SESSION_DATA_DIR;
+			} else {
+				process.env.CLINE_SESSION_DATA_DIR = previousDataDir;
+			}
+			rmSync(dataDir, { recursive: true, force: true });
+		}
+	});
+
 	it("continues past malformed persisted entries", async () => {
 		const sessionId = `malformed-projection-${Date.now()}`;
 		const liveSessions = new Map([

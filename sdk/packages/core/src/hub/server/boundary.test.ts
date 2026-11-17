@@ -245,6 +245,31 @@ describe("HubServerTransport boundaries", () => {
 		}
 	});
 
+	it("serves a running session's resident transcript instead of its lagging file", async () => {
+		const saved = [{ role: "user", content: "hi" }];
+		const resident = [...saved, { role: "assistant", content: "working" }];
+		const transport = createTransport({
+			sessionHost: {
+				getSession: vi.fn().mockResolvedValue({ sessionId: "running" }),
+				readSessionMessages: vi.fn().mockResolvedValue(saved),
+				readLiveSessionMessages: vi.fn().mockResolvedValue(resident),
+			},
+		});
+		try {
+			const reply = await transport.handleCommand({
+				version: "v1",
+				command: "session.messages",
+				payload: { sessionId: "running" },
+			});
+			expect(reply).toMatchObject({
+				ok: true,
+				payload: { messages: resident },
+			});
+		} finally {
+			await transport.stop();
+		}
+	});
+
 	it("does not start a runtime when reading saved history fails", async () => {
 		const startSession = vi.fn();
 		const transport = createTransport({
