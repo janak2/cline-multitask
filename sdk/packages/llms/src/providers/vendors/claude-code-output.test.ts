@@ -101,17 +101,6 @@ describe("Claude Code output", () => {
 			"Found a bug",
 		],
 		[
-			{
-				type: "system",
-				subtype: "hook_response",
-				hook_name: "Check",
-				stdout: "Output",
-				stderr: "Failed",
-				outcome: "error",
-			},
-			"Failed",
-		],
-		[
 			{ type: "tool_use_summary", summary: "Read three files" },
 			"Read three files",
 		],
@@ -119,7 +108,7 @@ describe("Claude Code output", () => {
 		expect(formatClaudeCodeNotice(message)).toContain(expected);
 	});
 
-	it("does not duplicate normal output or expose init credentials and protocol messages", () => {
+	it("does not duplicate normal output or expose init credentials, hooks, and protocol messages", () => {
 		for (const message of [
 			{
 				type: "assistant",
@@ -131,6 +120,17 @@ describe("Claude Code output", () => {
 			},
 			{ type: "stream_event", event: { type: "content_block_delta" } },
 			{ type: "system", subtype: "init", apiKeySource: "secret" },
+			{
+				type: "system",
+				subtype: "hook_started",
+				hook_name: "SessionStart:startup",
+			},
+			{
+				type: "system",
+				subtype: "hook_response",
+				hook_name: "SessionStart:startup",
+				outcome: "success",
+			},
 			{
 				type: "system",
 				subtype: "task_started",
@@ -160,8 +160,8 @@ describe("Claude Code output", () => {
 				type: "raw",
 				rawValue: {
 					type: "system",
-					subtype: "hook_progress",
-					stderr: "Hook warning",
+					subtype: "notification",
+					text: "Waiting",
 				},
 			},
 			{
@@ -209,7 +209,7 @@ describe("Claude Code output", () => {
 			{
 				type: "text-delta",
 				id: "claude-code-notice-0",
-				delta: expect.stringContaining("Hook warning"),
+				delta: expect.stringContaining("Waiting"),
 			},
 			{ type: "text-end", id: "claude-code-notice-0" },
 			...parts.slice(5),

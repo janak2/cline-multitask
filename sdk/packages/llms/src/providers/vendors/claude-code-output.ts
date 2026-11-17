@@ -77,19 +77,6 @@ export function formatClaudeCodeNotice(value: unknown): string | undefined {
 				.filter(Boolean)
 				.join("\n");
 			break;
-		case "hook_started":
-		case "hook_progress":
-		case "hook_response":
-			body = [
-				text(message.hook_name),
-				text(message.stdout),
-				text(message.stderr),
-				text(message.output),
-				text(message.outcome),
-			]
-				.filter(Boolean)
-				.join("\n");
-			break;
 		case "tool_use_summary":
 			body = text(message.summary);
 			break;
