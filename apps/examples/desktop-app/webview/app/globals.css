@@ -53,7 +53,17 @@
 		user-select: text;
 	}
 
-	.cline-chat-selectable
+	:is(
+			.cline-chat-selectable,
+			[data-slot="dialog-content"],
+			[data-slot="alert-dialog-content"],
+			[data-slot="popover-content"],
+			[data-slot="hover-card-content"],
+			[data-slot="tooltip-content"],
+			[data-slot="sheet-content"],
+			[data-slot="drawer-content"],
+			[data-slot="toast"]
+		)
 		:where(
 			button,
 			[role="button"],
@@ -73,6 +83,19 @@
 	.cline-settings-content,
 	pre,
 	code {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+
+	/* Popups render in portals outside those surfaces, so they opt in here. */
+	[data-slot="dialog-content"],
+	[data-slot="alert-dialog-content"],
+	[data-slot="popover-content"],
+	[data-slot="hover-card-content"],
+	[data-slot="tooltip-content"],
+	[data-slot="sheet-content"],
+	[data-slot="drawer-content"],
+	[data-slot="toast"] {
 		-webkit-user-select: text;
 		user-select: text;
 	}

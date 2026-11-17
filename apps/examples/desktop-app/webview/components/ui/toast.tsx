@@ -49,6 +49,7 @@ const Toast = React.forwardRef<
 	return (
 		<ToastPrimitives.Root
 			ref={ref}
+			data-slot="toast"
 			className={cn(toastVariants({ variant }), className)}
 			{...props}
 		/>
