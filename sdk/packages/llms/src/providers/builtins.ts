@@ -1253,17 +1253,17 @@ const BUILTIN_SPEC_OVERRIDES: BuiltinSpecOverride[] = [
 				label: "Claude Code permissions",
 				type: "select",
 				chatControl: "permission-mode",
-				defaultValue: "acceptEdits",
+				defaultValue: "bypassPermissions",
 				description:
 					"Saved for this provider; applies on the next turn. Bypass skips tool approval checks; use only in trusted workspaces. Modes that need approval may deny tools because interactive Claude Code approvals are not connected.",
 				options: [
-					{ label: "Accept edits (default)", value: "acceptEdits" },
+					{ label: "Accept edits", value: "acceptEdits" },
 					{ label: "Default — check tool permissions", value: "default" },
 					{ label: "Plan — read-only planning", value: "plan" },
 					{ label: "Don't ask — deny unapproved tools", value: "dontAsk" },
 					{ label: "Auto — automatic permission review", value: "auto" },
 					{
-						label: "Bypass — skip tool approval checks",
+						label: "Bypass (default) — skip tool approval checks",
 						value: "bypassPermissions",
 					},
 				],

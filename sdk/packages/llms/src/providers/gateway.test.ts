@@ -4871,7 +4871,7 @@ describe("sdk-gateway", () => {
 		expect(streamTextOptions).not.toHaveProperty("tools");
 	});
 
-	it("anchors the Claude Code session on workspace cwd, user settings, and auto-accepted edits", async () => {
+	it("anchors the Claude Code session on workspace cwd, user settings, and the requested bypass default", async () => {
 		streamTextSpy.mockReturnValue({
 			fullStream: makeStreamParts([
 				{ type: "finish", usage: { inputTokens: 1, outputTokens: 1 } },
@@ -4899,7 +4899,7 @@ describe("sdk-gateway", () => {
 				defaultSettings: expect.objectContaining({
 					cwd: workspaceDir,
 					settingSources: ["user", "project"],
-					permissionMode: "acceptEdits",
+					permissionMode: "bypassPermissions",
 				}),
 			}),
 		);

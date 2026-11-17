@@ -166,13 +166,8 @@ export async function createClaudeCodeProviderModule(
 	if (defaultSettings.settingSources === undefined) {
 		defaultSettings.settingSources = ["user", "project"];
 	}
-	// Cline has no interactive permission prompt wired into the CLI session
-	// (no canUseTool), so anything not pre-approved is denied outright. In
-	// default mode that means every file write fails. acceptEdits
-	// auto-approves file edits under cwd while leaving command execution
-	// gated by the user's own Claude settings (loaded via settingSources).
 	if (defaultSettings.permissionMode === undefined) {
-		defaultSettings.permissionMode = "acceptEdits";
+		defaultSettings.permissionMode = "bypassPermissions";
 	}
 	const provider = createClaudeCode({ ...options, defaultSettings });
 	return {

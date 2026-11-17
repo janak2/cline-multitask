@@ -28,7 +28,7 @@ describe("installed Claude Code permission modes", () => {
 		const field = fields.find(
 			(entry) => entry.chatControl === "permission-mode",
 		);
-		expect(field?.defaultValue).toBe("acceptEdits");
+		expect(field?.defaultValue).toBe("bypassPermissions");
 		expect(field?.options?.map((option) => option.value).sort()).toEqual(
 			[...supported].sort(),
 		);

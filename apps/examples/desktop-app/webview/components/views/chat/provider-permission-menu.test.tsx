@@ -70,7 +70,7 @@ const provider: Provider = {
 			label: "Claude Code permissions",
 			type: "select",
 			chatControl: "permission-mode",
-			defaultValue: "acceptEdits",
+			defaultValue: "bypassPermissions",
 			description: "Bypass skips tool approval checks",
 			options: [
 				{ label: "Accept edits", value: "acceptEdits" },
@@ -134,9 +134,9 @@ it("restores a saved mode into session configuration without persisting again", 
 	});
 	expect(mocks.invoke).not.toHaveBeenCalled();
 });
-it("uses catalog metadata, defaults to acceptEdits and never saves automatically", async () => {
+it("uses catalog metadata, defaults to bypass and never saves automatically", async () => {
 	await render();
-	expect(container.querySelector("select")?.value).toBe("acceptEdits");
+	expect(container.querySelector("select")?.value).toBe("bypassPermissions");
 	expect(mocks.invoke).not.toHaveBeenCalled();
 	expect(container.textContent).toContain("skip tool approval checks");
 });
@@ -175,6 +175,14 @@ it("persists explicit selection through the existing provider settings path and 
 	expect(container.querySelector("select")?.value).toBe("bypassPermissions");
 });
 it("keeps the previous mode if persistence fails", async () => {
+	mocks.load.mockResolvedValue({
+		providers: [
+			{
+				...provider,
+				configValues: { "claudeCode.permissionMode": "acceptEdits" },
+			},
+		],
+	});
 	mocks.invoke.mockRejectedValueOnce(new Error("save failed"));
 	await render();
 	await act(async () => {

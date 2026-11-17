@@ -86,7 +86,7 @@ it("persists Claude Code permission selection and returns its chat-control metad
 			provider?.configFields?.find(
 				(field) => field.chatControl === "permission-mode",
 			)?.defaultValue,
-		).toBe("acceptEdits");
+		).toBe("bypassPermissions");
 		expect(
 			catalog.providers
 				.filter((entry) => entry.id !== "claude-code")
