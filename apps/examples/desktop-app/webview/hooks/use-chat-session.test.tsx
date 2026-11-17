@@ -8509,6 +8509,69 @@ describe("cloud snapshot replay", () => {
 });
 
 describe("retained chat history", () => {
+	it.each([
+		false,
+		true,
+	])("keeps streamed agent messages until history catches up (remount: %s)", async (remount) => {
+		const liveMessages: ChatMessage[] = [
+			{
+				...message,
+				id: "assistant_live",
+				role: "assistant",
+				content: "Working on it",
+				createdAt: 2,
+			},
+			{
+				...message,
+				id: "tool_live",
+				role: "tool",
+				content: JSON.stringify({
+					toolName: "read_files",
+					input: {},
+					result: null,
+				}),
+				createdAt: 3,
+			},
+		];
+		chatHistoryCache.set(sessionKey(session), {
+			messages: [message, ...liveMessages],
+			limit: 120,
+		});
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message] : [],
+		);
+		if (remount) {
+			await act(async () => root.unmount());
+			root = createRoot(container);
+			await act(async () => root.render(<HookHarness />));
+		}
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			...liveMessages.map((item) => item.id),
+		]);
+		await act(async () =>
+			current.hydrateSession({ ...session, sessionId: "other" }),
+		);
+		await act(async () => current.hydrateSession(session));
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			...liveMessages.map((item) => item.id),
+		]);
+		const canonical = liveMessages.map((item, index) => ({
+			...item,
+			id: `saved-${index}`,
+		}));
+		invokeMock.mockImplementation(async (command: string) =>
+			command === "read_session_messages" ? [message, ...canonical] : [],
+		);
+		await act(async () => current.loadOlderMessages());
+		expect(current.messages.map((item) => item.id)).toEqual([
+			message.id,
+			...canonical.map((item) => item.id),
+		]);
+	});
+
 	it("keeps streamed command output after switching away and refreshing history", async () => {
 		const savedTool: ChatMessage = {
 			id: "saved-tool",

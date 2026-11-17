@@ -259,6 +259,8 @@ function mergeHydratedMessagesWithLive(options: {
 	const liveDuringHydration = sessionMessages.filter(
 		(message) =>
 			message.createdAt >= hydrationStartedAt ||
+			message.id.startsWith("assistant_") ||
+			message.id.startsWith("tool_") ||
 			preserveMessageIds?.has(message.id),
 	);
 	if (liveDuringHydration.length === 0) {
