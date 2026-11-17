@@ -299,6 +299,7 @@ export type WebviewInboundMessage =
 	| { type: "forkSession" };
 
 export type WebviewOutboundMessage =
+	| { type: "send_result"; error?: string }
 	| { type: "status"; text: string }
 	/**
 	 * `recoverable: true` marks an in-run notice (e.g. a MistakeTracker

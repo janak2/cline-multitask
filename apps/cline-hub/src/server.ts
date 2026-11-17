@@ -217,6 +217,11 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 					} else if (frame.type === "send") {
 						if (peer.sending) {
 							ctx.send(peer, {
+								type: "send_result",
+								error:
+									"A turn is already in progress. Your draft has been kept.",
+							});
+							ctx.send(peer, {
 								type: "status",
 								text: "A turn is already in progress.",
 							});
@@ -231,6 +236,13 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 								frame.config,
 								frame.attachments,
 							);
+							ctx.send(peer, { type: "send_result" });
+						} catch (error) {
+							ctx.send(peer, {
+								type: "send_result",
+								error: error instanceof Error ? error.message : String(error),
+							});
+							throw error;
 						} finally {
 							peer.sending = false;
 						}

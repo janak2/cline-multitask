@@ -1,6 +1,7 @@
 import process from "node:process";
 import {
 	type ClineCoreStartInput,
+	isSessionNotFoundError,
 	type SessionRecord,
 	SessionSource,
 } from "@cline/core";
@@ -179,7 +180,7 @@ function buildStartInputFromSession(
 			mode,
 			systemPrompt: asString(metadata.systemPrompt),
 			maxIterations: asNumber(metadata.maxIterations),
-			reasonLevel: asWebviewReasonLevel(metadata.reasonLevel),
+			reasonLevel: readSessionReasonLevel(metadata),
 			enableTools: session.enableTools,
 			enableSpawn: session.enableSpawn,
 			enableTeams: session.enableTeams,
@@ -338,12 +339,87 @@ export async function sendMessage(
 			config.reasonLevel,
 		);
 	}
-	await ctx.cline.send({
+	const input = {
 		sessionId: peer.selectedSessionId,
 		prompt: text,
-		mode: config?.mode === "plan" ? "plan" : "act",
+		mode: config?.mode === "plan" ? ("plan" as const) : ("act" as const),
 		userImages: attachments?.userImages,
-	});
+	};
+	const generation = restorationGenerations.get(ctx)?.get(input.sessionId) ?? 0;
+	try {
+		await ctx.cline.send(input);
+	} catch (error) {
+		if (!isSessionNotFoundError(error)) throw error;
+		if (
+			(restorationGenerations.get(ctx)?.get(input.sessionId) ?? 0) ===
+			generation
+		) {
+			await restoreSavedSession(ctx, input.sessionId);
+		}
+		await ctx.cline.send(input);
+	}
+}
+
+const sessionRestorations = new WeakMap<
+	HubContext,
+	Map<string, Promise<void>>
+>();
+const restorationGenerations = new WeakMap<HubContext, Map<string, number>>();
+
+function restoreSavedSession(
+	ctx: HubContext,
+	sessionId: string,
+): Promise<void> {
+	let restorations = sessionRestorations.get(ctx);
+	if (!restorations) {
+		restorations = new Map();
+		sessionRestorations.set(ctx, restorations);
+	}
+	const pending = restorations.get(sessionId);
+	if (pending) return pending;
+	const cline = ctx.cline;
+	const restoration = (async () => {
+		try {
+			if (!cline) throw new Error("Hub is not connected.");
+			const session = await cline.get(sessionId);
+			if (!session) throw new Error("Saved chat was not found.");
+			const messages = await cline.readMessages(sessionId);
+			if (!messages.length) throw new Error("Saved chat history is empty.");
+			const compactionState = await cline.readSessionCompactionState(sessionId);
+			const input = buildStartInputFromSession(session, {
+				initialMessages: messages,
+			});
+			input.resumeIfMissing = true;
+			input.config.sessionId = sessionId;
+			if (session.metadata?.mode === "yolo") input.config.mode = "yolo";
+			input.config.checkpoint = {
+				enabled: session.metadata?.checkpointEnabled === true,
+			};
+			input.initialCompactionState = compactionState;
+			const restored = await cline.start(input);
+			if (restored.sessionId !== sessionId)
+				throw new Error("Restoration returned a different chat ID.");
+			let generations = restorationGenerations.get(ctx);
+			if (!generations) {
+				generations = new Map();
+				restorationGenerations.set(ctx, generations);
+			}
+			generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1);
+		} catch (error) {
+			throw new Error(
+				`Could not restore saved chat ${sessionId}: ${error instanceof Error ? error.message : String(error)} Your message and attachments have not been sent.`,
+				{ cause: error },
+			);
+		}
+	})();
+	restorations.set(sessionId, restoration);
+	void restoration
+		.finally(() => {
+			if (restorations.get(sessionId) === restoration)
+				restorations.delete(sessionId);
+		})
+		.catch(() => {});
+	return restoration;
 }
 
 export async function deleteSession(

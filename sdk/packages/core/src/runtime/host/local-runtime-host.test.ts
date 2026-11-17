@@ -264,11 +264,32 @@ describe("LocalRuntimeHost", () => {
 		try {
 			const first = await manager.startSession(start);
 			expect(request).toHaveBeenCalledTimes(1);
-			await manager.stopSession(first.sessionId);
-			await manager.startSession({
+			const initialHistory = await manager.readLiveSessionMessages(
+				first.sessionId,
+			);
+			const preserved = await manager.startSession({
 				...start,
+				resumeIfMissing: true,
 				config: { ...start.config, sessionId: first.sessionId },
+				initialMessages: [
+					{ role: "user", content: "must not replace live history" },
+				],
 			});
+			expect(preserved.sessionId).toBe(first.sessionId);
+			expect(request).toHaveBeenCalledTimes(1);
+			expect(await manager.readLiveSessionMessages(first.sessionId)).toEqual(
+				initialHistory,
+			);
+			await manager.stopSession(first.sessionId);
+			const recovery = {
+				...start,
+				resumeIfMissing: true,
+				config: { ...start.config, sessionId: first.sessionId },
+			};
+			await Promise.all([
+				manager.startSession(recovery),
+				manager.startSession(recovery),
+			]);
 			expect(request).toHaveBeenCalledTimes(2);
 			expect(
 				settings.mock.calls.every(([provider]) => provider !== "cline"),

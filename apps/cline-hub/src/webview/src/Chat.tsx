@@ -788,6 +788,9 @@ export default function Chat({
 	const [forking, setForking] = useState(false);
 	const [forkError, setForkError] = useState<string | null>(null);
 	const activeAssistantIdRef = useRef<string | undefined>(undefined);
+	const pendingSendRef = useRef<((error?: string) => void) | undefined>(
+		undefined,
+	);
 	const initialSessionIdRef = useRef<string | undefined>(undefined);
 	const hydratingSessionIdRef = useRef<string | undefined>(undefined);
 	const sessionIdRef = useRef<string | undefined>(undefined);
@@ -851,6 +854,10 @@ export default function Chat({
 			}
 
 			switch (message.type) {
+				case "send_result":
+					pendingSendRef.current?.(message.error);
+					pendingSendRef.current = undefined;
+					return;
 				case "status":
 					setStatus(message.text);
 					return;
@@ -865,6 +872,8 @@ export default function Chat({
 						return;
 					}
 					setStatus(`Error: ${message.text}`);
+					pendingSendRef.current?.(message.text);
+					pendingSendRef.current = undefined;
 					setSending(false);
 					setHydratingSessionId(undefined);
 					hydratingSessionIdRef.current = undefined;
@@ -1511,7 +1520,7 @@ export default function Chat({
 						}
 						setModel("");
 					}}
-					onSend={({ prompt, attachments, attachmentCount }) => {
+					onSend={async ({ prompt, attachments, attachmentCount }) => {
 						if (isHydrating) {
 							return;
 						}
@@ -1527,6 +1536,10 @@ export default function Chat({
 						]);
 						setSending(true);
 						setStatus("Running...");
+						const acknowledged = new Promise<void>((resolve, reject) => {
+							pendingSendRef.current = (error) =>
+								error ? reject(new Error(error)) : resolve();
+						});
 						postToHost({
 							type: "send",
 							prompt,
@@ -1547,6 +1560,7 @@ export default function Chat({
 								systemPrompt: systemPrompt.trim() || undefined,
 							},
 						});
+						await acknowledged;
 					}}
 					onSystemPromptChange={setSystemPrompt}
 					onReasonLevelChange={(value) => {

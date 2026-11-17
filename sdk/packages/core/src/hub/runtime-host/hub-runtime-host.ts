@@ -918,6 +918,7 @@ export class HubRuntimeHost implements RuntimeHost {
 			input.config.sessionId?.trim() || createSessionId();
 		const sendCreateCommand = () =>
 			this.client.command("session.create", {
+				resumeIfMissing: input.resumeIfMissing,
 				workspaceRoot: input.config.workspaceRoot?.trim() || input.config.cwd,
 				cwd: input.config.cwd,
 				sessionConfig: toJsonRecord(

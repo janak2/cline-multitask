@@ -156,6 +156,7 @@ export interface LocalRuntimeStartOptions {
 }
 
 export interface StartSessionInput {
+	resumeIfMissing?: boolean;
 	config: StartSessionConfig;
 	/** The process/client that starts the session. E.g., "vscode", "cli". */
 	source?: SessionSource;

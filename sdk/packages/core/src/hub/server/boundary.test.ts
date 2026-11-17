@@ -674,6 +674,7 @@ describe("HubServerTransport boundaries", () => {
 			command: "session.create",
 			clientId: "client-1",
 			payload: {
+				resumeIfMissing: true,
 				sessionConfig: {
 					sessionId: "session-boundary",
 					providerId: "cline",
@@ -703,6 +704,7 @@ describe("HubServerTransport boundaries", () => {
 		expect(capturedStartInput?.config.cwd).toBeUndefined();
 		expect(capturedStartInput?.config.workspaceRoot).toBeUndefined();
 		expect(capturedStartInput?.source).toBe("desktop");
+		expect(capturedStartInput?.resumeIfMissing).toBe(true);
 		expect(capturedStartInput?.localRuntime?.extensionContext?.client).toEqual({
 			name: "cline-desktop",
 			version: "0.0.23",

@@ -269,6 +269,7 @@ describe("HubRuntimeHost", () => {
 		const host = new HubRuntimeHost({ url: "ws://127.0.0.1:25463/hub" });
 
 		const started = await host.startSession({
+			resumeIfMissing: true,
 			config: {
 				...createConfig(),
 				agentPluginPaths: ["./portable-plugin"],
@@ -300,6 +301,7 @@ describe("HubRuntimeHost", () => {
 			sessionId: "sess-1",
 		});
 		expect(commandMock).toHaveBeenCalledWith("session.create", {
+			resumeIfMissing: true,
 			workspaceRoot: "/tmp/project",
 			cwd: "/tmp/project",
 			sessionConfig: expect.objectContaining({

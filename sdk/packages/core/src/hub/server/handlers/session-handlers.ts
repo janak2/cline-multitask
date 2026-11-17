@@ -445,6 +445,7 @@ export async function handleSessionCreate(
 			? runtimeOptions.mode
 			: "act");
 	const started = await ctx.sessionHost.startSession({
+		resumeIfMissing: payload.resumeIfMissing === true,
 		source: typeof metadata.source === "string" ? metadata.source : undefined,
 		interactive: metadata.interactive !== false,
 		sessionMetadata:

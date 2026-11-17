@@ -312,6 +312,10 @@ export class LocalRuntimeHost implements RuntimeHost {
 	private readonly connectorsRequest?: ConnectorsRequest;
 	private readonly events = new RuntimeHostEventBus();
 	private readonly sessions = new Map<string, ActiveSession>();
+	private readonly sessionStarts = new Map<
+		string,
+		Promise<StartSessionResult>
+	>();
 	// Serializes manifest read-modify-writes per session; see mutateSessionManifest.
 	private readonly manifestMutationQueues = new Map<string, Promise<void>>();
 	private readonly usageBySession = new Map<string, SessionAccumulatedUsage>();
@@ -508,13 +512,33 @@ export class LocalRuntimeHost implements RuntimeHost {
 	// ── Public API ──────────────────────────────────────────────────────
 
 	async startSession(input: StartSessionInput): Promise<StartSessionResult> {
+		const sessionId = input.config.sessionId?.trim();
+		if (!sessionId) return this.startSessionUnlocked(input);
+		const pending = this.sessionStarts.get(sessionId);
+		if (pending) {
+			if (input.resumeIfMissing) return pending;
+			await pending;
+		}
+		const started = this.startSessionUnlocked(input);
+		this.sessionStarts.set(sessionId, started);
+		try {
+			return await started;
+		} finally {
+			if (this.sessionStarts.get(sessionId) === started)
+				this.sessionStarts.delete(sessionId);
+		}
+	}
+
+	private async startSessionUnlocked(
+		input: StartSessionInput,
+	): Promise<StartSessionResult> {
 		const requestedSessionId = input.config.sessionId?.trim() ?? "";
 		const sessionId = requestedSessionId || createSessionId();
 		// Starting a session that is mid-run must not replace it: the replaced
 		// run keeps going unreachable (no abort, no queue) and its transcript
 		// writes resolve to the replacement's stale snapshot. Reattach instead.
 		const live = this.sessions.get(sessionId);
-		if (live && !live.agent.canStartRun()) {
+		if (live && (input.resumeIfMissing || !live.agent.canStartRun())) {
 			if (input.prompt?.trim()) {
 				throw new Error(
 					`Session ${sessionId} already has a run in progress; queue the prompt instead.`,

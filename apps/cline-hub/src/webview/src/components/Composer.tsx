@@ -349,7 +349,7 @@ export function Composer({
 		prompt: string;
 		attachments?: WebviewChatAttachments;
 		attachmentCount: number;
-	}) => void;
+	}) => Promise<void>;
 	onSystemPromptChange: (value: string) => void;
 	onReasonLevelChange: (value: WebviewReasonLevel) => void;
 	provider: string;
@@ -405,7 +405,7 @@ export function Composer({
 						return;
 					}
 
-					onSend({
+					await onSend({
 						prompt,
 						attachments,
 						attachmentCount: message.files.length,
