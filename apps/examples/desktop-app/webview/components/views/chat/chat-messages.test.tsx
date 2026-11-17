@@ -3062,3 +3062,35 @@ it("loads older history through the transcript button", async () => {
 	await act(async () => button?.click());
 	expect(load).toHaveBeenCalledOnce();
 });
+
+it("renders only the newest rows of a long chat and reveals older ones locally", async () => {
+	const load = vi.fn();
+	const messages: ChatMessage[] = Array.from({ length: 40 }, (_, index) => ({
+		id: `m${index}`,
+		sessionId: "session-1",
+		role: index % 2 === 0 ? "user" : "assistant",
+		content: `message ${index}`,
+		createdAt: index + 1,
+	}));
+	await renderMessages(messages, {
+		hasOlderMessages: true,
+		onLoadOlderMessages: load,
+	});
+	const rowIds = () =>
+		Array.from(container.querySelectorAll<HTMLElement>("[data-message-id]"))
+			.map((row) => row.dataset.messageId)
+			.filter((id) => id?.startsWith("m"));
+	expect(rowIds()).toHaveLength(30);
+	expect(rowIds()[0]).toBe("m10");
+	const button = () =>
+		Array.from(container.querySelectorAll("button")).find(
+			(item) => item.textContent === "Load older messages",
+		);
+	await act(async () => button()?.click());
+	expect(load).not.toHaveBeenCalled();
+	expect(rowIds()).toHaveLength(40);
+	expect(rowIds()[0]).toBe("m0");
+	// Every row is on the page now, so the next click pages the backend.
+	await act(async () => button()?.click());
+	expect(load).toHaveBeenCalledOnce();
+});

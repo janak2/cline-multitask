@@ -121,8 +121,8 @@ export function ChatScrollViewport({
 				? new ResizeObserver(schedule)
 				: null;
 		observer?.observe(viewport);
-		if (viewport.firstElementChild)
-			observer?.observe(viewport.firstElementChild);
+		// The content and, in long chats, the "Load older messages" row above it.
+		for (const child of viewport.children) observer?.observe(child);
 		schedule();
 		return () => {
 			cancelAnimationFrame(frame);

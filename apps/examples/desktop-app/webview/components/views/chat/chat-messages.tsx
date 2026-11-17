@@ -8,7 +8,7 @@ import {
 	MessageScrollerItem,
 } from "@cline/ui/components/message-scroller";
 import { Loader2 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -32,13 +32,18 @@ import type { SessionChangeSet } from "@/lib/session-changes";
 import { sessionKey } from "@/lib/session-identity";
 import type { SessionImportTool } from "@/lib/session-import";
 import { cn } from "@/lib/utils";
-import { ChatScrollProvider, ChatScrollViewport } from "./chat-scroll";
+import {
+	ChatScrollProvider,
+	ChatScrollViewport,
+	chatScrollPositions,
+} from "./chat-scroll";
 import { ChatSelectionToChat } from "./chat-selection-to-chat";
 import { ImportedSessionNotice } from "./imported-session-notice";
 import { STREAMING_TITLE_CLASS } from "./messages/constants";
 import {
 	buildPreviousTimestampMap,
 	buildUserRunCountMap,
+	type ChatRenderItem,
 	createChatRenderItemsCache,
 	getThoughtDurationMilliseconds,
 	isSystemSteeringMessage,
@@ -58,6 +63,23 @@ import { TranscriptOutline } from "./transcript-outline";
 const renderCaches = new ChatCache<
 	ReturnType<typeof createChatRenderItemsCache>
 >();
+
+/** Rows rendered at once, and how many more each "Load older" reveals. */
+const TRANSCRIPT_WINDOW_ROWS = 30;
+
+type TranscriptWindowPin = {
+	/** The pin holds only within the turn it was made in. */
+	lastUserRowKey: string | null;
+	firstRowKey: string;
+};
+
+const transcriptWindowPins = new ChatCache<TranscriptWindowPin>();
+
+function renderItemKey(item: ChatRenderItem): string {
+	if (item.type === "message") return item.message.id;
+	if (item.type === "tools") return `tools_${item.messages[0]?.id ?? "empty"}`;
+	return `work_${item.id}`;
+}
 
 type ChatMessagesProps = {
 	onAddToChat?: (text: string) => void;
@@ -285,6 +307,89 @@ function ChatMessagesImpl({
 			item.type === "message" &&
 			item.message.role === "user" &&
 			!isSystemSteeringMessage(item.message),
+	);
+	// Long chats keep only the newest rows on the page: WebKitGTK restyles
+	// every row on each update, so frame cost grows with the row count.
+	// The window's first row is pinned by key so rows never drop off the top
+	// mid-turn; a new turn moves the window back to the tail.
+	const windowKey = sessionId ? sessionKey({ sessionId, environmentId }) : null;
+	const rowKeys = useMemo(() => renderItems.map(renderItemKey), [renderItems]);
+	const lastUserRowKey =
+		lastUserItemIndex >= 0 ? (rowKeys[lastUserItemIndex] ?? null) : null;
+	const [windowPin, setWindowPin] = useState<
+		(TranscriptWindowPin & { windowKey: string | null }) | null
+	>(null);
+	const pin =
+		windowPin?.windowKey === windowKey
+			? windowPin
+			: // Reopening a chat left scrolled up keeps its earlier rows, so the
+				// saved scroll offset still points at the same content.
+				windowKey &&
+					sessionId &&
+					chatScrollPositions.get(sessionId)?.atEnd === false
+				? transcriptWindowPins.get(windowKey)
+				: undefined;
+	const pinnedIndex =
+		pin && pin.lastUserRowKey === lastUserRowKey
+			? rowKeys.indexOf(pin.firstRowKey)
+			: -1;
+	const windowStart =
+		pinnedIndex >= 0
+			? pinnedIndex
+			: Math.max(0, rowKeys.length - TRANSCRIPT_WINDOW_ROWS);
+	const windowFirstRowKey = rowKeys[windowStart];
+	const pinWindow = useCallback(
+		(firstRowKey: string) => {
+			setWindowPin({ windowKey, lastUserRowKey, firstRowKey });
+			if (windowKey)
+				transcriptWindowPins.set(windowKey, { lastUserRowKey, firstRowKey });
+		},
+		[windowKey, lastUserRowKey],
+	);
+	useEffect(() => {
+		if (
+			windowFirstRowKey === undefined ||
+			(windowPin?.windowKey === windowKey &&
+				windowPin.lastUserRowKey === lastUserRowKey &&
+				windowPin.firstRowKey === windowFirstRowKey)
+		)
+			return;
+		pinWindow(windowFirstRowKey);
+	}, [windowFirstRowKey, windowPin, windowKey, lastUserRowKey, pinWindow]);
+	const visibleRenderItems =
+		windowStart > 0 ? renderItems.slice(windowStart) : renderItems;
+	// Rows fetched by "Load older messages" stay hidden behind the pin until
+	// the load lands; then the window opens one step onto them.
+	const revealAfterLoadRef = useRef<string | null>(null);
+	useEffect(() => {
+		const previousFirstRowKey = revealAfterLoadRef.current;
+		if (!previousFirstRowKey) return;
+		const index = rowKeys.indexOf(previousFirstRowKey);
+		if (index > 0) {
+			revealAfterLoadRef.current = null;
+			pinWindow(rowKeys[Math.max(0, index - TRANSCRIPT_WINDOW_ROWS)]);
+		} else if (!isLoadingOlderMessages) {
+			revealAfterLoadRef.current = null;
+		}
+	}, [rowKeys, isLoadingOlderMessages, pinWindow]);
+	const showOlderRows =
+		windowStart > 0 || (hasOlderMessages && Boolean(onLoadOlderMessages));
+	const loadOlderRows = () => {
+		if (windowStart > 0) {
+			pinWindow(rowKeys[Math.max(0, windowStart - TRANSCRIPT_WINDOW_ROWS)]);
+			return;
+		}
+		revealAfterLoadRef.current = rowKeys[0] ?? null;
+		void onLoadOlderMessages?.();
+	};
+	const revealRow = useCallback(
+		(rowKey: string) => {
+			const index = rowKeys.indexOf(rowKey);
+			if (index < 0 || index >= windowStart) return false;
+			pinWindow(rowKey);
+			return true;
+		},
+		[rowKeys, windowStart, pinWindow],
 	);
 	// Mid-run the thinking indicator's replacement (the next tool or thinking
 	// row) joins the tight run group, so the indicator must sit at that same
@@ -617,6 +722,22 @@ function ChatMessagesImpl({
 						aria-label="Agent conversation"
 						className="h-full min-h-0 min-w-0"
 					>
+						{/* Outside the content so the scroller sees revealed rows as a
+						    prepend and keeps the reader's place. */}
+						{!showIdleDetails && showOlderRows ? (
+							<div className="mx-auto w-full max-w-[calc(var(--breakpoint-lg)+3rem)] pt-6 pl-12 pr-6">
+								<Button
+									className="w-full"
+									variant="ghost"
+									disabled={isLoadingOlderMessages}
+									onClick={loadOlderRows}
+								>
+									{isLoadingOlderMessages
+										? "Loading older messages…"
+										: "Load older messages"}
+								</Button>
+							</div>
+						) : null}
 						<MessageScrollerContent
 							className={cn(
 								"mx-auto w-full min-w-0 max-w-[calc(var(--breakpoint-lg)+3rem)] gap-4",
@@ -630,18 +751,8 @@ function ChatMessagesImpl({
 											<ImportedSessionNotice tool={importedFromTool} />
 										</MessageScrollerItem>
 									) : null}
-									{hasOlderMessages && onLoadOlderMessages ? (
-										<Button
-											variant="ghost"
-											disabled={isLoadingOlderMessages}
-											onClick={() => void onLoadOlderMessages()}
-										>
-											{isLoadingOlderMessages
-												? "Loading older messages…"
-												: "Load older messages"}
-										</Button>
-									) : null}
-									{renderItems.map((item, itemIndex) => {
+									{visibleRenderItems.map((item, visibleIndex) => {
+										const itemIndex = windowStart + visibleIndex;
 										// Working rows — live (`run`) or folded (`work`) — render
 										// through one child renderer so a row keeps its exact look
 										// and position when the run collapses. Those rows keep
@@ -930,7 +1041,7 @@ function ChatMessagesImpl({
 						</MessageScrollerContent>
 					</ChatScrollViewport>
 					<MessageScrollerButton />
-					<TranscriptOutline messages={messages} />
+					<TranscriptOutline messages={messages} revealMessage={revealRow} />
 					{visibleExpandedImage ? (
 						<ChatImageLightbox
 							image={visibleExpandedImage}

@@ -21,21 +21,34 @@ import type { ChatMessage } from "@/lib/chat-schema";
 import { formatChatMessageContent } from "./message-content";
 import { isSystemSteeringMessage } from "./messages/group-messages";
 
-export function TranscriptOutline({ messages }: { messages: ChatMessage[] }) {
+export function TranscriptOutline({
+	messages,
+	revealMessage,
+}: {
+	messages: ChatMessage[];
+	/** Puts a row that is outside the rendered window back on the page;
+	 * returns true when it had to. */
+	revealMessage?: (messageId: string) => boolean;
+}) {
 	const { scrollToMessage } = useMessageScroller();
 	const { currentAnchorId } = useMessageScrollerVisibility();
 	const outlineRef = useRef<HTMLElement>(null);
 	const currentButtonRef = useRef<HTMLButtonElement>(null);
 	const navigateToMessage = useCallback(
 		(messageId: string) => {
-			scrollToMessage(messageId, {
-				align: "start",
-				behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-					? "instant"
-					: "smooth",
-			});
+			const scroll = () =>
+				scrollToMessage(messageId, {
+					align: "start",
+					behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+						.matches
+						? "instant"
+						: "smooth",
+				});
+			// A revealed row only registers with the scroller once it renders.
+			if (revealMessage?.(messageId)) requestAnimationFrame(scroll);
+			else scroll();
 		},
-		[scrollToMessage],
+		[scrollToMessage, revealMessage],
 	);
 	const userMessages = useMemo(
 		() =>
