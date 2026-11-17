@@ -1665,6 +1665,9 @@ export class LocalRuntimeHost implements RuntimeHost {
 			title?: string | null;
 		},
 	): Promise<{ updated: boolean }> {
+		const activeSession = this.sessions.get(sessionId.trim());
+		// A brand-new session has no stored row until its first turn.
+		if (activeSession) await this.ensureSessionPersisted(activeSession);
 		const result = await this.invokeOptionalValue<{
 			updated: boolean;
 			metadata?: SessionManifest["metadata"] | null;
@@ -1676,7 +1679,6 @@ export class LocalRuntimeHost implements RuntimeHost {
 		});
 		const updated = result?.updated === true;
 		const multitask = updates.metadata?.multitask;
-		const activeSession = this.sessions.get(sessionId.trim());
 		if (updated && activeSession && typeof multitask === "boolean") {
 			activeSession.multitask = multitask;
 			activeSession.sessionMetadata = {

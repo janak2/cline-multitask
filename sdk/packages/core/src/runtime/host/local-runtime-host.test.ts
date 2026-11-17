@@ -1604,6 +1604,61 @@ describe("LocalRuntimeHost", () => {
 		expect(sessionService.persistSessionMessages).not.toHaveBeenCalled();
 	});
 
+	it("persists a brand-new empty session before updating its metadata", async () => {
+		const sessionId = "sess-lazy-update";
+		const manifest = createManifest(sessionId);
+		const sessionService = {
+			ensureSessionsDir: vi.fn().mockReturnValue("/tmp/sessions"),
+			createRootSessionWithArtifacts: vi.fn().mockResolvedValue({
+				manifestPath: "/tmp/manifest.json",
+				messagesPath: "/tmp/messages.json",
+				manifest,
+			}),
+			updateSession: vi.fn(async () => ({
+				updated:
+					sessionService.createRootSessionWithArtifacts.mock.calls.length > 0,
+			})),
+			persistSessionMessages: vi.fn(),
+			writeSessionManifest: vi.fn(),
+			listSessions: vi.fn().mockResolvedValue([]),
+			deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+		};
+		const manager = new RuntimeHostUnderTest({
+			distinctId,
+			sessionService: sessionService as never,
+			runtimeBuilder: {
+				build: vi.fn().mockReturnValue({
+					tools: [],
+					teamRuntime: undefined,
+					teamRestoredFromPersistence: false,
+					shutdown: vi.fn(),
+				}),
+			} as never,
+			createAgent: () =>
+				({
+					getMessages: vi.fn().mockReturnValue([]),
+					getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+					getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+					subscribeEvents: vi.fn().mockReturnValue(() => {}),
+					shutdown: vi.fn().mockResolvedValue(undefined),
+				}) as never,
+		});
+
+		await manager.startSession(
+			normalizeStartInput({
+				config: createConfig({ sessionId }),
+				interactive: true,
+			}),
+		);
+
+		await expect(
+			manager.updateSession(sessionId, { metadata: { multitask: true } }),
+		).resolves.toEqual({ updated: true });
+		expect(sessionService.createRootSessionWithArtifacts).toHaveBeenCalledTimes(
+			1,
+		);
+	});
+
 	it("readLiveSessionMessages serves in-memory messages for resident sessions before persistence", async () => {
 		const sessionId = "sess-live-messages";
 		const manifest = createManifest(sessionId);
