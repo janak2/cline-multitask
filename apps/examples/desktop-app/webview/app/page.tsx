@@ -3339,6 +3339,26 @@ function ChatThreadPane({
 			uiPerformance.finishSessionSwitch();
 	}, [status, displayedMessages.length, isAppReady, displayedIsSwitching]);
 
+	// Stable identity keeps the memoized ChatMessages from re-rendering the whole
+	// conversation on every page render.
+	const addFileSelectionToChat = useMemo(
+		() =>
+			isCloudSessionExpired || showingHistoryPreview
+				? undefined
+				: (text: string) => {
+						const draft = promptDrafts.get(threadId)?.text ?? "";
+						setPromptInput(draft ? `${draft}\n\n${text}` : text);
+						requestPromptInputFocus();
+					},
+		[
+			isCloudSessionExpired,
+			showingHistoryPreview,
+			promptDrafts,
+			threadId,
+			setPromptInput,
+		],
+	);
+
 	if (!isAppReady) {
 		return (
 			<div className="cline-chat-selectable flex h-full flex-1 flex-col items-center justify-center gap-3 bg-background text-foreground">
@@ -3442,15 +3462,6 @@ function ChatThreadPane({
 			{chatComposer}
 		</div>
 	);
-
-	const addFileSelectionToChat =
-		isCloudSessionExpired || showingHistoryPreview
-			? undefined
-			: (text: string) => {
-					const draft = promptDrafts.get(threadId)?.text ?? "";
-					setPromptInput(draft ? `${draft}\n\n${text}` : text);
-					requestPromptInputFocus();
-				};
 
 	const cloudConnectUrl =
 		cloudSessionError?.code === "github_not_connected"

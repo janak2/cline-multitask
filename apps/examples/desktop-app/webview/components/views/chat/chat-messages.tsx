@@ -595,6 +595,11 @@ function ChatMessagesImpl({
 		},
 		[onForkSession],
 	);
+	// Stable identity so every MessageBubble is not re-rendered on each render.
+	const requestForkConfirmation = useCallback(
+		(messageId: string) => setForkConfirmation({ messageId, sessionId }),
+		[sessionId],
+	);
 
 	return (
 		<ChatSelectionToChat
@@ -777,10 +782,7 @@ function ChatMessagesImpl({
 													}
 													wasCopied={copiedMessageId === message.id}
 													onForkSession={
-														onForkSession
-															? (messageId) =>
-																	setForkConfirmation({ messageId, sessionId })
-															: undefined
+														onForkSession ? requestForkConfirmation : undefined
 													}
 													forkDisabled={
 														status === "starting" ||
