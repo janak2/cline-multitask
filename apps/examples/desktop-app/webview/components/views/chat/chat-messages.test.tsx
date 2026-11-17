@@ -132,7 +132,50 @@ it("requires confirmation before forking from a message action and lets the user
 	expect(fork).not.toHaveBeenCalled();
 	await act(async () => trigger.click());
 	await act(async () => dialogButton("Fork session").click());
-	expect(fork).toHaveBeenCalledOnce();
+	expect(fork).toHaveBeenCalledExactlyOnceWith("answer");
+});
+
+it("forks the selected older answer rather than the latest answer", async () => {
+	const fork = vi.fn();
+	await renderMessages(
+		[
+			{
+				id: "older",
+				sessionId: "session-1",
+				role: "assistant",
+				content: "Older answer",
+				createdAt: 1,
+			},
+			{
+				id: "user-2",
+				sessionId: "session-1",
+				role: "user",
+				content: "Next question",
+				createdAt: 2,
+			},
+			{
+				id: "latest",
+				sessionId: "session-1",
+				role: "assistant",
+				content: "Latest answer",
+				createdAt: 3,
+			},
+		],
+		{ onForkSession: fork },
+	);
+	const trigger = container.querySelector<HTMLButtonElement>(
+		'[aria-label="Fork session"]',
+	);
+	if (!trigger) throw new Error("Missing fork action");
+	await act(async () => trigger.click());
+	const confirm = [
+		...document.querySelectorAll<HTMLButtonElement>(
+			'[role="alertdialog"] button',
+		),
+	].find((button) => button.textContent === "Fork session");
+	if (!confirm) throw new Error("Missing fork confirmation");
+	await act(async () => confirm.click());
+	expect(fork).toHaveBeenCalledExactlyOnceWith("older");
 });
 
 describe("ChatMessages teammate updates", () => {

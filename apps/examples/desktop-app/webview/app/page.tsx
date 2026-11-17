@@ -2827,10 +2827,13 @@ function ChatThreadPane({
 		[config, onOpenSession, workspaceSessionId],
 	);
 
-	const handleForkSession = useCallback(async () => {
-		const result = await forkSession();
-		openForkedSession(result);
-	}, [forkSession, openForkedSession]);
+	const handleForkSession = useCallback(
+		async (messageId: string) => {
+			const result = await forkSession({ throughMessageId: messageId });
+			openForkedSession(result);
+		},
+		[forkSession, openForkedSession],
+	);
 	const handleFixCredentials = useCallback(
 		(target: "account" | "models") => {
 			if (target === "account") {

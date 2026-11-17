@@ -488,6 +488,75 @@ describe("environment-bound session attach", () => {
 });
 
 describe("session forks", () => {
+	it.each([
+		"older-answer",
+		"older-answer_text_0",
+		"history_message_1_text_0",
+		"missing-answer",
+	])("forks through the selected older message %s without restoring the workspace", async (selectedId) => {
+		const sourceSessionId = "selected-message-fork";
+		const sourceMessages = [
+			{ id: "question", role: "user" as const, content: "First question" },
+			{
+				...(selectedId.startsWith("history_") ? {} : { id: "older-answer" }),
+				role: "assistant" as const,
+				content: "Older answer",
+			},
+			{ id: "question-2", role: "user" as const, content: "Second question" },
+			{
+				id: "latest-answer",
+				role: "assistant" as const,
+				content: "Latest answer",
+			},
+		];
+		const start = vi.fn(async () => ({ sessionId: "selected-fork" }));
+		const restore = vi.fn();
+		const ctx = {
+			liveSessions: new Map([
+				[
+					sourceSessionId,
+					{
+						config: {},
+						messages: sourceMessages,
+						promptsInQueue: [],
+						busy: false,
+						startedAt: Date.now(),
+						status: "completed",
+					},
+				],
+			]),
+			...localRuntimeContext(
+				{
+					get: vi.fn(async () => ({
+						sessionId: sourceSessionId,
+						status: "completed",
+					})),
+					start,
+					restore,
+					readMessages: vi.fn(async () => sourceMessages.slice(0, 2)),
+				},
+				{ sessionIds: [sourceSessionId] },
+			),
+			streamIndices: new Map(),
+			wsClients: new Set(),
+		} as unknown as SidecarContext;
+		const fork = handleChatSessionCommand(ctx, {
+			action: "fork",
+			sessionId: sourceSessionId,
+			forkThroughMessageId: selectedId,
+		});
+		if (selectedId === "missing-answer") {
+			await expect(fork).rejects.toThrow("The selected message was not found");
+			expect(start).not.toHaveBeenCalled();
+			return;
+		}
+		await fork;
+		expect(start).toHaveBeenCalledWith(
+			expect.objectContaining({ initialMessages: sourceMessages.slice(0, 2) }),
+		);
+		expect(restore).not.toHaveBeenCalled();
+	});
+
 	it("restores the selected workspace checkpoint before forking for message editing", async () => {
 		const sourceSessionId = `source-fork-${Date.now()}`;
 		const sourceMessages = [

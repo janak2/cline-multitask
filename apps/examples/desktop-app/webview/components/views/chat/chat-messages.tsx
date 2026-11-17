@@ -94,7 +94,7 @@ type ChatMessagesProps = {
 		content: string,
 		runCount: number,
 	) => void | Promise<void>;
-	onForkSession?: () => void | Promise<void>;
+	onForkSession?: (messageId: string) => void | Promise<void>;
 	startingLabel?: string;
 	isHistoryPreview?: boolean;
 	errorAction?: { label: string; onClick: () => void | Promise<void> };
@@ -582,7 +582,7 @@ function ChatMessagesImpl({
 				return next;
 			});
 			try {
-				await Promise.resolve(onForkSession());
+				await Promise.resolve(onForkSession(messageId));
 			} catch (err) {
 				const message =
 					err instanceof Error ? err.message : "Could not fork session.";

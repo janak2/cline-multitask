@@ -918,6 +918,32 @@ describe("ChatInputBar", () => {
 		expect(localAttach).toHaveBeenCalledWith([text]);
 	});
 
+	it("opens an unfiltered local picker and accepts a selected photo", async () => {
+		const onAttachFiles = vi.fn();
+		await renderVoiceComposer({ onAttachFiles });
+		const input =
+			container.querySelector<HTMLInputElement>('input[type="file"]');
+		if (!input) throw new Error("Missing attachment input");
+		expect(input.hasAttribute("accept")).toBe(false);
+		const click = vi.spyOn(input, "click").mockImplementation(() => {});
+		await act(async () => {
+			container
+				.querySelector<HTMLButtonElement>('[aria-label="Attach files"]')
+				?.click();
+		});
+		expect(click).toHaveBeenCalledOnce();
+		const photo = new File(["jpeg"], "photo.jpg", { type: "image/jpeg" });
+		Object.defineProperty(input, "files", {
+			configurable: true,
+			value: [photo],
+		});
+		await act(async () =>
+			input.dispatchEvent(new Event("change", { bubbles: true })),
+		);
+		expect(onAttachFiles).toHaveBeenCalledExactlyOnceWith([photo]);
+		expect(input.value).toBe("");
+	});
+
 	it("blocks cloud images for a model without vision support", async () => {
 		const onAttachFiles = vi.fn();
 		loadProviderModelCatalogMock.mockResolvedValue({
@@ -3707,7 +3733,7 @@ describe("ChatInputBar", () => {
 			type: "application/octet-stream",
 		});
 		const fileInput = container.querySelector<HTMLInputElement>(
-			'input[type="file"][accept="*/*"]',
+			'input[type="file"]:not([accept])',
 		);
 		if (!fileInput) throw new Error("File input missing");
 		Object.defineProperty(fileInput, "files", {

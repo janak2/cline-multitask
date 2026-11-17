@@ -29,6 +29,7 @@ export type ChatSessionCommandRequest = {
 	promptId?: string;
 	checkpointRunCount?: number;
 	forkBeforeRunCount?: number;
+	forkThroughMessageId?: string;
 	delivery?: "queue" | "steer";
 	config?: JsonRecord;
 	attachments?: ChatTurnAttachments;

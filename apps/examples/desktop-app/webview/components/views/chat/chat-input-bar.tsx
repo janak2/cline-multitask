@@ -1723,7 +1723,7 @@ function ChatInputBarImpl({
 						<Paperclip className="size-3" />
 					</button>
 					<input
-						accept={executionTarget === "cloud" ? "image/*" : "*/*"}
+						accept={executionTarget === "cloud" ? "image/*" : undefined}
 						className="hidden"
 						multiple
 						onChange={(event) => {

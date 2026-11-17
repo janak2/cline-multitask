@@ -444,6 +444,39 @@ afterEach(async () => {
 });
 
 describe("useChatSession", () => {
+	it("sends the selected message boundary when forking an older answer", async () => {
+		await act(async () =>
+			current.hydrateSession({
+				sessionId: "fork-source",
+				environmentId: "local",
+				status: "completed",
+				provider: "cline",
+				model: "test-model",
+				cwd: "/workspace/cline",
+				workspaceRoot: "/workspace/cline",
+				startedAt: "2026-01-01T00:00:00Z",
+			}),
+		);
+		invokeMock.mockImplementation(async (command: string) => {
+			if (command === "chat_session_command")
+				return { sessionId: "selected-fork" };
+			return [];
+		});
+		await act(async () => {
+			await current.forkSession({ throughMessageId: "older-answer_text_0" });
+		});
+		expect(invokeMock).toHaveBeenCalledWith(
+			"chat_session_command",
+			expect.objectContaining({
+				request: expect.objectContaining({
+					action: "fork",
+					sessionId: "fork-source",
+					forkThroughMessageId: "older-answer_text_0",
+				}),
+			}),
+		);
+	});
+
 	it("shows incremental selected child output before completion and ignores stale child events after switching", async () => {
 		vi.useFakeTimers();
 		try {

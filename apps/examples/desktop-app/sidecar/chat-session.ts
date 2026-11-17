@@ -2263,6 +2263,23 @@ async function handleForkUnlocked(
 		forkBeforeRunCount === undefined
 			? sourceMessages
 			: trimMessagesBeforeUserRun(sourceMessages, forkBeforeRunCount);
+	if (request.forkThroughMessageId !== undefined) {
+		const selectedId = request.forkThroughMessageId;
+		const selectedIndex = sourceMessages.findIndex((message, index) => {
+			const baseId = message.id?.trim() || `history_message_${index}`;
+			return (
+				selectedId === baseId ||
+				(selectedId.startsWith(`${baseId}_`) &&
+					/^(text_\d+|reasoning_\d+|tool_use_\d+|tool_result_\d+|image_\d+|media_\d+|images)$/.test(
+						selectedId.slice(baseId.length + 1),
+					))
+			);
+		});
+		if (selectedIndex < 0) {
+			throw new Error("The selected message was not found in the session.");
+		}
+		forkMessages = sourceMessages.slice(0, selectedIndex + 1);
+	}
 	const forkMetadata: JsonRecord = {
 		...(sourceMetadata ?? {}),
 		fork: {
@@ -2271,6 +2288,9 @@ async function handleForkUnlocked(
 			source: sourceSession?.source ?? "desktop",
 			...(forkBeforeRunCount !== undefined
 				? { beforeRunCount: forkBeforeRunCount }
+				: {}),
+			...(request.forkThroughMessageId !== undefined
+				? { throughMessageId: request.forkThroughMessageId }
 				: {}),
 			...checkpointMetadata,
 		},

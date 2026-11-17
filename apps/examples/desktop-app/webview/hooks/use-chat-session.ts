@@ -4493,6 +4493,7 @@ export function useChatSession(environmentId: string) {
 	const forkSession = useCallback(
 		async (options?: {
 			beforeRunCount?: number;
+			throughMessageId?: string;
 		}): Promise<{
 			newSessionId: string;
 			forkedFromSessionId: string;
@@ -4510,6 +4511,7 @@ export function useChatSession(environmentId: string) {
 				sessionId: activeSessionId,
 				config,
 				forkBeforeRunCount: options?.beforeRunCount,
+				forkThroughMessageId: options?.throughMessageId,
 			})) as {
 				sessionId?: string;
 				forkedFromSessionId?: string;
