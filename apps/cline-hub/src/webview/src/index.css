@@ -6,6 +6,26 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@media (max-width: 720px) {
+	html,
+	body,
+	#root {
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.hub-shell {
+		position: fixed;
+		top: var(--hub-viewport-top, 0px);
+		left: 0;
+		width: 100%;
+		height: var(--hub-viewport-height, 100dvh);
+		min-height: 0;
+		overflow: hidden;
+		transform: translateZ(0);
+	}
+}
+
 :root {
 	--font-weight-normal: 480;
 	--font-weight-medium: 560;

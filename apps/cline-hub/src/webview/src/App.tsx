@@ -67,6 +67,7 @@ import { PageFrame, PageHeader } from "./components/views/page-layout";
 import type { CustomizationSection } from "./components/views/settings/extensions-view";
 import type { SettingsSection } from "./components/views/settings/settings-view";
 import { desktopClient } from "./lib/desktop-client";
+import { trackMobileViewport } from "./lib/mobile-viewport";
 import {
 	buildSessionTree,
 	hasRunningDescendant,
@@ -409,6 +410,14 @@ function Shell({
 	// Phones get a round button at the top left instead of the full-width
 	// header; it opens the same navigation as a popup.
 	const [menuOpen, setMenuOpen] = useState(false);
+	useEffect(
+		() =>
+			trackMobileViewport(
+				window.visualViewport,
+				document.documentElement.style,
+			),
+		[],
+	);
 
 	const renderNavButton = (
 		item: (typeof navItems | typeof customizationNavItems)[number],
@@ -437,7 +446,7 @@ function Shell({
 	};
 
 	return (
-		<div className="grid h-screen min-h-screen grid-cols-[14.5rem_minmax(0,1fr)] bg-background text-foreground max-[720px]:grid-cols-1">
+		<div className="hub-shell grid h-screen min-h-screen grid-cols-[14.5rem_minmax(0,1fr)] bg-background text-foreground max-[720px]:grid-cols-1">
 			<button
 				aria-expanded={menuOpen}
 				aria-label="Open navigation"
@@ -456,7 +465,7 @@ function Shell({
 				/>
 			) : null}
 			<aside
-				className={`flex min-h-0 flex-col border-r bg-sidebar p-4 text-sidebar-foreground max-[720px]:fixed max-[720px]:top-14 max-[720px]:left-2 max-[720px]:z-50 max-[720px]:max-h-[calc(100vh-4.5rem)] max-[720px]:w-60 max-[720px]:rounded-xl max-[720px]:border max-[720px]:p-3 max-[720px]:shadow-lg ${
+				className={`flex min-h-0 flex-col border-r bg-sidebar p-4 text-sidebar-foreground max-[720px]:fixed max-[720px]:top-14 max-[720px]:left-2 max-[720px]:z-50 max-[720px]:max-h-[calc(var(--hub-viewport-height,100dvh)-4.5rem)] max-[720px]:w-60 max-[720px]:rounded-xl max-[720px]:border max-[720px]:p-3 max-[720px]:shadow-lg ${
 					menuOpen ? "" : "max-[720px]:hidden"
 				}`}
 			>
