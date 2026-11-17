@@ -278,6 +278,63 @@ describe("AgentSidebar session ID", () => {
 			"session_1794395829750_rzllq",
 		);
 	});
+
+	it.each([
+		{ archived: false, label: "Archive" },
+		{ archived: true, label: "Unarchive" },
+	])("toggles archive from the context menu ($label)", async ({
+		archived,
+		label,
+	}) => {
+		const thread = { ...makeThread("alpha", 1), archived };
+		const history = makeSessionHistory([thread], vi.fn());
+		const setThreadArchived = vi.fn(async () => true);
+		(history as { setThreadArchived: unknown }).setThreadArchived =
+			setThreadArchived;
+		await act(async () => {
+			root.render(
+				<SidebarProvider>
+					<AgentSidebar
+						onHome={vi.fn()}
+						onSettingsSectionChange={vi.fn()}
+						sessionHistory={history}
+						setView={vi.fn()}
+						settingsSection="General"
+						view="chat"
+					/>
+				</SidebarProvider>,
+			);
+		});
+		if (archived) {
+			// Archived rows are hidden by default; turn the filter off first.
+			await click(
+				container.querySelector('[aria-label="Filter sessions"]') as Element,
+			);
+			const hideArchived = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+			].find((candidate) => candidate.textContent === "Hide archived");
+			if (!hideArchived) throw new Error("Missing Hide archived option");
+			await click(hideArchived);
+		}
+		await act(async () => {
+			buttonWithText(thread.title).dispatchEvent(
+				new MouseEvent("contextmenu", {
+					bubbles: true,
+					cancelable: true,
+					button: 2,
+				}),
+			);
+		});
+		const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+			(element) => element.textContent === label,
+		);
+		if (!item) throw new Error(`Missing ${label} menu item`);
+		await click(item);
+		expect(setThreadArchived).toHaveBeenCalledExactlyOnceWith(
+			thread.id,
+			!archived,
+		);
+	});
 });
 
 describe("AgentSidebar collapse", () => {
@@ -884,6 +941,52 @@ describe("AgentSidebar session organization", () => {
 
 		expect(sessionIsVisible("desktop session 1")).toBe(false);
 		expect(sessionIsVisible("cli session 1")).toBe(true);
+	});
+
+	it("hides archived sessions by default and shows them when the filter is off", async () => {
+		const active = makeThread("alpha", 1);
+		const archived = { ...makeThread("alpha", 2), archived: true };
+
+		await act(async () => {
+			root.render(
+				<SidebarProvider>
+					<AgentSidebar
+						activeSessionId={null}
+						onHome={vi.fn()}
+						onSettingsSectionChange={vi.fn()}
+						sessionHistory={makeSessionHistory([active, archived], vi.fn())}
+						setView={vi.fn()}
+						settingsSection="General"
+						view="chat"
+					/>
+				</SidebarProvider>,
+			);
+		});
+
+		expect(sessionIsVisible("alpha session 1")).toBe(true);
+		expect(sessionIsVisible("alpha session 2")).toBe(false);
+
+		await click(
+			container.querySelector('[aria-label="Filter sessions"]') as Element,
+		);
+		const hideArchived = await vi.waitFor(() => {
+			const option = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+			].find((candidate) => candidate.textContent === "Hide archived");
+			expect(option).toBeDefined();
+			return option as HTMLElement;
+		});
+		expect(hideArchived.getAttribute("aria-checked")).toBe("true");
+		await click(hideArchived);
+
+		expect(sessionIsVisible("alpha session 1")).toBe(true);
+		expect(sessionIsVisible("alpha session 2")).toBe(true);
+		expect(
+			sessionRow("alpha session 2").querySelector('[aria-label="Archived"]'),
+		).not.toBeNull();
+		expect(
+			sessionRow("alpha session 1").querySelector('[aria-label="Archived"]'),
+		).toBeNull();
 	});
 
 	it("keeps the loading state until the first history response arrives", async () => {

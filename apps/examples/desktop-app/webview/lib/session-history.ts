@@ -14,6 +14,8 @@ export type SessionMetadata = {
 	 * state so every client reading the session sees the same flag.
 	 */
 	pinned?: boolean;
+	/** Archived sessions keep their data but are hidden from the sidebar by default. */
+	archived?: boolean;
 	git?: {
 		url?: string;
 		branch?: string;
@@ -42,6 +44,7 @@ export interface SessionScheduleInfo {
 }
 
 export const PINNED_METADATA_KEY = "pinned";
+export const ARCHIVED_METADATA_KEY = "archived";
 
 export interface SessionHistoryItem {
 	sessionId: string;
@@ -132,6 +135,12 @@ export function getSessionMetadataTitle(metadata?: SessionMetadata): string {
 
 export function getSessionMetadataPinned(metadata?: SessionMetadata): boolean {
 	return metadata?.[PINNED_METADATA_KEY] === true;
+}
+
+export function getSessionMetadataArchived(
+	metadata?: SessionMetadata,
+): boolean {
+	return metadata?.[ARCHIVED_METADATA_KEY] === true;
 }
 
 export function getSessionMetadataIsScheduled(

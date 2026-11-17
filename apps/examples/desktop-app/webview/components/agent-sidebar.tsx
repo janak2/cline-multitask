@@ -7,6 +7,8 @@ import {
 } from "@cline/ui";
 
 import {
+	Archive,
+	ArchiveRestore,
 	ArrowLeft,
 	ArrowRight,
 	Blocks,
@@ -70,6 +72,7 @@ import {
 } from "@/components/ui/context-menu";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
@@ -381,6 +384,7 @@ export function AgentSidebar({
 		openThread: openHistoryThread,
 		pendingAction,
 		renameThread,
+		setThreadArchived,
 		setThreadPinned,
 		threads,
 		unreadSessionIds,
@@ -388,6 +392,7 @@ export function AgentSidebar({
 	const activeThread = activeSessionId ?? "";
 	const [filter, setFilter] = useState<FilterOption>("All");
 	const [sourceFilter, setSourceFilter] = useState(ALL_SESSION_SOURCES);
+	const [hideArchived, setHideArchived] = useState(true);
 	const [sortMode, setSortMode] = useState<SidebarSortMode>("time");
 	// Read after mount: the page is pre-rendered with the default, so reading
 	// localStorage during the first render would mismatch the server HTML.
@@ -474,12 +479,15 @@ export function AgentSidebar({
 
 	const sourceOptions = useMemo(() => getSessionSources(threads), [threads]);
 	const filteredThreads = useMemo(() => {
-		const filtered = filterSessionsBySource(threads, sourceFilter);
+		const bySource = filterSessionsBySource(threads, sourceFilter);
+		const filtered = hideArchived
+			? bySource.filter((t) => !t.archived)
+			: bySource;
 		if (filter === "Running") {
 			return filtered.filter((t) => t.status === "running");
 		}
 		return filtered;
-	}, [filter, sourceFilter, threads]);
+	}, [filter, hideArchived, sourceFilter, threads]);
 	const closeMobileSidebar = useCallback(() => {
 		if (isMobile) setOpenMobile(false);
 	}, [isMobile, setOpenMobile]);
@@ -551,6 +559,13 @@ export function AgentSidebar({
 			await setThreadPinned(thread.id, !thread.pinned);
 		},
 		[setThreadPinned],
+	);
+
+	const toggleArchived = useCallback(
+		async (thread: Thread) => {
+			await setThreadArchived(thread.id, !thread.archived);
+		},
+		[setThreadArchived],
 	);
 
 	const requestDeleteThread = useCallback((thread: Thread) => {
@@ -744,6 +759,18 @@ export function AgentSidebar({
 						</DropdownMenuRadioGroup>
 					</>
 				) : null}
+				<DropdownMenuSeparator />
+				<DropdownMenuCheckboxItem
+					checked={hideArchived}
+					onCheckedChange={(checked) => {
+						setHideArchived(checked === true);
+						setShowMoreCount(INITIAL_VISIBLE_THREAD_COUNT);
+						setScheduledVisibleCount(INITIAL_VISIBLE_THREAD_COUNT);
+						setProjectVisibleCounts({});
+					}}
+				>
+					Hide archived
+				</DropdownMenuCheckboxItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -796,6 +823,7 @@ export function AgentSidebar({
 			onFork={() => setForkConfirmThread(thread)}
 			onRename={() => startRenameThread(thread)}
 			onTogglePin={() => void togglePinned(thread)}
+			onToggleArchive={() => void toggleArchived(thread)}
 			pendingAction={
 				pendingAction?.sessionId === thread.id ? pendingAction.action : null
 			}
@@ -1615,6 +1643,7 @@ function ThreadItem({
 	onEditTitleChange,
 	onRename,
 	onTogglePin,
+	onToggleArchive,
 	onFork,
 	onDelete,
 	pendingAction,
@@ -1636,6 +1665,7 @@ function ThreadItem({
 	onEditTitleChange: (title: string) => void;
 	onRename: () => void;
 	onTogglePin: () => void;
+	onToggleArchive: () => void;
 	onFork: () => void;
 	onDelete: () => void;
 	pendingAction: "rename" | "fork" | "delete" | null;
@@ -1704,6 +1734,12 @@ function ThreadItem({
 											className="size-3 shrink-0 text-muted-foreground"
 										/>
 									) : null}
+									{thread.archived ? (
+										<Archive
+											aria-label="Archived"
+											className="size-3 shrink-0 text-muted-foreground"
+										/>
+									) : null}
 								</>
 							}
 							pinnedIndicator={
@@ -1747,11 +1783,14 @@ function ThreadItem({
 			</HoverCard>
 			<SessionContextMenuContent
 				allowPin={thread.origin !== "cloud"}
+				allowArchive={thread.origin !== "cloud"}
 				allowFork={thread.origin !== "cloud"}
+				archived={Boolean(thread.archived)}
 				onDelete={onDelete}
 				onFork={onFork}
 				onRename={onRename}
 				onTogglePin={onTogglePin}
+				onToggleArchive={onToggleArchive}
 				pendingAction={pendingAction}
 				pinned={Boolean(thread.pinned)}
 				sessionId={thread.sessionId}
@@ -1846,21 +1885,27 @@ function EditableSessionTitle({
 
 function SessionContextMenuContent({
 	allowPin,
+	allowArchive,
 	allowFork,
+	archived,
 	pinned,
 	sessionId,
 	onRename,
 	onTogglePin,
+	onToggleArchive,
 	onFork,
 	onDelete,
 	pendingAction,
 }: {
 	allowPin: boolean;
+	allowArchive: boolean;
 	allowFork: boolean;
+	archived: boolean;
 	pinned: boolean;
 	sessionId?: string;
 	onRename: () => void;
 	onTogglePin: () => void;
+	onToggleArchive: () => void;
 	onFork: () => void;
 	onDelete: () => void;
 	pendingAction: "rename" | "fork" | "delete" | null;
@@ -1872,6 +1917,16 @@ function SessionContextMenuContent({
 				<ContextMenuItem disabled={pending} onSelect={onTogglePin}>
 					<Pin className={cn("size-4", pinned && "fill-current")} />
 					{pinned ? "Unpin" : "Pin"}
+				</ContextMenuItem>
+			) : null}
+			{allowArchive ? (
+				<ContextMenuItem disabled={pending} onSelect={onToggleArchive}>
+					{archived ? (
+						<ArchiveRestore className="size-4" />
+					) : (
+						<Archive className="size-4" />
+					)}
+					{archived ? "Unarchive" : "Archive"}
 				</ContextMenuItem>
 			) : null}
 			<ContextMenuItem disabled={pending} onSelect={onRename}>

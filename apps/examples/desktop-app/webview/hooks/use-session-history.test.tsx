@@ -1609,3 +1609,66 @@ describe("useSessionHistory background hydration", () => {
 		expect(hydratedSessionIds).not.toContain("ses-cloud");
 	});
 });
+
+describe("useSessionHistory archive", () => {
+	async function mount(metadata?: Record<string, unknown>) {
+		await act(async () => root.render(<HookHarness />));
+		await flush();
+		await act(async () =>
+			pendingLists[0].resolve([{ ...sessionRow("chat"), metadata }]),
+		);
+	}
+
+	it("reads the archived flag from session metadata", async () => {
+		await mount({ archived: true });
+		expect(current.threads[0].archived).toBe(true);
+	});
+
+	it("saves archive and unarchive as a metadata flag", async () => {
+		await mount();
+		const id = sessionKey({ sessionId: "chat" });
+		expect(current.threads[0].archived).toBe(false);
+
+		let saved: boolean | undefined;
+		await act(async () => {
+			saved = await current.setThreadArchived(id, true);
+		});
+		expect(saved).toBe(true);
+		expect(current.threads[0].archived).toBe(true);
+		expect(invokeMock).toHaveBeenCalledWith("update_chat_session_metadata", {
+			environmentId: "local",
+			sessionId: "chat",
+			metadata: { archived: true },
+		});
+
+		await act(async () => {
+			await current.setThreadArchived(id, false);
+		});
+		expect(current.threads[0].archived).toBe(false);
+		expect(invokeMock).toHaveBeenLastCalledWith(
+			"update_chat_session_metadata",
+			{
+				environmentId: "local",
+				sessionId: "chat",
+				metadata: { archived: null },
+			},
+		);
+	});
+
+	it("rolls the row back when saving the archive flag fails", async () => {
+		await mount();
+		const id = sessionKey({ sessionId: "chat" });
+		invokeMock.mockImplementation(async (command: string) => {
+			if (command === "update_chat_session_metadata") {
+				throw new Error("disk full");
+			}
+			return [];
+		});
+		let saved: boolean | undefined;
+		await act(async () => {
+			saved = await current.setThreadArchived(id, true);
+		});
+		expect(saved).toBe(false);
+		expect(current.threads[0].archived).toBe(false);
+	});
+});

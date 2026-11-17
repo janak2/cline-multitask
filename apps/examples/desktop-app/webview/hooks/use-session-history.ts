@@ -25,6 +25,8 @@ import type {
 	SessionMetadata,
 } from "@/lib/session-history";
 import {
+	ARCHIVED_METADATA_KEY,
+	getSessionMetadataArchived,
 	getSessionMetadataGitBranch,
 	getSessionMetadataIsScheduled,
 	getSessionMetadataPinned,
@@ -59,6 +61,7 @@ export interface SessionThread {
 	totalCostUsd?: number;
 	status: SessionHistoryStatus;
 	pinned?: boolean;
+	archived?: boolean;
 	isScheduled: boolean;
 	/** Raw start timestamp; the sidebar labels un-numbered scheduled runs with it. */
 	startedAt?: string;
@@ -309,6 +312,7 @@ function toThread(session: SessionHistoryItem): SessionThread {
 		gitBranch: getSessionMetadataGitBranch(session.metadata) || undefined,
 		status: normalizeDiscoveredStatus(session.status, session.prompt),
 		pinned: getSessionMetadataPinned(session.metadata),
+		archived: getSessionMetadataArchived(session.metadata),
 		isScheduled: getSessionMetadataIsScheduled(session.metadata),
 		startedAt: session.startedAt?.trim() || undefined,
 		scheduleId: schedule.scheduleId,
@@ -433,6 +437,8 @@ function areSessionsEquivalent(
 				getSessionMetadataTitle(b.metadata) ||
 			getSessionMetadataPinned(a.metadata) !==
 				getSessionMetadataPinned(b.metadata) ||
+			getSessionMetadataArchived(a.metadata) !==
+				getSessionMetadataArchived(b.metadata) ||
 			a.metadata?.provisioningPhase !== b.metadata?.provisioningPhase ||
 			!areScheduleInfosEqual(
 				getSessionMetadataSchedule(a.metadata),
@@ -477,6 +483,7 @@ function areThreadsEquivalent(
 			a.totalCostUsd !== b.totalCostUsd ||
 			a.status !== b.status ||
 			a.pinned !== b.pinned ||
+			a.archived !== b.archived ||
 			a.isScheduled !== b.isScheduled ||
 			a.startedAt !== b.startedAt ||
 			a.scheduleId !== b.scheduleId ||
@@ -1665,12 +1672,20 @@ export function useSessionHistory({
 		[getSessionByThreadId, onUpdateSessionMetadata, pendingAction],
 	);
 
-	const setThreadPinned = useCallback(
-		async (threadId: string, pinned: boolean) => {
-			const applyPinned = (next: boolean) => {
+	// Pin and archive are boolean flags in session metadata, set with a single
+	// click, so apply them locally first and roll back if the write fails
+	// rather than blocking the row on a round trip.
+	const setThreadFlag = useCallback(
+		async (
+			threadId: string,
+			flag: typeof PINNED_METADATA_KEY | typeof ARCHIVED_METADATA_KEY,
+			value: boolean,
+			failureTitle: string,
+		) => {
+			const applyFlag = (next: boolean) => {
 				setThreads((current) =>
 					updateThreadById(current, threadId, (thread) =>
-						thread.pinned === next ? thread : { ...thread, pinned: next },
+						thread[flag] === next ? thread : { ...thread, [flag]: next },
 					),
 				);
 				setSessions((current) =>
@@ -1678,15 +1693,13 @@ export function useSessionHistory({
 						...session,
 						metadata: {
 							...(session.metadata ?? {}),
-							[PINNED_METADATA_KEY]: next || undefined,
+							[flag]: next || undefined,
 						},
 					})),
 				);
 			};
 
-			// Pinning is a single click, so apply it locally first and roll back
-			// if the write fails rather than blocking the row on a round trip.
-			applyPinned(pinned);
+			applyFlag(value);
 			try {
 				const sourceSession = getSessionByThreadId(threadId);
 				if (!sourceSession) return false;
@@ -1694,23 +1707,23 @@ export function useSessionHistory({
 					environmentId:
 						sourceSession?.environmentId ?? LOCAL_WORKSPACE_ENVIRONMENT_ID,
 					sessionId: sourceSession?.sessionId,
-					metadata: { [PINNED_METADATA_KEY]: pinned ? true : null },
+					metadata: { [flag]: value ? true : null },
 				});
 				onUpdateSessionMetadata?.(
 					sourceSession.sessionId,
 					{
 						...(sourceSession?.metadata ?? {}),
-						[PINNED_METADATA_KEY]: pinned || undefined,
+						[flag]: value || undefined,
 					},
 					sourceSession.environmentId,
 				);
 				scheduleRefresh(HISTORY_FAST_REFRESH_DELAY_MS);
 				return true;
 			} catch (error) {
-				applyPinned(!pinned);
+				applyFlag(!value);
 				toast({
 					variant: "destructive",
-					title: pinned ? "Pin failed" : "Unpin failed",
+					title: failureTitle,
 					description:
 						error instanceof Error
 							? error.message
@@ -1720,6 +1733,28 @@ export function useSessionHistory({
 			}
 		},
 		[getSessionByThreadId, onUpdateSessionMetadata, scheduleRefresh],
+	);
+
+	const setThreadPinned = useCallback(
+		(threadId: string, pinned: boolean) =>
+			setThreadFlag(
+				threadId,
+				PINNED_METADATA_KEY,
+				pinned,
+				pinned ? "Pin failed" : "Unpin failed",
+			),
+		[setThreadFlag],
+	);
+
+	const setThreadArchived = useCallback(
+		(threadId: string, archived: boolean) =>
+			setThreadFlag(
+				threadId,
+				ARCHIVED_METADATA_KEY,
+				archived,
+				archived ? "Archive failed" : "Unarchive failed",
+			),
+		[setThreadFlag],
 	);
 
 	const forkThread = useCallback(
@@ -1965,6 +2000,7 @@ export function useSessionHistory({
 		renameThread,
 		requestUsage,
 		setThreadPinned,
+		setThreadArchived,
 		deleteThread,
 		forkThread,
 		sessionById,
