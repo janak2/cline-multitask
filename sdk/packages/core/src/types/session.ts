@@ -120,6 +120,10 @@ export interface PersistedSessionUpdateInput {
 	parentAgentId?: string | null;
 	agentId?: string | null;
 	conversationId?: string | null;
+	/** The provider the session now runs on (it can change mid-chat). */
+	provider?: string;
+	/** The model the session now runs on. */
+	model?: string;
 	setRunning?: boolean;
 }
 

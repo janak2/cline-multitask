@@ -227,6 +227,23 @@ export class UnifiedSessionPersistenceService {
 		return { updated: result.updated };
 	}
 
+	/**
+	 * Record the provider/model a session now runs on in its stored row, which
+	 * feeds the session list. The manifest is updated by the runtime host.
+	 */
+	async updateSessionConnectionInfo(
+		sessionId: string,
+		connection: { provider?: string; model?: string },
+	): Promise<{ updated: boolean }> {
+		if (!connection.provider && !connection.model) return { updated: false };
+		const result = await this.adapter.updateSession({
+			sessionId,
+			...(connection.provider ? { provider: connection.provider } : {}),
+			...(connection.model ? { model: connection.model } : {}),
+		});
+		return { updated: result.updated };
+	}
+
 	async updateSession(input: {
 		sessionId: string;
 		prompt?: string | null;

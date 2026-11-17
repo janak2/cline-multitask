@@ -196,6 +196,8 @@ class FileSessionPersistenceAdapter implements SessionPersistenceAdapter {
 				input.conversationId !== undefined
 					? (input.conversationId ?? null)
 					: (existing.conversationId ?? null),
+			provider: input.provider ?? existing.provider,
+			model: input.model ?? existing.model,
 			statusLock: nextStatusLock,
 			isSubagent:
 				input.setRunning || input.parentSessionId !== undefined

@@ -889,6 +889,7 @@ describe("LocalRuntimeHost", () => {
 			persistSessionMessages: vi.fn(),
 			updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
 			writeSessionManifest: vi.fn(),
+			updateSessionConnectionInfo: vi.fn().mockResolvedValue({ updated: true }),
 			listSessions: vi.fn().mockResolvedValue([]),
 			deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
 		};
@@ -951,10 +952,17 @@ describe("LocalRuntimeHost", () => {
 				title: "renamed session",
 			}),
 		);
+		// The session list reads the stored row, so it must change too.
+		expect(sessionService.updateSessionConnectionInfo).toHaveBeenCalledWith(
+			sessionId,
+			{ provider: "openai", model: "codex-test" },
+		);
 
 		sessionService.writeSessionManifest.mockClear();
+		sessionService.updateSessionConnectionInfo.mockClear();
 		await manager.updateSessionConnection(sessionId, { thinking: true });
 		expect(sessionService.writeSessionManifest).not.toHaveBeenCalled();
+		expect(sessionService.updateSessionConnectionInfo).not.toHaveBeenCalled();
 	});
 
 	it("persists thinking budget token connection updates", async () => {
@@ -5489,6 +5497,99 @@ describe("LocalRuntimeHost", () => {
 			join(sessionsDir, sessionId, `${sessionId}.json`),
 			expect.objectContaining({ pid: process.pid }),
 		);
+	});
+
+	it("records a switched provider when a session restarts under its own id", async () => {
+		// A provider switch restarts the chat under the same id with its
+		// history; the resumed header still names the old provider.
+		const runResume = async (providerId: string, modelId: string) => {
+			const sessionId = `sess-resume-provider-${providerId}`;
+			const sessionsDir = join(isolatedHomeDir, "sessions");
+			const manifest = {
+				...createManifest(sessionId),
+				status: "idle" as const,
+				interactive: true,
+			};
+			const updateSessionConnectionInfo = vi
+				.fn()
+				.mockResolvedValue({ updated: true });
+			const writeSessionManifest = vi.fn();
+			const sessionService = {
+				ensureSessionsDir: vi.fn().mockReturnValue(sessionsDir),
+				readSessionManifest: vi.fn().mockReturnValue(manifest),
+				createRootSessionWithArtifacts: vi.fn(),
+				persistSessionMessages: vi.fn(),
+				updateSessionStatus: vi.fn().mockResolvedValue({ updated: true }),
+				updateSession: vi.fn().mockResolvedValue({ updated: true }),
+				updateSessionPid: vi.fn().mockResolvedValue({ updated: true }),
+				updateSessionConnectionInfo,
+				writeSessionManifest,
+				listSessions: vi.fn().mockResolvedValue([]),
+				deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
+			};
+			const initialMessages: MessageWithMetadata[] = [
+				{ role: "user", content: "first prompt" },
+				{ role: "assistant", content: "first answer" },
+			];
+			const manager = new RuntimeHostUnderTest({
+				distinctId,
+				sessionService: sessionService as never,
+				runtimeBuilder: {
+					build: vi.fn().mockReturnValue({
+						tools: [],
+						registerLeadAgent: vi.fn(),
+						shutdown: vi.fn(),
+					}),
+				},
+				createAgent: () =>
+					({
+						run: vi.fn(),
+						continue: vi.fn(),
+						abort: vi.fn(),
+						subscribeEvents: vi.fn().mockReturnValue(() => {}),
+						canStartRun: vi.fn().mockReturnValue(true),
+						getAgentId: vi.fn().mockReturnValue("agent-root-1"),
+						getConversationId: vi.fn().mockReturnValue("conv-root-1"),
+						shutdown: vi.fn().mockResolvedValue(undefined),
+						getMessages: vi.fn().mockReturnValue(initialMessages),
+						messages: initialMessages,
+					}) as never,
+			});
+			await manager.startSession({
+				config: {
+					...createConfig({ sessionId }),
+					providerId,
+					modelId,
+					cwd: undefined,
+				},
+				interactive: true,
+				initialMessages,
+			});
+			return {
+				sessionId,
+				sessionsDir,
+				updateSessionConnectionInfo,
+				writeSessionManifest,
+			};
+		};
+
+		const switched = await runResume("claude-code", "sonnet");
+		expect(switched.updateSessionConnectionInfo).toHaveBeenCalledWith(
+			switched.sessionId,
+			{ provider: "claude-code", model: "sonnet" },
+		);
+		expect(switched.writeSessionManifest).toHaveBeenCalledWith(
+			join(
+				switched.sessionsDir,
+				switched.sessionId,
+				`${switched.sessionId}.json`,
+			),
+			expect.objectContaining({ provider: "claude-code", model: "sonnet" }),
+		);
+
+		// Same provider and model: nothing to rewrite.
+		const unchanged = await runResume("mock-provider", "mock-model");
+		expect(unchanged.updateSessionConnectionInfo).not.toHaveBeenCalled();
 	});
 
 	it("restores full persisted aggregate usage when child message artifacts are missing", async () => {

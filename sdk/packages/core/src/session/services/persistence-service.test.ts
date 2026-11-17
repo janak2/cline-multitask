@@ -874,6 +874,57 @@ describe("UnifiedSessionPersistenceService", () => {
 		expect(manifest.metadata).toMatchObject({ title: "first user message" });
 	});
 
+	it("shows a switched provider and model in the file-backed session list", async () => {
+		const sessionsDir = mkdtempSync(
+			join(tmpdir(), "connection-file-sessions-"),
+		);
+		tempDirs.push(sessionsDir);
+		const service = new FileSessionService(sessionsDir);
+		await createRootSession(service, "file-connection-session", "hello");
+
+		await expect(
+			service.updateSessionConnectionInfo("file-connection-session", {
+				provider: "claude-code",
+				model: "sonnet",
+			}),
+		).resolves.toEqual({ updated: true });
+
+		const [row] = await new FileSessionService(sessionsDir).listSessions(10);
+		expect(row).toMatchObject({ provider: "claude-code", model: "sonnet" });
+	});
+
+	sqliteIt(
+		"shows a switched provider and model in the SQLite session list",
+		async () => {
+			const dbDir = mkdtempSync(join(tmpdir(), "connection-db-"));
+			const sessionsDir = mkdtempSync(join(tmpdir(), "connection-sessions-"));
+			tempDirs.push(dbDir, sessionsDir);
+			const store = new SqliteSessionStore({ sessionsDir: dbDir });
+			stores.push(store);
+			const service = new CoreSessionService(store, {
+				sessionArtifactsDir: sessionsDir,
+			});
+			await createRootSession(service, "sqlite-connection-session", "hello");
+
+			// Model only: the provider must be left as it was.
+			await service.updateSessionConnectionInfo("sqlite-connection-session", {
+				model: "claude-opus-4-6",
+			});
+			let [row] = await service.listSessions(10);
+			expect(row).toMatchObject({
+				provider: "anthropic",
+				model: "claude-opus-4-6",
+			});
+
+			await service.updateSessionConnectionInfo("sqlite-connection-session", {
+				provider: "claude-code",
+				model: "sonnet",
+			});
+			[row] = await service.listSessions(10);
+			expect(row).toMatchObject({ provider: "claude-code", model: "sonnet" });
+		},
+	);
+
 	it("derives a title from a prompt only when the session has no title yet", async () => {
 		const sessionsDir = mkdtempSync(join(tmpdir(), "empty-title-sessions-"));
 		tempDirs.push(sessionsDir);

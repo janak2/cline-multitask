@@ -1204,6 +1204,18 @@ export class LocalRuntimeHost implements RuntimeHost {
 					manifest.pid = process.pid;
 				});
 			}
+			// The resumed header keeps the provider/model the chat last ran on;
+			// a restart under the same id may have switched either.
+			const providerChanged =
+				resumedArtifacts.manifest.provider !== active.config.providerId;
+			const modelChanged =
+				resumedArtifacts.manifest.model !== active.config.modelId;
+			if (providerChanged || modelChanged) {
+				await this.syncPersistedConnection(active, {
+					provider: active.config.providerId,
+					model: active.config.modelId,
+				});
+			}
 			await this.refreshActiveSessionGitMetadata(active, bootstrap.gitState);
 		}
 		// Sessions seeded with history (mode-switch restarts, forks, missing-
@@ -2061,11 +2073,34 @@ export class LocalRuntimeHost implements RuntimeHost {
 		// Keep the persisted manifest in sync so session history reflects the
 		// connection the session is now using, not the one it started with.
 		if (updates.providerId || updates.modelId) {
-			await this.mutateSessionManifest(session, (manifest) => {
-				if (updates.providerId) manifest.provider = updates.providerId;
-				if (updates.modelId) manifest.model = updates.modelId;
+			await this.syncPersistedConnection(session, {
+				provider: updates.providerId,
+				model: updates.modelId,
 			});
 		}
+	}
+
+	/**
+	 * Write a session's current provider/model to both its manifest and its
+	 * stored row. The session list reads the row, so updating only the
+	 * manifest made a mid-chat provider switch revert on the next restart.
+	 * Sessions not yet persisted need nothing: their first persist writes
+	 * the current config.
+	 */
+	private async syncPersistedConnection(
+		session: ActiveSession,
+		connection: { provider?: string; model?: string },
+	): Promise<void> {
+		if (!session.artifacts) return;
+		await this.mutateSessionManifest(session, (manifest) => {
+			if (connection.provider) manifest.provider = connection.provider;
+			if (connection.model) manifest.model = connection.model;
+		});
+		await this.invokeOptional(
+			"updateSessionConnectionInfo",
+			session.sessionId,
+			connection,
+		);
 	}
 
 	/**

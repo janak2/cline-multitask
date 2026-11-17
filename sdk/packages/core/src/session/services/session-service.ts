@@ -188,6 +188,14 @@ class LocalSessionPersistenceAdapter implements SessionPersistenceAdapter {
 			fields.push("conversation_id = ?");
 			params.push(input.conversationId ?? null);
 		}
+		if (input.provider !== undefined) {
+			fields.push("provider = ?");
+			params.push(input.provider);
+		}
+		if (input.model !== undefined) {
+			fields.push("model = ?");
+			params.push(input.model);
+		}
 		if (fields.length === 0) {
 			const row = await this.getSession(input.sessionId);
 			return { updated: !!row, statusLock: row?.statusLock ?? 0 };
