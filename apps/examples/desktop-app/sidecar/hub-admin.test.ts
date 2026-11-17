@@ -13,7 +13,13 @@ vi.mock("@cline/core", () => ({
 	requestHubShutdown: mocks.shutdown,
 }));
 
-import { getHubStatus, recordHubActivity, restartHub } from "./hub-admin";
+import {
+	getHubStatus,
+	getLocalHubUrl,
+	recordHubActivity,
+	restartHub,
+	stopLocalHub,
+} from "./hub-admin";
 
 const ctx = { localWorkspaceRoot: "/workspace" } as SidecarContext;
 const command = vi.fn();
@@ -130,5 +136,40 @@ describe("hub administration", () => {
 			error: { message: "Disconnected" },
 		});
 		await expect(getHubStatus(ctx, client)).rejects.toThrow("Disconnected");
+	});
+});
+
+describe("stopping the Hub on quit", () => {
+	it("reads only the local Hub URL, never a remote one", () => {
+		const remoteClient = {
+			getUrl: () => "ws://remote:9999",
+		} as unknown as NodeHubClient;
+		const context = {
+			runtimeBindings: new Map([
+				["ssh-box", { hubClient: remoteClient }],
+				["local", { hubClient: client }],
+			]),
+		} as unknown as SidecarContext;
+		expect(getLocalHubUrl(context)).toBe("ws://127.0.0.1:1234");
+		const remoteOnly = {
+			runtimeBindings: new Map([["ssh-box", { hubClient: remoteClient }]]),
+		} as unknown as SidecarContext;
+		expect(getLocalHubUrl(remoteOnly)).toBeUndefined();
+	});
+
+	it("asks that Hub to shut down and never throws", async () => {
+		const error = vi.fn();
+		const context = {
+			logger: { log: vi.fn(), error },
+		} as unknown as SidecarContext;
+		await stopLocalHub(context, "ws://127.0.0.1:1234");
+		expect(mocks.shutdown).toHaveBeenCalledWith("ws://127.0.0.1:1234");
+		expect(error).not.toHaveBeenCalled();
+
+		mocks.shutdown.mockRejectedValueOnce(new Error("connection refused"));
+		await expect(
+			stopLocalHub(context, "ws://127.0.0.1:1234"),
+		).resolves.toBeUndefined();
+		expect(error).toHaveBeenCalledTimes(1);
 	});
 });

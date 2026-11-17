@@ -25,6 +25,7 @@ import {
 	disposeSidecarContext,
 	initializeSessionManager,
 } from "./context";
+import { getLocalHubUrl, stopLocalHub } from "./hub-admin";
 import { HubStartup } from "./hub-startup";
 import { createDesktopObservability } from "./observability";
 import { resolveWorkspaceRoot } from "./paths";
@@ -133,16 +134,27 @@ async function main(desktopCliPath?: string) {
 
 	let shuttingDown = false;
 	let handlingFatalError = false;
-	const shutdown = async (reason = "code_sidecar_shutdown"): Promise<void> => {
+	const shutdown = async (
+		reason = "code_sidecar_shutdown",
+		options: { stopHub?: boolean } = {},
+	): Promise<void> => {
 		if (shuttingDown) {
 			return;
 		}
 		shuttingDown = true;
-		observability.logger.log("Desktop sidecar shutting down", { reason });
+		observability.logger.log("Desktop sidecar shutting down", {
+			reason,
+			stopHub: options.stopHub === true,
+		});
+		// Captured first: disposing the context drops the Hub binding.
+		const hubUrl = options.stopHub ? getLocalHubUrl(ctx) : undefined;
 		await withTimeout(
 			(async () => {
 				try {
 					await disposeSidecarContext(ctx, reason);
+					// After the context detaches its sessions, so they are saved
+					// before the Hub goes away.
+					if (hubUrl) await stopLocalHub(ctx, hubUrl);
 				} finally {
 					await observability.dispose();
 				}
@@ -151,14 +163,18 @@ async function main(desktopCliPath?: string) {
 		);
 	};
 
-	const shutdownAndExit = (signal: string): void => {
-		void shutdown(`code_sidecar_${signal.toLowerCase()}`).finally(() => {
-			process.exit(signal === "SIGINT" ? 130 : 143);
-		});
+	const shutdownAndExit = (signal: string, stopHub = false): void => {
+		void shutdown(`code_sidecar_${signal.toLowerCase()}`, { stopHub }).finally(
+			() => {
+				process.exit(signal === "SIGINT" ? 130 : 143);
+			},
+		);
 	};
 
 	process.once("SIGINT", () => shutdownAndExit("SIGINT"));
 	process.once("SIGTERM", () => shutdownAndExit("SIGTERM"));
+	// The tray's Quit sends SIGUSR2: quit the app and stop the local Hub too.
+	process.once("SIGUSR2", () => shutdownAndExit("SIGUSR2", true));
 	const handleFatalError = (kind: string, error: unknown): void => {
 		if (handlingFatalError) {
 			process.exit(1);

@@ -345,11 +345,28 @@ struct DesktopBackendState {
     ws_endpoint: Mutex<Option<String>>,
     process: Mutex<Option<Child>>,
     shutting_down: AtomicBool,
+    /// Set by the tray's Quit: the sidecar also stops the local Hub on exit.
+    stop_hub_on_exit: AtomicBool,
+}
+
+/// Signal for the sidecar on exit. SIGUSR2 asks it to stop the local Hub
+/// after its usual graceful shutdown; SIGTERM leaves the Hub running.
+#[cfg(unix)]
+fn sidecar_exit_signal(stop_hub: bool) -> &'static str {
+    if stop_hub {
+        "-USR2"
+    } else {
+        "-TERM"
+    }
 }
 
 impl DesktopBackendState {
     fn is_shutting_down(&self) -> bool {
         self.shutting_down.load(AtomicOrdering::Acquire)
+    }
+
+    fn request_hub_stop_on_exit(&self) {
+        self.stop_hub_on_exit.store(true, AtomicOrdering::Release);
     }
 
     fn stop(&self) {
@@ -360,11 +377,18 @@ impl DesktopBackendState {
                 // Quit runs this on the main thread (on macOS inside
                 // applicationWillTerminate:, where blocking beach-balls the
                 // app), so signal the sidecar and return without waiting.
-                // SIGTERM triggers its own bounded graceful shutdown
+                // SIGTERM (or SIGUSR2, which also stops the local Hub)
+                // triggers its own bounded graceful shutdown
                 // (SHUTDOWN_TIMEOUT_MS in sidecar/index.ts), after which it
                 // exits itself, finishing session persistence as an orphan.
                 #[cfg(unix)]
-                let _ = Command::new("kill").arg(child.id().to_string()).status();
+                {
+                    let stop_hub = self.stop_hub_on_exit.load(AtomicOrdering::Acquire);
+                    let _ = Command::new("kill")
+                        .arg(sidecar_exit_signal(stop_hub))
+                        .arg(child.id().to_string())
+                        .status();
+                }
                 // Windows has no SIGTERM equivalent, so terminate outright.
                 // Reap the child too: TerminateProcess is quick, and the
                 // update-restart path needs the bundled CLI's file lock
@@ -1542,7 +1566,10 @@ fn setup_tray_icon(
         TRAY_NEW_SESSION_MENU_ID => queue_desktop_action(app, DesktopAction::NewSession),
         TRAY_SETTINGS_MENU_ID => queue_desktop_action(app, DesktopAction::OpenSettings),
         CHECK_FOR_UPDATES_MENU_ID => handle_check_for_updates_menu(app),
-        TRAY_QUIT_MENU_ID => app.exit(0),
+        TRAY_QUIT_MENU_ID => {
+            app.state::<Arc<DesktopBackendState>>().request_hub_stop_on_exit();
+            app.exit(0);
+        }
         _ => {}
     })
     .build(app)?;
@@ -1988,6 +2015,60 @@ mod tests {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| e.to_string())
+    }
+
+    /// Records which exit signal the backend sends, and checks that the tray
+    /// Quit flag picks SIGUSR2 (stop the Hub) instead of SIGTERM.
+    fn stop_signal_received(stop_hub: bool) -> String {
+        let marker = std::env::temp_dir().join(format!(
+            "cline-sidecar-signal-{}-{}",
+            std::process::id(),
+            stop_hub
+        ));
+        let _ = std::fs::remove_file(&marker);
+        let script = format!(
+            "trap 'echo USR2 > {m}; exit 0' USR2; trap 'echo TERM > {m}; exit 0' TERM; echo ready; while :; do sleep 0.05; done",
+            m = marker.display()
+        );
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("stand-in sidecar should spawn");
+        // Wait until the traps are installed before signalling.
+        let mut ready = String::new();
+        BufReader::new(child.stdout.take().expect("stdout"))
+            .read_line(&mut ready)
+            .expect("ready line");
+        let state = Arc::new(DesktopBackendState::default());
+        if stop_hub {
+            state.request_hub_stop_on_exit();
+        }
+        *state.process.lock().expect("process lock") = Some(child);
+        state.stop();
+        for _ in 0..100 {
+            if let Ok(text) = std::fs::read_to_string(&marker) {
+                if !text.trim().is_empty() {
+                    let _ = std::fs::remove_file(&marker);
+                    return text.trim().to_string();
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        panic!("stand-in sidecar never received a signal");
+    }
+
+    #[test]
+    fn tray_quit_asks_the_sidecar_to_stop_the_hub() {
+        assert_eq!(stop_signal_received(true), "USR2");
+    }
+
+    #[test]
+    fn other_exits_leave_the_hub_running() {
+        assert_eq!(stop_signal_received(false), "TERM");
     }
 
     #[test]

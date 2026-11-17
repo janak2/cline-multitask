@@ -6,7 +6,7 @@ import {
 } from "@cline/core";
 import type { HubClientRecord } from "@cline/shared";
 import type { HubActivity, HubStatus } from "../webview/lib/hub-status";
-import type { SidecarContext } from "./types";
+import { LOCAL_ENVIRONMENT_ID, type SidecarContext } from "./types";
 
 const activity = new WeakMap<SidecarContext, HubActivity[]>();
 let nextId = 0;
@@ -114,4 +114,36 @@ export function restartHub(
 		restartPending = undefined;
 	});
 	return restartPending;
+}
+
+/**
+ * URL of the local Hub this app is attached to. Read it before shutdown
+ * disposes the runtime bindings. Remote (SSH) Hubs are never included.
+ */
+export function getLocalHubUrl(ctx: SidecarContext): string | undefined {
+	return ctx.runtimeBindings.get(LOCAL_ENVIRONMENT_ID)?.hubClient.getUrl();
+}
+
+/**
+ * Ask the local Hub to shut down, used when the user quits the app from the
+ * tray. The next app launch starts a fresh Hub through `hub ensure`.
+ */
+export async function stopLocalHub(
+	ctx: SidecarContext,
+	url: string,
+): Promise<void> {
+	try {
+		if (await requestHubShutdown(url)) {
+			ctx.logger?.log("Local Hub stopped on quit", { url });
+			return;
+		}
+		ctx.logger?.error?.("Local Hub rejected the quit shutdown request", {
+			url,
+		});
+	} catch (error) {
+		ctx.logger?.error?.("Failed to stop the local Hub on quit", {
+			url,
+			error,
+		});
+	}
 }
