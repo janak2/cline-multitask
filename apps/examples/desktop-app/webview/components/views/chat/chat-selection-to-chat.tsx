@@ -71,7 +71,7 @@ export function ChatSelectionToChat({
 		};
 	}, [onAddToChat]);
 	return (
-		<div ref={content} className="h-full min-h-0 min-w-0">
+		<div ref={content} className="cline-chat-selectable h-full min-h-0 min-w-0">
 			{children}
 			{selected &&
 				onAddToChat &&

@@ -944,7 +944,7 @@ function ChatMessagesImpl({
 							if (!open) setForkConfirmation(null);
 						}}
 					>
-						<AlertDialogContent>
+						<AlertDialogContent className="cline-chat-selectable">
 							<AlertDialogHeader>
 								<AlertDialogTitle>Fork session?</AlertDialogTitle>
 								<AlertDialogDescription>
@@ -975,7 +975,7 @@ function ChatMessagesImpl({
 							}
 						}}
 					>
-						<AlertDialogContent>
+						<AlertDialogContent className="cline-chat-selectable">
 							<AlertDialogHeader>
 								<AlertDialogTitle>Revert to this checkpoint?</AlertDialogTitle>
 								<AlertDialogDescription>
@@ -1011,7 +1011,7 @@ function ChatMessagesImpl({
 							}
 						}}
 					>
-						<AlertDialogContent>
+						<AlertDialogContent className="cline-chat-selectable">
 							<AlertDialogHeader>
 								<AlertDialogTitle>Edit and restart from here?</AlertDialogTitle>
 								<AlertDialogDescription>

@@ -33,7 +33,7 @@ export function TokenUsageRing({
 					</PopoverTrigger>
 					<PopoverContent
 						align="end"
-						className="w-80 p-0"
+						className="cline-chat-selectable w-80 p-0"
 						id="token-usage-panel"
 						side="top"
 						sideOffset={8}

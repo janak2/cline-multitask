@@ -3337,7 +3337,7 @@ function ChatThreadPane({
 
 	if (!isAppReady) {
 		return (
-			<div className="flex h-full flex-1 flex-col items-center justify-center gap-3 bg-background text-foreground">
+			<div className="cline-chat-selectable flex h-full flex-1 flex-col items-center justify-center gap-3 bg-background text-foreground">
 				<div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
 				<p className="text-sm text-muted-foreground">
 					{chatTransportState === "unavailable"
@@ -3458,10 +3458,10 @@ function ChatThreadPane({
 						? // The panel is placed explicitly in column 2 spanning both
 							// rows, so the transcript and composer (or the welcome
 							// screen) auto-flow into column 1.
-							"grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+							"cline-chat-selectable grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
 						: isWelcomeState
-							? "grid h-full min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
-							: "grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+							? "cline-chat-selectable grid h-full min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
+							: "cline-chat-selectable grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
 				}
 				disabled={isCloudSessionExpired || showingHistoryPreview}
 				description={
@@ -3719,7 +3719,7 @@ function ChatThreadPane({
 					setDeleteConfirmOpen(open);
 				}}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="cline-chat-selectable">
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete Session?</AlertDialogTitle>
 						<AlertDialogDescription>

@@ -1812,7 +1812,7 @@ function ChatInputBarImpl({
 						onOpenChange={setConfirmMultitaskOff}
 						open={confirmMultitaskOff}
 					>
-						<AlertDialogContent>
+						<AlertDialogContent className="cline-chat-selectable">
 							<AlertDialogHeader>
 								<AlertDialogTitle>Turn off Multitask?</AlertDialogTitle>
 								<AlertDialogDescription>

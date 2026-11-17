@@ -27,7 +27,7 @@ export function UxVerificationMessage({ message }: { message: ChatMessage }) {
 				}}
 			>
 				<DialogContent
-					className="sm:max-w-5xl"
+					className="cline-chat-selectable sm:max-w-5xl"
 					onKeyDown={(event) => event.stopPropagation()}
 					onCloseAutoFocus={(event) => {
 						event.preventDefault();

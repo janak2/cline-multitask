@@ -207,6 +207,7 @@ it("downloads the report screenshot from the carousel and expanded viewer", asyn
 	await act(async () => expand.click());
 	await revealImages();
 	let dialog = document.querySelector('[role="dialog"]')!;
+	expect(dialog.classList.contains("cline-chat-selectable")).toBe(true);
 	expect(dialog.textContent).toContain("Menu opens");
 	expect(dialog.textContent).toContain("The navigation menu is visible");
 	expect(dialog.querySelector("img")?.src).toContain(

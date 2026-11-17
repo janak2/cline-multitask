@@ -128,6 +128,11 @@ it("requires confirmation before forking from a message action and lets the user
 	expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
 		"Fork session?",
 	);
+	expect(
+		document
+			.querySelector('[role="alertdialog"]')
+			?.classList.contains("cline-chat-selectable"),
+	).toBe(true);
 	await act(async () => dialogButton("Cancel").click());
 	expect(fork).not.toHaveBeenCalled();
 	await act(async () => trigger.click());

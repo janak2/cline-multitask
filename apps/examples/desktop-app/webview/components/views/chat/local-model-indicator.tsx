@@ -152,7 +152,7 @@ export function LocalModelIndicator({
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="flex w-80 flex-col gap-3 p-4"
+				className="cline-chat-selectable flex w-80 flex-col gap-3 p-4"
 				side="top"
 				sideOffset={8}
 			>

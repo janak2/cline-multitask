@@ -53,6 +53,18 @@
 		user-select: text;
 	}
 
+	.cline-chat-selectable
+		:where(
+			button,
+			[role="button"],
+			[role="menuitem"],
+			[role="option"],
+			[role="slider"]
+		) {
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
 	/* Selectable content surfaces: chat message bodies (incl. markdown and
 	 * code blocks), reasoning/tool panels, settings, and diff text. */
 	.cline-chat-message-content,

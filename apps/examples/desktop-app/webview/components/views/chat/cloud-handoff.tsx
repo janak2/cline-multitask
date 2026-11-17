@@ -35,7 +35,7 @@ export function CloudHandoffGitConfirmation({
 				if (!open) onDecision(false);
 			}}
 		>
-			<AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+			<AlertDialogContent className="cline-chat-selectable max-h-[calc(100dvh-2rem)] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>Continue in cloud?</AlertDialogTitle>
 					<AlertDialogDescription>

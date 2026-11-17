@@ -125,7 +125,7 @@ export function RemoteDirectoryPicker({
 
 	return (
 		<Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
-			<DialogContent className="gap-4 sm:max-w-xl">
+			<DialogContent className="cline-chat-selectable gap-4 sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>Choose remote workspace</DialogTitle>
 					<DialogDescription>

@@ -2126,7 +2126,7 @@ export function ProjectFilesPanel({
 				}}
 				open={pendingDiscard.length > 0}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="cline-chat-selectable">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							{pendingDiscard.length === 1
@@ -2156,7 +2156,10 @@ export function ProjectFilesPanel({
 				}}
 				open={nameDialog !== null}
 			>
-				<DialogContent aria-describedby={undefined} className="sm:max-w-sm">
+				<DialogContent
+					aria-describedby={undefined}
+					className="cline-chat-selectable sm:max-w-sm"
+				>
 					<form
 						className="grid gap-4"
 						onSubmit={(event) => {
@@ -2205,7 +2208,7 @@ export function ProjectFilesPanel({
 				}}
 				open={pendingDelete !== null}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="cline-chat-selectable">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							Delete {baseName(pendingDelete ?? "")}?
@@ -2232,7 +2235,7 @@ export function ProjectFilesPanel({
 				}}
 				open={pendingUpload !== null}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="cline-chat-selectable">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							{pendingUpload?.conflicts.length === 1
@@ -2268,7 +2271,7 @@ export function ProjectFilesPanel({
 				}}
 				open={pendingRemoveFolder !== null}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="cline-chat-selectable">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							Remove {baseName(pendingRemoveFolder ?? "")} from the file tree?
