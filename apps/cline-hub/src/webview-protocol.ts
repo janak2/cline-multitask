@@ -27,6 +27,15 @@ export type WebviewProviderModel = Pick<
 
 export type WebviewProviderCatalogItem = ProviderListItem;
 
+/** A provider's chat permission-mode control (e.g. Claude Code permissions). */
+export type WebviewProviderPermissionMode = {
+	path: string;
+	label: string;
+	description?: string;
+	options: Array<{ label: string; value: string }>;
+	value?: string;
+};
+
 /** A desktop app terminal tab's text, shown read-only in the Hub. */
 export type WebviewTerminalSnapshot = {
 	id: string;
@@ -287,6 +296,11 @@ export type WebviewInboundMessage =
 			apiKey?: string;
 			baseUrl?: string;
 	  }
+	| {
+			type: "setProviderPermissionMode";
+			providerId: string;
+			value: string;
+	  }
 	| { type: "runProviderOAuthLogin"; providerId: string }
 	| { type: "attachSession"; sessionId: string }
 	| { type: "deleteSession"; sessionId: string }
@@ -351,7 +365,9 @@ export type WebviewOutboundMessage =
 	| {
 			type: "providers";
 			providers: Array<
-				Pick<ProviderListItem, "defaultModelId" | "enabled" | "id" | "name">
+				Pick<ProviderListItem, "defaultModelId" | "enabled" | "id" | "name"> & {
+					permissionMode?: WebviewProviderPermissionMode;
+				}
 			>;
 	  }
 	| {

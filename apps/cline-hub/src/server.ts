@@ -29,6 +29,7 @@ import {
 	loadModels,
 	runProviderOAuthLogin,
 	saveProviderSettings,
+	setProviderPermissionMode,
 	sendProviderCatalog,
 } from "./server/providers";
 import {
@@ -190,6 +191,8 @@ export async function startClineHubDashboardServer(): Promise<ClineHubDashboardS
 						await sendProviderCatalog(ctx, peer);
 					} else if (frame.type === "saveProviderSettings") {
 						await saveProviderSettings(ctx, peer, frame);
+					} else if (frame.type === "setProviderPermissionMode") {
+						await setProviderPermissionMode(ctx, peer, frame);
 					} else if (frame.type === "runProviderOAuthLogin") {
 						await runProviderOAuthLogin(ctx, peer, frame.providerId);
 					} else if (frame.type === "attachSession") {

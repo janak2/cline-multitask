@@ -5,6 +5,7 @@ import {
 	PaperclipIcon,
 	PlayIcon,
 	Settings2Icon,
+	ShieldIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -310,6 +311,7 @@ export function Composer({
 	onEnableTeamsChange,
 	onEnableToolsChange,
 	onModeChange,
+	onPermissionModeChange,
 	onMaxIterationsChange,
 	onModelChange,
 	onModelSelectorOpenChange,
@@ -341,6 +343,7 @@ export function Composer({
 	onEnableTeamsChange: (value: boolean) => void;
 	onEnableToolsChange: (value: boolean) => void;
 	onModeChange: (value: "act" | "plan") => void;
+	onPermissionModeChange: (value: string) => void;
 	onMaxIterationsChange: (value: string) => void;
 	onModelChange: (value: string) => void;
 	onModelSelectorOpenChange: (value: boolean) => void;
@@ -368,6 +371,9 @@ export function Composer({
 	const activeReasonLevel: WebviewReasonLevel = thinkingSupported
 		? reasonLevel
 		: "none";
+	const permissionMode = providers.find(
+		(item) => item.id === provider,
+	)?.permissionMode;
 
 	return (
 		<div className="border-t bg-background">
@@ -500,6 +506,34 @@ export function Composer({
 									))}
 								</select>
 							</label>
+							{permissionMode ? (
+								<label
+									className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+									title={permissionMode.description}
+								>
+									<ShieldIcon className="size-3" />
+									<select
+										aria-label={permissionMode.label}
+										className="h-7 max-w-32 rounded-md border bg-background px-1.5 text-xs text-foreground disabled:opacity-50"
+										disabled={disabled || sending}
+										onChange={(event) =>
+											onPermissionModeChange(event.target.value)
+										}
+										value={permissionMode.value ?? ""}
+									>
+										{permissionMode.value === undefined ? (
+											<option disabled value="">
+												{permissionMode.label}
+											</option>
+										) : null}
+										{permissionMode.options.map((item) => (
+											<option key={item.value} value={item.value}>
+												{item.label}
+											</option>
+										))}
+									</select>
+								</label>
+							) : null}
 							<PromptInputButton
 								disabled={disabled}
 								onClick={() => onModeChange(mode === "act" ? "plan" : "act")}

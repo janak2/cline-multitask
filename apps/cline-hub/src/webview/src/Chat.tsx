@@ -1504,6 +1504,24 @@ export default function Chat({
 					onEnableTeamsChange={setEnableTeams}
 					onEnableToolsChange={setEnableTools}
 					onModeChange={setMode}
+					onPermissionModeChange={(value) => {
+						if (!provider) return;
+						setProviders((current) =>
+							current.map((item) =>
+								item.id === provider && item.permissionMode
+									? {
+											...item,
+											permissionMode: { ...item.permissionMode, value },
+										}
+									: item,
+							),
+						);
+						postToHost({
+							type: "setProviderPermissionMode",
+							providerId: provider,
+							value,
+						});
+					}}
 					onMaxIterationsChange={setMaxIterations}
 					onModelChange={setModel}
 					onModelSelectorOpenChange={setModelSelectorOpen}
